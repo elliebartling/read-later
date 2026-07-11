@@ -1,0 +1,27 @@
+{
+  "manifest_version": 3,
+  "name": "Read Later",
+  "version": "0.1.0",
+  "description": "Save the current page to your Read Later library.",
+  "icons": {
+    "48": "images/icon-48.png",
+    "96": "images/icon-96.png",
+    "128": "images/icon-128.png"
+  },
+  "action": {
+    "default_title": "Save to Read Later",
+    "default_popup": "popup.html",
+    "default_icon": {
+      "48": "images/icon-48.png",
+      "96": "images/icon-96.png"
+    }
+  },
+  "background": {
+    "service_worker": "background.js"
+  },
+  "permissions": [
+    "activeTab",
+    "nativeMessaging",
+    "storage"
+  ]
+}

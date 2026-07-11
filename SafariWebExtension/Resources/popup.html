@@ -1,0 +1,37 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <title>Save to Read Later</title>
+  <style>
+    body {
+      font: -apple-system-body;
+      margin: 0;
+      padding: 16px 18px;
+      width: 240px;
+      color: #111;
+      background: #fff;
+    }
+    @media (prefers-color-scheme: dark) {
+      body { color: #eee; background: #1c1c1e; }
+    }
+    button {
+      width: 100%;
+      padding: 10px 12px;
+      font-size: 15px;
+      border-radius: 10px;
+      border: none;
+      background: #007aff;
+      color: white;
+      cursor: pointer;
+    }
+    button:disabled { opacity: 0.5; }
+    p#status { margin: 12px 0 0; font-size: 12px; color: #666; }
+  </style>
+</head>
+<body>
+  <button id="save">Save this page</button>
+  <p id="status"></p>
+  <script src="popup.js"></script>
+</body>
+</html>
