@@ -20,10 +20,6 @@ struct RootView: View {
             SearchView()
                 .tabItem { Label("Search", systemImage: "magnifyingglass") }
                 .tag(AppModel.Tab.search)
-
-            SettingsView()
-                .tabItem { Label("Settings", systemImage: "gearshape") }
-                .tag(AppModel.Tab.settings)
         }
         .task {
             seedSettingsIfNeeded()

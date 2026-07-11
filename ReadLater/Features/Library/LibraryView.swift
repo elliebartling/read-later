@@ -6,21 +6,13 @@ struct LibraryView: View {
     @Environment(AppModel.self) private var appModel
     @Query(sort: \Article.savedAt, order: .reverse) private var articles: [Article]
     @State private var showingAddSheet = false
-    @State private var searchText = ""
+    @State private var showingSettings = false
     @State private var path = NavigationPath()
-
-    private var filtered: [Article] {
-        guard !searchText.isEmpty else { return articles }
-        let q = searchText.lowercased()
-        return articles.filter {
-            $0.title.lowercased().contains(q) || ($0.author ?? "").lowercased().contains(q)
-        }
-    }
 
     var body: some View {
         NavigationStack(path: $path) {
             List {
-                if filtered.isEmpty {
+                if articles.isEmpty {
                     ContentUnavailableView(
                         "No articles yet",
                         systemImage: "books.vertical",
@@ -28,10 +20,13 @@ struct LibraryView: View {
                     )
                     .listRowSeparator(.hidden)
                 }
-                ForEach(filtered) { article in
-                    NavigationLink(value: article) {
+                ForEach(articles) { article in
+                    ZStack {
+                        NavigationLink(value: article) { EmptyView() }.opacity(0)
                         ArticleRow(article: article)
                     }
+                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
+                    .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) { delete(article) } label: {
                             Label("Delete", systemImage: "trash")
@@ -47,9 +42,13 @@ struct LibraryView: View {
                 }
             }
             .listStyle(.plain)
-            .searchable(text: $searchText, placement: .navigationBarDrawer(displayMode: .automatic))
             .navigationTitle("Library")
             .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { showingSettings = true } label: {
+                        Image(systemName: "gearshape")
+                    }
+                }
                 ToolbarItem(placement: .topBarTrailing) {
                     Button { showingAddSheet = true } label: {
                         Image(systemName: "plus")
@@ -61,6 +60,9 @@ struct LibraryView: View {
             }
             .sheet(isPresented: $showingAddSheet) {
                 AddArticleSheet()
+            }
+            .sheet(isPresented: $showingSettings) {
+                SettingsView()
             }
         }
         .task(id: appModel.pendingArticleToOpen) {
