@@ -11,9 +11,9 @@ options:
 settings:
   base:
     SWIFT_VERSION: "5.10"
-    DEVELOPMENT_TEAM: "" # fill in for signing
+    DEVELOPMENT_TEAM: "RLQ5M29933"
     MARKETING_VERSION: "0.1.0"
-    CURRENT_PROJECT_VERSION: "1"
+    CURRENT_PROJECT_VERSION: "2"
     IPHONEOS_DEPLOYMENT_TARGET: "17.0"
     ENABLE_USER_SCRIPT_SANDBOXING: NO
     SWIFT_STRICT_CONCURRENCY: minimal
@@ -44,6 +44,7 @@ targets:
         CFBundleDisplayName: Read Later
         CFBundleShortVersionString: $(MARKETING_VERSION)
         CFBundleVersion: $(CURRENT_PROJECT_VERSION)
+        ITSAppUsesNonExemptEncryption: false
         LSApplicationCategoryType: public.app-category.productivity
         UILaunchScreen: {}
         UIBackgroundModes:
