@@ -32,8 +32,12 @@ Pods/
 Config/Local.xcconfig
 .env
 .env.local
+.claude/settings.local.json
 
 # Editors
 .vscode/
 .idea/
 *.swp
+
+# Brainstorm / agent scratch
+.superpowers/
