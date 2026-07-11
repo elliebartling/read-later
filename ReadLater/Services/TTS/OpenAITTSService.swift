@@ -65,7 +65,7 @@ final class OpenAITTSService: NSObject, SpeechService {
     func play(paragraphs: [String], voice: String, startAt: Int = 0) async {
         stop()
         guard let key = KeychainStore.get(account: KeychainStore.Account.openAI), !key.isEmpty else {
-            delegate?.speechService(self, didFinish: false)
+            delegate?.speechService(self, didFinish: false, errorMessage: ServiceError.noAPIKey.description)
             return
         }
         _ = key // just gating on presence
@@ -118,7 +118,8 @@ final class OpenAITTSService: NSObject, SpeechService {
                     data = try await self.synthesize(text: text)
                 } catch {
                     NSLog("OpenAI TTS synth failed on paragraph %d: %@", idx, String(describing: error))
-                    self.delegate?.speechService(self, didFinish: false)
+                    let message = (error as? ServiceError)?.description ?? error.localizedDescription
+                    self.delegate?.speechService(self, didFinish: false, errorMessage: message)
                     self.stop()
                     return
                 }
@@ -145,7 +146,7 @@ final class OpenAITTSService: NSObject, SpeechService {
             guard isRunning else { return }
             currentIndex += 1
             if currentIndex >= paragraphs.count {
-                delegate?.speechService(self, didFinish: true)
+                delegate?.speechService(self, didFinish: true, errorMessage: nil)
                 stop()
                 return
             }

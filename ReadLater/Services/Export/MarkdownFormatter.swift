@@ -1,10 +1,19 @@
 import Foundation
 
-/// Renders an Article + its highlights as a single Obsidian-friendly markdown
-/// note. Frontmatter first, then highlights as blockquotes, then a metadata
-/// footer. Idempotent — writing the same article + highlight set produces the
-/// same file bytes so a downstream file watcher doesn't churn.
+/// Renders an Article + its highlights as Obsidian-friendly markdown.
+///
+/// Export uses a MANAGED SECTION: the app only ever rewrites the region
+/// between `%% readlater:start %%` and `%% readlater:end %%` (Obsidian
+/// comment syntax — invisible in preview). Anything the user writes outside
+/// the markers survives every export. Frontmatter is written once, on file
+/// creation, and never touched again.
+///
+/// Rendering is deterministic — same article + highlight set produces the same
+/// bytes — so repeated exports don't churn file watchers.
 enum MarkdownFormatter {
+
+    static let managedSectionStart = "%% readlater:start %%"
+    static let managedSectionEnd = "%% readlater:end %%"
 
     struct RenderInput {
         let article: Article
@@ -23,39 +32,67 @@ enum MarkdownFormatter {
         "\(slug(for: article)).md"
     }
 
+    /// Full contents for a NEW file: frontmatter + managed section.
     static func render(_ input: RenderInput) -> String {
-        var out = ""
-        out.append(frontmatter(for: input.article))
-        out.append("\n\n# \(escapeMarkdown(input.article.title))\n\n")
+        frontmatter(for: input.article) + "\n\n" + managedSection(input) + "\n"
+    }
+
+    /// Merges a fresh managed section into an EXISTING file, replacing only
+    /// the marker-delimited region. If the markers are missing (user deleted
+    /// them, or the file predates this format), the section is appended to the
+    /// end — never overwriting anything.
+    static func merge(existing: String, input: RenderInput) -> String {
+        let section = managedSection(input)
+        guard let startRange = existing.range(of: managedSectionStart),
+              let endRange = existing.range(of: managedSectionEnd),
+              startRange.lowerBound < endRange.upperBound
+        else {
+            let trimmed = existing.hasSuffix("\n") ? existing : existing + "\n"
+            return trimmed + "\n" + section + "\n"
+        }
+        return existing.replacingCharacters(in: startRange.lowerBound..<endRange.upperBound, with: section)
+    }
+
+    /// The marker-delimited block: title, byline, link, highlights.
+    static func managedSection(_ input: RenderInput) -> String {
+        var out = managedSectionStart + "\n"
+        out.append("# \(escapeMarkdown(input.article.title))\n\n")
         if let author = input.article.author {
             out.append("*by \(author)*\n\n")
         }
-        out.append("[Original link](\(input.article.url.absoluteString))\n\n")
+        if let url = input.article.url {
+            out.append("[Original link](\(url.absoluteString))\n\n")
+        }
         if !input.highlights.isEmpty {
             out.append("## Highlights\n\n")
             let sorted = input.highlights.sorted { $0.startOffset < $1.startOffset }
             for h in sorted {
-                let colorTag = "[[color::\(h.color.rawValue)]]"
-                out.append("> \(escapeBlockquote(h.quotedText)) \(colorTag)\n")
+                // Dataview inline-field form. NOT [[color::x]] — double
+                // brackets create a wikilink node in the user's graph.
+                let colorField = "(color:: \(h.color.rawValue))"
+                out.append("> \(escapeBlockquote(h.quotedText)) \(colorField)\n")
                 if let note = h.note, !note.isEmpty {
                     out.append(">\n> **Note:** \(escapeBlockquote(note))\n")
                 }
                 out.append("\n")
             }
         }
+        out.append(managedSectionEnd)
         return out
     }
 
     private static func frontmatter(for article: Article) -> String {
         var lines: [String] = ["---"]
         lines.append("title: \(yamlString(article.title))")
-        lines.append("url: \(yamlString(article.url.absoluteString))")
+        if let url = article.url {
+            lines.append("url: \(yamlString(url.absoluteString))")
+        }
         if let a = article.author { lines.append("author: \(yamlString(a))") }
         if let s = article.siteName { lines.append("site: \(yamlString(s))") }
         lines.append("savedAt: \(ISO8601DateFormatter.iso8601.string(from: article.savedAt))")
-        if let r = article.readAt { lines.append("readAt: \(ISO8601DateFormatter.iso8601.string(from: r))") }
-        if !article.tags.isEmpty {
-            let list = article.tags.map { "\"\($0.name)\"" }.joined(separator: ", ")
+        let tags = article.allTags
+        if !tags.isEmpty {
+            let list = tags.map { "\"\($0.name)\"" }.joined(separator: ", ")
             lines.append("tags: [\(list)]")
         }
         lines.append("source: read-later")

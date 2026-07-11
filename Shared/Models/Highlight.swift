@@ -1,19 +1,22 @@
 import Foundation
 import SwiftData
 
+// CloudKit rules apply: attributes optional or defaulted, relationships optional.
 @Model
 final class Highlight {
-    var id: UUID
+    var id: UUID = UUID()
     var article: Article?
-    /// Character offset into Article.plainText where the highlight starts.
-    var startOffset: Int
-    /// Character offset into Article.plainText where the highlight ends (exclusive).
-    var endOffset: Int
+    /// UTF-16 offset into Article.plainText where the highlight starts.
+    /// UTF-16 (not Character) because offsets originate from
+    /// UITextView.selectedRange, which is an NSRange.
+    var startOffset: Int = 0
+    /// UTF-16 offset into Article.plainText where the highlight ends (exclusive).
+    var endOffset: Int = 0
     /// Verbatim selected text — used as a fuzzy re-anchor if plainText shifts (re-parse).
-    var quotedText: String
-    var colorRaw: String
+    var quotedText: String = ""
+    var colorRaw: String = HighlightColor.yellow.rawValue
     var note: String?
-    var createdAt: Date
+    var createdAt: Date = Date.now
     /// Last successful write to the export destination (Obsidian folder). Nil = never exported.
     var exportedAt: Date?
 

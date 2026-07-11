@@ -42,8 +42,9 @@ final class ObsidianExporter {
         return url
     }
 
-    /// Writes (or overwrites) the article's export file. Because we render
-    /// deterministically, this is idempotent.
+    /// Writes the article's export file. New files get frontmatter + the
+    /// managed section; existing files only have the marker-delimited managed
+    /// section replaced, so the user's own edits in the note survive.
     static func exportArticle(_ article: Article, settings: AppSettings) throws {
         let destRoot = try destinationURL(from: settings)
         guard destRoot.startAccessingSecurityScopedResource() else {
@@ -58,11 +59,17 @@ final class ObsidianExporter {
         try FileManager.default.createDirectory(at: folder, withIntermediateDirectories: true)
 
         let file = folder.appendingPathComponent(MarkdownFormatter.fileName(for: article))
-        let contents = MarkdownFormatter.render(.init(article: article, highlights: article.highlights))
+        let input = MarkdownFormatter.RenderInput(article: article, highlights: article.allHighlights)
+        let contents: String
+        if let existing = try? String(contentsOf: file, encoding: .utf8) {
+            contents = MarkdownFormatter.merge(existing: existing, input: input)
+        } else {
+            contents = MarkdownFormatter.render(input)
+        }
         do {
             try contents.write(to: file, atomically: true, encoding: .utf8)
             let now = Date()
-            for h in article.highlights where h.exportedAt == nil || h.exportedAt! < h.createdAt {
+            for h in article.allHighlights where h.exportedAt == nil || h.exportedAt! < h.createdAt {
                 h.exportedAt = now
             }
         } catch {
@@ -74,7 +81,7 @@ final class ObsidianExporter {
     /// "Export all" action in Settings.
     static func exportAll(context: ModelContext, settings: AppSettings) throws {
         let all = try context.fetch(FetchDescriptor<Article>())
-        for a in all where !a.highlights.isEmpty {
+        for a in all where !a.allHighlights.isEmpty {
             try exportArticle(a, settings: settings)
         }
     }

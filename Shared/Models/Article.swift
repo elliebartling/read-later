@@ -1,29 +1,41 @@
 import Foundation
 import SwiftData
 
+// CloudKit-backed SwiftData requires every attribute to be optional or carry
+// an inline default, and every relationship to be optional — otherwise
+// ModelContainer creation throws at launch. Keep that invariant when adding
+// properties to any synced model.
 @Model
 final class Article {
-    var id: UUID
-    var url: URL
-    var title: String
+    var id: UUID = UUID()
+    var url: URL?
+    var title: String = ""
     var author: String?
     var siteName: String?
-    var savedAt: Date
+    var savedAt: Date = Date.now
     var readAt: Date?
-    var isArchived: Bool
-    var plainText: String
+    var isArchived: Bool = false
+    var plainText: String = ""
     /// Raw extracted HTML (post-Readability). Used for optional in-app rendering
     /// with images. Never navigated as a live web page.
     var extractedHTML: String?
     var heroImageURL: URL?
-    var estimatedReadingMinutes: Int
-    var parseStatus: ParseStatus
+    var estimatedReadingMinutes: Int = 0
+    private var parseStatusRaw: Int = ParseStatus.pending.rawValue
+
+    var parseStatus: ParseStatus {
+        get { ParseStatus(rawValue: parseStatusRaw) ?? .pending }
+        set { parseStatusRaw = newValue.rawValue }
+    }
 
     @Relationship(deleteRule: .nullify, inverse: \Tag.articles)
-    var tags: [Tag] = []
+    var tags: [Tag]?
 
     @Relationship(deleteRule: .cascade, inverse: \Highlight.article)
-    var highlights: [Highlight] = []
+    var highlights: [Highlight]?
+
+    var allTags: [Tag] { tags ?? [] }
+    var allHighlights: [Highlight] { highlights ?? [] }
 
     init(
         id: UUID = UUID(),
@@ -49,7 +61,7 @@ final class Article {
         self.extractedHTML = extractedHTML
         self.heroImageURL = heroImageURL
         self.estimatedReadingMinutes = estimatedReadingMinutes
-        self.parseStatus = parseStatus
+        self.parseStatusRaw = parseStatus.rawValue
     }
 
     enum ParseStatus: Int, Codable {

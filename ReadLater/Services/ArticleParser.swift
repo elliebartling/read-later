@@ -7,6 +7,11 @@ import Foundation
 /// Bundle `ReadLater/Resources/readability.js` (see README) before use. If the
 /// bundled file is missing we fall back to a minimal <meta>/<title>-based
 /// extractor so the pipeline still produces *something*.
+///
+/// Single-slot: one parse at a time (one WKWebView, one continuation).
+/// Callers must serialize — PendingSaveIngest does — or handle `.busy`.
+/// A watchdog aborts loads after `loadTimeout` so one hung page can't stall
+/// every future save.
 @MainActor
 final class ArticleParser: NSObject {
 
@@ -22,6 +27,8 @@ final class ArticleParser: NSObject {
 
     static let shared = ArticleParser()
 
+    private let loadTimeout: Duration = .seconds(25)
+
     private let webView: WKWebView = {
         let config = WKWebViewConfiguration()
         config.suppressesIncrementalRendering = true
@@ -31,6 +38,8 @@ final class ArticleParser: NSObject {
     }()
 
     private var loadContinuation: CheckedContinuation<Void, Error>?
+    private var watchdog: Task<Void, Never>?
+    private var isParsing = false
 
     override init() {
         super.init()
@@ -38,40 +47,62 @@ final class ArticleParser: NSObject {
     }
 
     func parse(url: URL, prefetchedHTML: String? = nil) async throws -> Parsed {
+        guard !isParsing else { throw ParseError.busy }
+        isParsing = true
+        defer { isParsing = false }
+
         if let html = prefetchedHTML {
             webView.loadHTMLString(html, baseURL: url)
         } else {
             webView.load(URLRequest(url: url, cachePolicy: .reloadIgnoringLocalCacheData, timeoutInterval: 20))
         }
+
         try await withCheckedThrowingContinuation { (cont: CheckedContinuation<Void, Error>) in
             self.loadContinuation = cont
+            self.watchdog = Task { [weak self] in
+                try? await Task.sleep(for: self?.loadTimeout ?? .seconds(25))
+                guard let self, !Task.isCancelled else { return }
+                // Still waiting after the timeout — abort so the pipeline moves on.
+                if let pending = self.loadContinuation {
+                    self.loadContinuation = nil
+                    self.webView.stopLoading()
+                    pending.resume(throwing: ParseError.timedOut)
+                }
+            }
         }
+        watchdog?.cancel()
+        watchdog = nil
 
         let readabilityJS = Self.loadReadabilityScript()
+        // Outer wrapper guarantees a non-null result — the async
+        // evaluateJavaScript API traps on JS null/undefined.
         let wrapper = """
         (function() {
-            try {
-                \(readabilityJS)
-                var docClone = document.cloneNode(true);
-                var reader = new Readability(docClone);
-                var article = reader.parse();
-                if (!article) { return null; }
-                return {
-                    title: article.title || document.title || "",
-                    byline: article.byline || null,
-                    siteName: article.siteName || null,
-                    content: article.content || "",
-                    textContent: article.textContent || "",
-                    length: article.length || 0,
-                    excerpt: article.excerpt || null,
-                    heroImage: (function() {
-                        var og = document.querySelector('meta[property="og:image"]');
-                        return og ? og.content : null;
-                    })()
-                };
-            } catch (e) {
-                return { error: String(e) };
-            }
+            var result = (function() {
+                try {
+                    \(readabilityJS)
+                    var docClone = document.cloneNode(true);
+                    var reader = new Readability(docClone);
+                    var article = reader.parse();
+                    if (!article) { return null; }
+                    return {
+                        title: article.title || document.title || "",
+                        byline: article.byline || null,
+                        siteName: article.siteName || null,
+                        content: article.content || "",
+                        textContent: article.textContent || "",
+                        length: article.length || 0,
+                        excerpt: article.excerpt || null,
+                        heroImage: (function() {
+                            var og = document.querySelector('meta[property="og:image"]');
+                            return og ? og.content : null;
+                        })()
+                    };
+                } catch (e) {
+                    return { error: String(e) };
+                }
+            })();
+            return result || { error: "no readable content" };
         })();
         """
 
@@ -141,26 +172,36 @@ final class ArticleParser: NSObject {
     enum ParseError: Error {
         case readabilityFailed(String)
         case loadFailed(Error)
+        case timedOut
+        case busy
+    }
+
+    private func finishLoad(_ result: Result<Void, Error>) {
+        watchdog?.cancel()
+        watchdog = nil
+        guard let cont = loadContinuation else { return }
+        loadContinuation = nil
+        switch result {
+        case .success: cont.resume()
+        case .failure(let error): cont.resume(throwing: error)
+        }
     }
 }
 
 extension ArticleParser: WKNavigationDelegate {
     nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         Task { @MainActor in
-            self.loadContinuation?.resume()
-            self.loadContinuation = nil
+            self.finishLoad(.success(()))
         }
     }
     nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
         Task { @MainActor in
-            self.loadContinuation?.resume(throwing: ParseError.loadFailed(error))
-            self.loadContinuation = nil
+            self.finishLoad(.failure(ParseError.loadFailed(error)))
         }
     }
     nonisolated func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
         Task { @MainActor in
-            self.loadContinuation?.resume(throwing: ParseError.loadFailed(error))
-            self.loadContinuation = nil
+            self.finishLoad(.failure(ParseError.loadFailed(error)))
         }
     }
 }

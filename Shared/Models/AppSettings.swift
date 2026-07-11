@@ -1,21 +1,28 @@
 import Foundation
 import SwiftData
 
-/// Non-synced app settings. Stored in SwiftData because it plays nicely with
-/// @Query and observation. Sensitive values (OpenAI key) stay in Keychain and
-/// only their reference lives here.
+/// App settings. Stored in a LOCAL-ONLY ModelConfiguration (no CloudKit) —
+/// `obsidianBookmarkData` is a security-scoped bookmark, which is
+/// device-specific and must never sync to another device. A single row is
+/// seeded at app startup (see RootView).
+///
+/// Sensitive values (OpenAI key) stay in Keychain; only non-secrets live here.
 @Model
 final class AppSettings {
-    var id: UUID
-    var ttsProviderRaw: String
-    var ttsVoice: String
+    var id: UUID = UUID()
+    var ttsProviderRaw: String = TTSProvider.apple.rawValue
+    /// AVSpeechSynthesisVoice identifier. Empty string = system default voice.
+    var appleVoiceID: String = ""
+    /// OpenAI TTS voice name (alloy, echo, fable, onyx, nova, shimmer).
+    var openAIVoice: String = "alloy"
     /// Security-scoped bookmark data pointing at the user-chosen Obsidian vault folder.
     var obsidianBookmarkData: Data?
     /// Sub-folder inside the vault where markdown notes land, e.g. "Read Later".
-    var obsidianSubfolder: String
-    var readerThemeRaw: String
-    var readerFontSize: Double
-    var readerFontFamily: String
+    var obsidianSubfolder: String = "Read Later"
+    var readerThemeRaw: String = ReaderTheme.system.rawValue
+    var readerFontSize: Double = 18
+    /// Raw value of ReaderFont (see ReadLater/UI/ReaderFont.swift).
+    var readerFontRaw: String = "Serif"
 
     var ttsProvider: TTSProvider {
         get { TTSProvider(rawValue: ttsProviderRaw) ?? .apple }
@@ -27,25 +34,7 @@ final class AppSettings {
         set { readerThemeRaw = newValue.rawValue }
     }
 
-    init(
-        id: UUID = UUID(),
-        ttsProvider: TTSProvider = .apple,
-        ttsVoice: String = "com.apple.voice.compact.en-US.Samantha",
-        obsidianBookmarkData: Data? = nil,
-        obsidianSubfolder: String = "Read Later",
-        readerTheme: ReaderTheme = .system,
-        readerFontSize: Double = 18,
-        readerFontFamily: String = "New York"
-    ) {
-        self.id = id
-        self.ttsProviderRaw = ttsProvider.rawValue
-        self.ttsVoice = ttsVoice
-        self.obsidianBookmarkData = obsidianBookmarkData
-        self.obsidianSubfolder = obsidianSubfolder
-        self.readerThemeRaw = readerTheme.rawValue
-        self.readerFontSize = readerFontSize
-        self.readerFontFamily = readerFontFamily
-    }
+    init() {}
 }
 
 enum TTSProvider: String, Codable, CaseIterable, Identifiable {

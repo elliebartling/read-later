@@ -7,7 +7,6 @@ struct HighlightsView: View {
     var body: some View {
         NavigationStack {
             List {
-                ScrollDetectorRow()
                 if highlights.isEmpty {
                     ContentUnavailableView(
                         "No highlights yet",

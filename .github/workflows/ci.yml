@@ -1,0 +1,51 @@
+name: CI
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  build-and-test:
+    # NOTE: macOS runner minutes bill at 10x on private repos.
+    runs-on: macos-15
+    timeout-minutes: 45
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Build (simulator, unsigned)
+        run: |
+          xcodebuild build \
+            -project ReadLater.xcodeproj \
+            -scheme ReadLater \
+            -destination 'generic/platform=iOS Simulator' \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            | tail -100
+
+      - name: Pick a simulator
+        id: sim
+        run: |
+          DEVICE=$(xcrun simctl list devices available | grep -E 'iPhone (1[5-9]|SE)' | head -1 | sed -E 's/^ *([^(]+) \(.*/\1/' | xargs)
+          echo "device=${DEVICE:-iPhone 16}" >> "$GITHUB_OUTPUT"
+          echo "Using simulator: ${DEVICE:-iPhone 16}"
+
+      - name: Unit tests
+        run: |
+          xcodebuild test \
+            -project ReadLater.xcodeproj \
+            -scheme ReadLater \
+            -destination "platform=iOS Simulator,name=${{ steps.sim.outputs.device }}" \
+            CODE_SIGNING_ALLOWED=NO \
+            CODE_SIGN_IDENTITY="" \
+            | tail -100

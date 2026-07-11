@@ -3,6 +3,7 @@ import SwiftData
 
 struct RootView: View {
     @Environment(\.modelContext) private var context
+    @Environment(\.scenePhase) private var scenePhase
     @Environment(AppModel.self) private var appModel
 
     var body: some View {
@@ -25,10 +26,32 @@ struct RootView: View {
                 .tag(AppModel.Tab.settings)
         }
         .task {
+            seedSettingsIfNeeded()
             await PendingSaveIngest.drain(context: context)
+        }
+        .onChange(of: scenePhase) { _, newPhase in
+            // Shares saved while we were backgrounded ingest on return —
+            // without this they'd sit in the App Group container until the
+            // next cold start or deep link.
+            if newPhase == .active {
+                Task { await PendingSaveIngest.drain(context: context) }
+            }
         }
         .onOpenURL { url in
             Task { await handleDeepLink(url) }
+        }
+    }
+
+    /// AppSettings lives in the local-only store and is accessed via
+    /// `@Query(...).first` everywhere. Seed exactly one row at startup so
+    /// views never have to insert during body evaluation.
+    private func seedSettingsIfNeeded() {
+        var descriptor = FetchDescriptor<AppSettings>()
+        descriptor.fetchLimit = 1
+        let existing = (try? context.fetch(descriptor)) ?? []
+        if existing.isEmpty {
+            context.insert(AppSettings())
+            try? context.save()
         }
     }
 

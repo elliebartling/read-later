@@ -20,7 +20,6 @@ struct LibraryView: View {
     var body: some View {
         NavigationStack(path: $path) {
             List {
-                ScrollDetectorRow()
                 if filtered.isEmpty {
                     ContentUnavailableView(
                         "No articles yet",

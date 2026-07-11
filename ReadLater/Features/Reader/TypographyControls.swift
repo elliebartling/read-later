@@ -5,14 +5,14 @@ struct TypographyControls: View {
     @Bindable var settings: AppSettings
     @Environment(\.dismiss) private var dismiss
 
-    private let fontFamilies = ["New York", "Georgia", "San Francisco", "Iowan Old Style", "Palatino"]
-
     var body: some View {
         NavigationStack {
             Form {
                 Section("Font") {
-                    Picker("Family", selection: $settings.readerFontFamily) {
-                        ForEach(fontFamilies, id: \.self) { Text($0).tag($0) }
+                    Picker("Family", selection: $settings.readerFontRaw) {
+                        ForEach(ReaderFont.allCases) { font in
+                            Text(font.displayName).tag(font.rawValue)
+                        }
                     }
                     Stepper("Size: \(Int(settings.readerFontSize))",
                             value: $settings.readerFontSize,

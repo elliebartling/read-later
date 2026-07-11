@@ -18,5 +18,8 @@ protocol SpeechService: AnyObject {
 @MainActor
 protocol SpeechServiceDelegate: AnyObject {
     func speechService(_ service: SpeechService, didAdvanceTo paragraphIndex: Int)
-    func speechService(_ service: SpeechService, didFinish successfully: Bool)
+    /// `errorMessage` is non-nil when playback ended because of a failure the
+    /// user should see (missing API key, HTTP error) — not on normal finish
+    /// or user-initiated stop.
+    func speechService(_ service: SpeechService, didFinish successfully: Bool, errorMessage: String?)
 }

@@ -9,7 +9,6 @@ struct SearchView: View {
     var body: some View {
         NavigationStack {
             List {
-                ScrollDetectorRow()
                 ForEach(results) { article in
                     NavigationLink(value: article) {
                         ArticleRow(article: article)

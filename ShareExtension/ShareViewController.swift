@@ -39,8 +39,10 @@ final class ShareViewController: UIViewController {
         }
         var capturedURL: URL?
         var capturedTitle: String?
-        var capturedHTML: String?
 
+        // Activation rule is WebURL-only, so a plain URL attachment is all we
+        // get here. HTML capture comes via the Safari Web Extension path;
+        // otherwise ArticleParser refetches the page itself.
         for item in items {
             if let title = item.attributedTitle?.string, capturedTitle == nil {
                 capturedTitle = title
@@ -52,20 +54,6 @@ final class ShareViewController: UIViewController {
                         capturedURL = url
                     }
                 }
-                if provider.hasItemConformingToTypeIdentifier(UTType.propertyList.identifier), capturedHTML == nil {
-                    if let obj = try? await provider.loadItem(forTypeIdentifier: UTType.propertyList.identifier),
-                       let dict = obj as? [String: Any],
-                       let results = dict[NSExtensionJavaScriptPreprocessingResultsKey] as? [String: Any]
-                    {
-                        capturedHTML = results["html"] as? String
-                        if capturedURL == nil, let urlStr = results["url"] as? String {
-                            capturedURL = URL(string: urlStr)
-                        }
-                        if capturedTitle == nil {
-                            capturedTitle = results["title"] as? String
-                        }
-                    }
-                }
             }
         }
 
@@ -73,7 +61,6 @@ final class ShareViewController: UIViewController {
             let pending = PendingSave(
                 url: url,
                 title: capturedTitle,
-                capturedHTML: capturedHTML,
                 source: .shareExtension
             )
             try? pending.write()

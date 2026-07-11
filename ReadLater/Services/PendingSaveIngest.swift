@@ -73,8 +73,13 @@ enum PendingSaveIngest {
         var descriptor = FetchDescriptor<Article>(predicate: #Predicate { $0.id == id })
         descriptor.fetchLimit = 1
         guard let article = try? context.fetch(descriptor).first else { return }
+        guard let url = article.url else {
+            article.parseStatus = .failed
+            try? context.save()
+            return
+        }
         do {
-            let parsed = try await ArticleParser.shared.parse(url: article.url, prefetchedHTML: prefetchedHTML)
+            let parsed = try await ArticleParser.shared.parse(url: url, prefetchedHTML: prefetchedHTML)
             article.title = parsed.title.isEmpty ? article.title : parsed.title
             article.author = parsed.author
             article.siteName = parsed.siteName
@@ -86,7 +91,7 @@ enum PendingSaveIngest {
             try context.save()
         } catch {
             NSLog("PendingSaveIngest parse failed for %@: %@",
-                  article.url.absoluteString, String(describing: error))
+                  url.absoluteString, String(describing: error))
             article.parseStatus = .failed
             try? context.save()
         }

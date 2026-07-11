@@ -10,12 +10,16 @@ final class TTSController {
     private(set) var isPlaying: Bool = false
     private(set) var currentParagraph: Int = 0
     private(set) var totalParagraphs: Int = 0
+    /// User-visible failure from the active backend (missing API key, HTTP
+    /// error). The reader presents this in an alert; assign nil to dismiss.
+    var lastError: String?
 
     private var service: SpeechService?
     private var delegateHolder: DelegateHolder?
 
     func start(paragraphs: [String], provider: TTSProvider, voice: String, startAt: Int = 0) {
         stop()
+        lastError = nil
         let service: SpeechService = {
             switch provider {
             case .apple: return AppleSpeechService()
@@ -48,6 +52,7 @@ final class TTSController {
         delegateHolder = nil
         isPlaying = false
         currentParagraph = 0
+        totalParagraphs = 0
     }
 
     // Kept out of the @Observable surface so it doesn't spam view updates.
@@ -59,8 +64,11 @@ final class TTSController {
         func speechService(_ service: SpeechService, didAdvanceTo paragraphIndex: Int) {
             owner?.currentParagraph = paragraphIndex
         }
-        func speechService(_ service: SpeechService, didFinish successfully: Bool) {
+        func speechService(_ service: SpeechService, didFinish successfully: Bool, errorMessage: String?) {
             owner?.isPlaying = false
+            if let errorMessage {
+                owner?.lastError = errorMessage
+            }
         }
     }
 }

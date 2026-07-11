@@ -37,7 +37,7 @@ final class AppleSpeechService: NSObject, SpeechService {
 
     private func speakCurrent() {
         guard currentIndex < queue.count else {
-            delegate?.speechService(self, didFinish: true)
+            delegate?.speechService(self, didFinish: true, errorMessage: nil)
             return
         }
         delegate?.speechService(self, didAdvanceTo: currentIndex)

@@ -60,11 +60,13 @@ ReadLaterTests/           XCTest unit tests
 
 ## Design notes
 
-- **Highlight anchoring.** A highlight persists both `(startOffset, endOffset)` into `Article.plainText` AND the `quotedText` itself. On render, offsets are tried first; on miss we search for the quoted text (with a whitespace-collapsed fallback) and update. This keeps highlights stable across re-parses. See `ReadLater/Services/Highlighting/HighlightAnchor.swift`.
+- **Highlight anchoring.** A highlight persists both `(startOffset, endOffset)` into `Article.plainText` AND the `quotedText` itself. Offsets are **UTF-16 code units** (they originate from `UITextView.selectedRange`); interpreting them as `Character` offsets misplaces highlights in emoji-bearing articles. On render, offsets are tried first; on miss we search for the quoted text (with a whitespace-collapsed fallback) and update. This keeps highlights stable across re-parses. See `ReadLater/Services/Highlighting/HighlightAnchor.swift`.
 - **Article extraction.** Runs Readability.js in an off-screen `WKWebView`. The extracted plain text becomes the offset space for highlights; the extracted HTML is retained for future rich rendering.
 - **Save pipeline.** The Share Extension does NOT touch the CloudKit sync channel. It writes a `PendingSave` JSON into the App Group container; the main app drains this on foreground. After writing the pending save, the extension deep-links back into the app (`readlater://open?id=<uuid>`) via the responder-chain `openURL:` trick so the user lands directly on the reader.
-- **CloudKit constraints.** All SwiftData `@Model`s use optional relationships and non-required uniqueness where CloudKit requires it.
-- **Obsidian export.** Deterministic markdown render → idempotent writes → doesn't churn file watchers.
+- **CloudKit constraints.** Every synced `@Model` attribute is optional or carries an inline default, and every relationship is optional — CloudKit-backed SwiftData throws at container creation otherwise. Keep that invariant when adding properties.
+- **Two stores.** Articles/highlights/tags sync via the CloudKit private DB; `AppSettings` lives in a separate local-only store because it holds a security-scoped bookmark, which is device-specific and must never sync.
+- **Obsidian export.** Managed-section writes: the app only rewrites the region between `%% readlater:start %%` and `%% readlater:end %%`, so your own edits in exported notes survive every export. Highlight colors use Dataview inline fields (`(color:: yellow)`), never wikilinks. Deterministic rendering → idempotent writes → doesn't churn file watchers.
+- **CI.** `.github/workflows/ci.yml` runs xcodegen + build + unit tests on a macOS runner per push — the compile loop for changes authored off-Mac. Heads-up: macOS minutes bill at 10x on private repos.
 
 ## Roadmap
 

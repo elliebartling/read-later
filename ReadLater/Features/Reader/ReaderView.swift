@@ -10,6 +10,8 @@ struct ReaderView: View {
     @State private var pendingNoteIntent: HighlightableTextView.HighlightIntent?
     @State private var showingTypographyControls = false
 
+    // A row is seeded at startup (RootView); the transient fallback only
+    // covers the first render tick and is never inserted or written to.
     private var settings: AppSettings {
         settingsRows.first ?? AppSettings()
     }
@@ -42,7 +44,7 @@ struct ReaderView: View {
                     .padding(.bottom, 12)
             }
         }
-        .navigationTitle(article.siteName ?? article.url.host ?? "")
+        .navigationTitle(article.siteName ?? article.url?.host ?? "")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
         .toolbar {
@@ -65,19 +67,21 @@ struct ReaderView: View {
                     } label: {
                         Label("Export to Obsidian", systemImage: "square.and.arrow.up")
                     }
+                    Button {
+                        toggleRead()
+                    } label: {
+                        Label(article.readAt == nil ? "Mark as Read" : "Mark as Unread",
+                              systemImage: article.readAt == nil ? "checkmark.circle" : "circle")
+                    }
                     Divider()
-                    Link(destination: article.url) {
-                        Label("Open Original", systemImage: "safari")
+                    if let url = article.url {
+                        Link(destination: url) {
+                            Label("Open Original", systemImage: "safari")
+                        }
                     }
                 } label: {
                     Image(systemName: "ellipsis.circle")
                 }
-            }
-        }
-        .onAppear {
-            if article.readAt == nil {
-                article.readAt = .now
-                try? context.save()
             }
         }
         .onDisappear { tts.stop() }
@@ -88,6 +92,17 @@ struct ReaderView: View {
             HighlightNoteSheet(intent: intent) { note in
                 persistHighlight(intent: intent, note: note)
             }
+        }
+        .alert(
+            "Couldn't read aloud",
+            isPresented: Binding(
+                get: { tts.lastError != nil },
+                set: { if !$0 { tts.lastError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(tts.lastError ?? "")
         }
     }
 
@@ -101,12 +116,13 @@ struct ReaderView: View {
         case .ready:
             HighlightableTextView(
                 text: article.plainText,
-                highlights: article.highlights,
+                highlights: article.allHighlights,
                 currentSpokenRange: currentParagraphRange,
                 theme: settings.readerTheme,
                 fontSize: CGFloat(settings.readerFontSize),
-                fontFamily: settings.readerFontFamily,
-                onHighlight: handleIntent
+                fontRaw: settings.readerFontRaw,
+                onHighlight: handleIntent,
+                onScrollProgress: handleScrollProgress
             )
         }
     }
@@ -117,7 +133,7 @@ struct ReaderView: View {
             Text("Extracting article…")
                 .font(.headline)
                 .foregroundStyle(.secondary)
-            if let host = article.url.host {
+            if let host = article.url?.host {
                 Text(host)
                     .font(.footnote)
                     .foregroundStyle(.tertiary)
@@ -130,20 +146,36 @@ struct ReaderView: View {
         ContentUnavailableView {
             Label("Couldn't parse this page", systemImage: "exclamationmark.triangle")
         } description: {
-            Text("The extractor didn't find readable content on \(article.url.host ?? "this page").")
+            Text("The extractor didn't find readable content on \(article.url?.host ?? "this page").")
         } actions: {
-            Link(destination: article.url) { Text("Open in Safari") }
-                .buttonStyle(.borderedProminent)
+            if let url = article.url {
+                Link(destination: url) { Text("Open in Safari") }
+                    .buttonStyle(.borderedProminent)
+            }
         }
     }
 
     private func startTTS() {
+        let voice = settings.ttsProvider == .apple ? settings.appleVoiceID : settings.openAIVoice
         tts.start(
             paragraphs: paragraphs,
             provider: settings.ttsProvider,
-            voice: settings.ttsVoice,
+            voice: voice,
             startAt: tts.currentParagraph
         )
+    }
+
+    /// GoodLinks-style read tracking: an article counts as read when the user
+    /// actually reaches (nearly) the end, not when they merely open it.
+    private func handleScrollProgress(_ progress: Double) {
+        guard progress >= 0.9, article.readAt == nil else { return }
+        article.readAt = .now
+        try? context.save()
+    }
+
+    private func toggleRead() {
+        article.readAt = article.readAt == nil ? .now : nil
+        try? context.save()
     }
 
     private func handleIntent(_ intent: HighlightableTextView.HighlightIntent) {
