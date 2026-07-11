@@ -104,6 +104,7 @@ targets:
     platform: iOS
     sources:
       - path: SafariWebExtension
+      - path: Shared
     resources:
       - path: SafariWebExtension/Resources
     info:
