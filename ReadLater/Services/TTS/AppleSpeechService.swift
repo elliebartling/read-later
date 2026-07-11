@@ -48,6 +48,7 @@ final class AppleSpeechService: NSObject, SpeechService {
         let utter = AVSpeechUtterance(string: queue[currentIndex])
         utter.voice = currentVoice
         utter.rate = Self.utteranceRate(for: currentRate)
+        delegate?.speechServiceDidBeginPlayback(self)
         synthesizer.speak(utter)
     }
 

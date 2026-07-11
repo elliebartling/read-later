@@ -3,14 +3,23 @@ import UIKit
 
 /// SwiftUI wrapper around UITextView that:
 /// 1. Renders `plainText` with existing highlights painted in place.
-/// 2. Extends the system text-selection edit menu with "Highlight" (4 colors)
-///    and "Highlight + Note" via the supported UITextViewDelegate hook
-///    `textView(_:editMenuForTextIn:suggestedActions:)`. (Do NOT attach a
-///    separate UIEditMenuInteraction — UITextView owns its edit menu and never
-///    consults an extra interaction, so custom items would simply never show.)
-/// 3. Emits a `HighlightIntent` when the user picks a color, so the ReaderView
-///    can persist a Highlight into SwiftData.
-/// 4. Reports scroll progress (0...1) so the reader can mark articles read
+/// 2. Creates a highlight *immediately* when the user finishes a selection.
+///    The trigger is the supported UITextViewDelegate hook
+///    `textView(_:editMenuForTextIn:suggestedActions:)`, which the system
+///    calls exactly when a non-empty selection is made and the edit menu is
+///    about to appear. (Do NOT attach a separate UIEditMenuInteraction —
+///    UITextView owns its edit menu and never consults an extra interaction,
+///    so custom items would simply never show.)
+/// 3. Presents a post-highlight edit menu over the selection: Color submenu,
+///    Add Note, Remove Highlight, plus the system actions (Copy, Share, …).
+///    Dragging the selection handles updates the same highlight instead of
+///    creating duplicates — the coordinator tracks the "session" highlight ID
+///    until the selection collapses.
+/// 4. Detects single taps on existing highlights (reported via
+///    `onTapHighlight`) so the reader can present an edit sheet. While a
+///    highlight is being edited (`editingHighlightID`), its range is selected
+///    so the system drag handles stay visible for in-place range adjustment.
+/// 5. Reports scroll progress (0...1) so the reader can mark articles read
 ///    when the user actually reaches the end.
 ///
 /// The current paragraph (spoken by TTS) can also be tinted by supplying
@@ -23,7 +32,6 @@ struct HighlightableTextView: UIViewRepresentable {
         let endOffset: Int
         let quotedText: String
         let color: HighlightColor
-        let requestsNote: Bool
     }
 
     let text: String
@@ -32,10 +40,25 @@ struct HighlightableTextView: UIViewRepresentable {
     let theme: ReaderTheme
     let fontSize: CGFloat
     let fontRaw: String
-    let onHighlight: (HighlightIntent) -> Void
+    /// Color applied to instantly-created highlights (the last-used color).
+    let defaultColor: HighlightColor
+    /// When non-nil, the matching highlight's range is kept selected so the
+    /// user can drag the system handles to resize it (e.g. while the edit
+    /// sheet is open). Cleared when editing ends.
+    var editingHighlightID: UUID? = nil
+    /// Persist a new highlight; returns its ID so the selection session can
+    /// keep updating it. SwiftData inserts are synchronous, so this is safe.
+    let onCreateHighlight: (HighlightIntent) -> UUID?
+    /// The selection handles were dragged: update the session highlight's range.
+    let onUpdateHighlight: (UUID, NSRange, String) -> Void
+    let onRecolorHighlight: (UUID, HighlightColor) -> Void
+    let onDeleteHighlight: (UUID) -> Void
+    let onRequestNote: (UUID) -> Void
+    /// A single tap landed on an existing highlight.
+    let onTapHighlight: (UUID) -> Void
     var onScrollProgress: ((Double) -> Void)? = nil
-    /// Fired on a plain single tap in the body (not a selection or link tap),
-    /// so the reader can toggle its chrome the way Books/Reader do.
+    /// Fired on a plain single tap in the body (not a selection, link, or
+    /// highlight tap), so the reader can toggle its chrome the way Books/Reader do.
     var onTap: (() -> Void)? = nil
 
     func makeUIView(context: Context) -> UITextView {
@@ -68,14 +91,24 @@ struct HighlightableTextView: UIViewRepresentable {
         let signature = renderSignature()
         if signature != context.coordinator.lastRenderSignature {
             let preservedSelection = tv.selectedRange
+            // Re-rendering resets the selection to zero before we restore it.
+            // Suppress the selection-change callback so that transient reset
+            // doesn't end the highlight session mid-selection.
+            context.coordinator.suppressSelectionChange = true
             tv.attributedText = render()
             // Restore selection if it still fits — protects an in-progress highlight
             // from being wiped by unrelated SwiftUI updates (e.g. TTS paragraph advance).
             if preservedSelection.location + preservedSelection.length <= (tv.text as NSString).length {
                 tv.selectedRange = preservedSelection
             }
+            context.coordinator.suppressSelectionChange = false
             context.coordinator.lastRenderSignature = signature
         }
+
+        // Enter / leave sheet-edit mode: select the highlight so drag handles
+        // appear, or collapse the selection when editing ends.
+        context.coordinator.applyEditingSelectionIfNeeded()
+
         // Keep the spoken paragraph on screen as TTS advances.
         if currentSpokenRange?.location != context.coordinator.lastSpokenLocation {
             context.coordinator.lastSpokenLocation = currentSpokenRange?.location
@@ -135,6 +168,18 @@ struct HighlightableTextView: UIViewRepresentable {
         var parent: HighlightableTextView?
         var lastRenderSignature: String = ""
         var lastSpokenLocation: Int?
+        /// Set while updateUIView programmatically resets/restores the selection.
+        var suppressSelectionChange = false
+
+        /// The highlight created by the current selection "session". Handle
+        /// drags update this highlight instead of creating duplicates; the
+        /// session ends when the selection collapses to zero length (unless
+        /// sheet-edit mode is holding it open via `editingHighlightID`).
+        private var activeHighlightID: UUID?
+        private var activeColor: HighlightColor?
+        /// Last `editingHighlightID` we applied a selection for — avoids
+        /// re-selecting on every SwiftUI tick while the sheet is open.
+        private var appliedEditingHighlightID: UUID?
 
         /// Scrolls so the spoken paragraph stays visible while TTS advances,
         /// without hijacking the view when the user is reading elsewhere.
@@ -172,21 +217,47 @@ struct HighlightableTextView: UIViewRepresentable {
             if tv.selectedRange.length > 0 { return }
             let point = gesture.location(in: tv)
             if isLink(at: point, in: tv) { return }
+            if let highlightID = highlightID(at: point, in: tv) {
+                parent?.onTapHighlight(highlightID)
+                return
+            }
             parent?.onTap?()
         }
 
         /// True if `point` falls on a `.link`-attributed glyph.
         private func isLink(at point: CGPoint, in tv: UITextView) -> Bool {
+            guard let index = characterIndex(at: point, in: tv) else { return false }
+            return tv.textStorage.attribute(.link, at: index, effectiveRange: nil) != nil
+        }
+
+        /// ID of the highlight whose range contains `point`, if any.
+        private func highlightID(at point: CGPoint, in tv: UITextView) -> UUID? {
+            guard let parent = parent, !parent.highlights.isEmpty,
+                  let index = characterIndex(at: point, in: tv) else { return nil }
+            for h in parent.highlights {
+                if let located = HighlightAnchor.locate(
+                    in: parent.text,
+                    startOffset: h.startOffset,
+                    endOffset: h.endOffset,
+                    quotedText: h.quotedText
+                ), index >= located.startOffset, index < located.endOffset {
+                    return h.id
+                }
+            }
+            return nil
+        }
+
+        private func characterIndex(at point: CGPoint, in tv: UITextView) -> Int? {
             let inset = tv.textContainerInset
             let local = CGPoint(x: point.x - inset.left, y: point.y - inset.top)
-            guard tv.textStorage.length > 0 else { return false }
+            guard tv.textStorage.length > 0 else { return nil }
             let index = tv.layoutManager.characterIndex(
                 for: local,
                 in: tv.textContainer,
                 fractionOfDistanceBetweenInsertionPoints: nil
             )
-            guard index < tv.textStorage.length else { return false }
-            return tv.textStorage.attribute(.link, at: index, effectiveRange: nil) != nil
+            guard index < tv.textStorage.length else { return nil }
+            return index
         }
 
         func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
@@ -194,29 +265,131 @@ struct HighlightableTextView: UIViewRepresentable {
             true
         }
 
-        // The supported customization point for a UITextView's selection menu.
+        /// Selects the highlight being edited so the system drag handles appear,
+        /// or clears the selection when sheet-edit mode ends.
+        func applyEditingSelectionIfNeeded() {
+            guard let parent = parent, let tv = textView else { return }
+            let editingID = parent.editingHighlightID
+            guard editingID != appliedEditingHighlightID else { return }
+            appliedEditingHighlightID = editingID
+
+            guard let id = editingID,
+                  let h = parent.highlights.first(where: { $0.id == id }),
+                  let located = HighlightAnchor.locate(
+                    in: parent.text,
+                    startOffset: h.startOffset,
+                    endOffset: h.endOffset,
+                    quotedText: h.quotedText
+                  ) else {
+                // Editing ended — collapse selection and clear the session
+                // unless a fresh selection is already in progress.
+                if editingID == nil, activeHighlightID != nil || tv.selectedRange.length > 0 {
+                    endSession(collapseSelection: true)
+                }
+                return
+            }
+
+            let range = NSRange(located.range, in: parent.text)
+            activeHighlightID = id
+            activeColor = h.color
+            suppressSelectionChange = true
+            tv.selectedRange = range
+            suppressSelectionChange = false
+            // Bring the selection into view so handles aren't hidden under the sheet.
+            tv.scrollRangeToVisible(range)
+        }
+
+        // The system calls this the moment a non-empty selection settles and
+        // the edit menu is about to appear — our trigger for instant highlighting.
         func textView(_ textView: UITextView,
                       editMenuForTextIn range: NSRange,
                       suggestedActions: [UIMenuElement]) -> UIMenu? {
-            guard range.length > 0 else { return UIMenu(children: suggestedActions) }
+            guard range.length > 0, let parent = parent,
+                  let swiftRange = Range(range, in: parent.text) else {
+                return UIMenu(children: suggestedActions)
+            }
+            let quoted = String(parent.text[swiftRange])
+
+            // Sheet-edit mode: resize the highlight under edit, skip creating
+            // a duplicate, and keep the menu light (the sheet owns color/note/delete).
+            if let editingID = parent.editingHighlightID {
+                activeHighlightID = editingID
+                parent.onUpdateHighlight(editingID, range, quoted)
+                return UIMenu(children: suggestedActions)
+            }
+
+            let highlightID: UUID
+            if let active = activeHighlightID {
+                // Handle drag re-invoked the menu: move the session highlight.
+                parent.onUpdateHighlight(active, range, quoted)
+                highlightID = active
+            } else {
+                let intent = HighlightIntent(
+                    startOffset: range.location,
+                    endOffset: range.location + range.length,
+                    quotedText: quoted,
+                    color: parent.defaultColor
+                )
+                guard let id = parent.onCreateHighlight(intent) else {
+                    return UIMenu(children: suggestedActions)
+                }
+                activeHighlightID = id
+                activeColor = parent.defaultColor
+                highlightID = id
+            }
 
             let colorActions = HighlightColor.allCases.map { color in
-                UIAction(title: color.displayName) { [weak self] _ in
-                    self?.applyHighlight(range: range, color: color, requestsNote: false)
+                UIAction(title: color.displayName,
+                         state: color == activeColor ? .on : .off) { [weak self] _ in
+                    self?.activeColor = color
+                    self?.parent?.onRecolorHighlight(highlightID, color)
                 }
             }
-            let highlightMenu = UIMenu(
-                title: "Highlight",
+            let colorMenu = UIMenu(
+                title: "Color",
                 image: UIImage(systemName: "highlighter"),
                 children: colorActions
             )
             let addNote = UIAction(
-                title: "Highlight + Note",
+                title: "Add Note",
                 image: UIImage(systemName: "note.text.badge.plus")
             ) { [weak self] _ in
-                self?.applyHighlight(range: range, color: .yellow, requestsNote: true)
+                // Keep the selection + session so drag handles stay visible
+                // behind the edit sheet for in-place range adjustment.
+                self?.parent?.onRequestNote(highlightID)
             }
-            return UIMenu(children: [highlightMenu, addNote] + suggestedActions)
+            let remove = UIAction(
+                title: "Remove Highlight",
+                image: UIImage(systemName: "trash"),
+                attributes: .destructive
+            ) { [weak self] _ in
+                self?.endSession(collapseSelection: true)
+                self?.parent?.onDeleteHighlight(highlightID)
+            }
+            return UIMenu(children: [colorMenu, addNote, remove] + suggestedActions)
+        }
+
+        func textViewDidChangeSelection(_ textView: UITextView) {
+            guard !suppressSelectionChange else { return }
+            // Selection collapsed: end the session unless sheet-edit mode is
+            // holding the highlight open (we'll re-select on the next update).
+            // Range updates themselves happen in editMenuForTextIn when the
+            // selection settles after a handle drag — avoids thrashing SwiftData
+            // on every pixel of movement.
+            if textView.selectedRange.length == 0, parent?.editingHighlightID == nil {
+                activeHighlightID = nil
+                activeColor = nil
+            }
+        }
+
+        /// Forgets the session highlight, optionally collapsing the selection.
+        private func endSession(collapseSelection: Bool) {
+            activeHighlightID = nil
+            activeColor = nil
+            guard collapseSelection, let tv = textView, tv.selectedRange.length > 0 else { return }
+            suppressSelectionChange = true
+            tv.selectedRange = NSRange(location: tv.selectedRange.location, length: 0)
+            suppressSelectionChange = false
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
@@ -225,21 +398,6 @@ struct HighlightableTextView: UIViewRepresentable {
             let total = scrollView.contentSize.height
             guard total > 0 else { return }
             onProgress(min(1.0, max(0.0, Double(visibleBottom / total))))
-        }
-
-        private func applyHighlight(range: NSRange, color: HighlightColor, requestsNote: Bool) {
-            guard let tv = textView, let parent = parent else { return }
-            guard range.length > 0, let swiftRange = Range(range, in: parent.text) else { return }
-            let quoted = String(parent.text[swiftRange])
-            let intent = HighlightableTextView.HighlightIntent(
-                startOffset: range.location,
-                endOffset: range.location + range.length,
-                quotedText: quoted,
-                color: color,
-                requestsNote: requestsNote
-            )
-            parent.onHighlight(intent)
-            tv.selectedRange = NSRange(location: range.location + range.length, length: 0)
         }
     }
 }

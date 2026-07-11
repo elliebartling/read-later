@@ -25,7 +25,9 @@ private struct SettingsForm: View {
     @Bindable var settings: AppSettings
     @Environment(\.modelContext) private var context
     @State private var apiKeyInput = ""
-    @State private var apiKeyStatus: String = ""
+    @State private var apiKeyStatus: String?
+    @State private var apiKeyStatusIsError = false
+    @State private var hasStoredKey = false
     @State private var showingFolderPicker = false
     @State private var lastExportStatus: String?
 
@@ -60,22 +62,40 @@ private struct SettingsForm: View {
             }
 
             Section {
-                SecureField("sk-…", text: $apiKeyInput)
-                    .textInputAutocapitalization(.never)
-                    .autocorrectionDisabled()
-                HStack {
-                    Button("Save Key") { saveKey() }
-                        .disabled(apiKeyInput.isEmpty)
-                    Spacer()
-                    Button("Clear", role: .destructive) { clearKey() }
+                if hasStoredKey {
+                    HStack {
+                        Text("OpenAI Key")
+                        Spacer()
+                        Text("sk-••••••••")
+                            .font(.body.monospaced())
+                            .foregroundStyle(.secondary)
+                            .accessibilityLabel("Key stored")
+                    }
+                    .swipeActions(edge: .trailing, allowsFullSwipe: true) {
+                        Button("Remove", role: .destructive, action: removeKey)
+                    }
+                } else {
+                    SecureField("Paste API key (sk-…)", text: $apiKeyInput)
+                        .textInputAutocapitalization(.never)
+                        .autocorrectionDisabled()
+                        .submitLabel(.done)
+                        .onSubmit(saveKey)
+                    Button("Save Key", action: saveKey)
+                        .disabled(trimmedKeyInput.isEmpty)
                 }
-                if !apiKeyStatus.isEmpty {
-                    Text(apiKeyStatus).font(.footnote).foregroundStyle(.secondary)
+                if let apiKeyStatus {
+                    Text(apiKeyStatus)
+                        .font(.footnote)
+                        .foregroundStyle(apiKeyStatusIsError ? .red : .secondary)
                 }
             } header: {
                 Text("OpenAI API Key")
             } footer: {
-                Text("Stored in Keychain. Only used to synthesize speech when OpenAI is the active TTS provider.")
+                if hasStoredKey {
+                    Text("Swipe the key row to remove it. Only used when OpenAI is the active TTS provider.")
+                } else {
+                    Text("Stored in Keychain. Only used to synthesize speech when OpenAI is the active TTS provider.")
+                }
             }
 
             Section {
@@ -114,11 +134,7 @@ private struct SettingsForm: View {
             }
         }
         .navigationTitle("Settings")
-        .onAppear {
-            if KeychainStore.get(account: KeychainStore.Account.openAI) != nil {
-                apiKeyStatus = "Key on file."
-            }
-        }
+        .onAppear(perform: refreshStoredKeyState)
         .fileImporter(
             isPresented: $showingFolderPicker,
             allowedContentTypes: [.folder],
@@ -140,15 +156,42 @@ private struct SettingsForm: View {
         }
     }
 
-    private func saveKey() {
-        KeychainStore.set(apiKeyInput, account: KeychainStore.Account.openAI)
-        apiKeyStatus = "Key saved."
-        apiKeyInput = ""
+    private var trimmedKeyInput: String {
+        apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
     }
 
-    private func clearKey() {
+    private func refreshStoredKeyState() {
+        hasStoredKey = KeychainStore.get(account: KeychainStore.Account.openAI) != nil
+    }
+
+    private func saveKey() {
+        let trimmed = trimmedKeyInput
+        guard !trimmed.isEmpty else { return }
+
+        guard KeychainStore.set(trimmed, account: KeychainStore.Account.openAI) else {
+            apiKeyStatus = "Couldn't save key to Keychain."
+            apiKeyStatusIsError = true
+            hasStoredKey = false
+            return
+        }
+
+        refreshStoredKeyState()
+        if hasStoredKey {
+            apiKeyInput = ""
+            apiKeyStatus = nil
+            apiKeyStatusIsError = false
+        } else {
+            apiKeyStatus = "Key didn't persist — try again."
+            apiKeyStatusIsError = true
+        }
+    }
+
+    private func removeKey() {
         KeychainStore.delete(account: KeychainStore.Account.openAI)
-        apiKeyStatus = "Key cleared."
+        hasStoredKey = false
+        apiKeyInput = ""
+        apiKeyStatus = nil
+        apiKeyStatusIsError = false
     }
 
     private func exportAll() {

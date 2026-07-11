@@ -85,11 +85,54 @@ final class ArticleParser: NSObject {
                     var reader = new Readability(docClone);
                     var article = reader.parse();
                     if (!article) { return null; }
+                    // Derive clean paragraph text from the extracted HTML rather
+                    // than using Readability's raw textContent. Raw textContent
+                    // preserves every whitespace text node between block elements
+                    // (source indentation, empty figure slots), which renders as
+                    // large gaps in the reader. Walking block-level leaf elements
+                    // and joining them with blank lines yields deterministic,
+                    // gap-free paragraph text — the offset space for highlights.
+                    var blockText = (function(html) {
+                        var BLOCK = { P:1, H1:1, H2:1, H3:1, H4:1, H5:1, H6:1,
+                                      LI:1, BLOCKQUOTE:1, PRE:1, FIGCAPTION:1,
+                                      DT:1, DD:1, TD:1, TH:1 };
+                        var container = document.createElement("div");
+                        container.innerHTML = html || "";
+                        var out = [];
+                        function normalize(s) {
+                            return (s || "").replace(/\\s+/g, " ").trim();
+                        }
+                        function hasBlockChild(el) {
+                            for (var i = 0; i < el.children.length; i++) {
+                                var c = el.children[i];
+                                if (BLOCK[c.tagName] || hasBlockChild(c)) { return true; }
+                            }
+                            return false;
+                        }
+                        function walk(el) {
+                            for (var i = 0; i < el.children.length; i++) {
+                                var child = el.children[i];
+                                if (BLOCK[child.tagName] && !hasBlockChild(child)) {
+                                    // PRE keeps its internal whitespace; everything
+                                    // else collapses runs of whitespace to one space.
+                                    var t = child.tagName === "PRE"
+                                        ? (child.textContent || "").replace(/\\s+$/,"")
+                                        : normalize(child.textContent);
+                                    if (t) { out.push(t); }
+                                } else {
+                                    walk(child);
+                                }
+                            }
+                        }
+                        walk(container);
+                        return out.join("\\n\\n");
+                    })(article.content);
                     return {
                         title: article.title || document.title || "",
                         byline: article.byline || null,
                         siteName: article.siteName || null,
                         content: article.content || "",
+                        text: blockText || article.textContent || "",
                         textContent: article.textContent || "",
                         length: article.length || 0,
                         excerpt: article.excerpt || null,
@@ -118,7 +161,12 @@ final class ArticleParser: NSObject {
         let byline = dict["byline"] as? String
         let siteName = dict["siteName"] as? String
         let html = (dict["content"] as? String) ?? ""
-        let text = (dict["textContent"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        // Prefer the gap-free block text; fall back to raw textContent if the
+        // HTML walk produced nothing (e.g. content without block wrappers).
+        let cleaned = (dict["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+        let text = cleaned.isEmpty
+            ? ((dict["textContent"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+            : cleaned
         let hero = (dict["heroImage"] as? String).flatMap { URL(string: $0) }
 
         return Parsed(

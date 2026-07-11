@@ -57,6 +57,10 @@ final class NowPlayingManager {
             return .success
         }
         install(center.pauseCommand) { controller in
+            if controller.state == .buffering {
+                controller.stop()
+                return .success
+            }
             guard controller.state == .playing else { return .commandFailed }
             controller.pause()
             return .success

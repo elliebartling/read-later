@@ -11,6 +11,8 @@ final class TTSController {
 
     enum PlaybackState {
         case idle
+        /// Waiting for the first audio buffer (OpenAI synthesis).
+        case buffering
         case playing
         case paused
     }
@@ -27,6 +29,7 @@ final class TTSController {
     var lastError: String?
 
     var isPlaying: Bool { state == .playing }
+    var isBuffering: Bool { state == .buffering }
     /// True while the player UI (capsule) should be visible.
     var isActive: Bool { state != .idle }
 
@@ -71,9 +74,23 @@ final class TTSController {
         self.nowPlayingArtist = artist
         totalParagraphs = paragraphs.count
         currentParagraph = min(max(0, startAt), max(0, paragraphs.count - 1))
-        state = .playing
+        // Enter buffering/playing *before* constructing the engine so the
+        // player bar can paint on the first tap. OpenAI's AVAudioSession
+        // activation and first synth request are expensive enough that doing
+        // them synchronously here used to leave the UI looking dead.
+        state = initialPlaybackState(for: provider)
         nowPlaying.activate(controller: self)
-        playCurrentService(startAt: currentParagraph)
+        refreshNowPlaying()
+
+        let startAt = currentParagraph
+        if provider == .openAI {
+            Task { @MainActor in
+                guard self.isActive else { return }
+                self.playCurrentService(startAt: startAt)
+            }
+        } else {
+            playCurrentService(startAt: startAt)
+        }
     }
 
     func pause() {
@@ -86,15 +103,20 @@ final class TTSController {
     func resume() {
         guard state == .paused else { return }
         service?.resume()
-        state = .playing
+        if provider == .openAI, service?.isPlaying != true {
+            state = .buffering
+        } else {
+            state = .playing
+        }
         refreshNowPlaying()
     }
 
-    /// Toggles between playing and paused. No-op when idle — the reader
-    /// starts playback explicitly via `start` so it can pass fresh settings.
+    /// Toggles between playing and paused. While buffering, cancel instead —
+    /// there is nothing meaningful to pause yet.
     func togglePlayPause() {
         switch state {
         case .playing: pause()
+        case .buffering: stop()
         case .paused: resume()
         case .idle: break
         }
@@ -148,11 +170,10 @@ final class TTSController {
         currentParagraph = min(max(0, index), paragraphs.count - 1)
         let wasPaused = state == .paused
         playCurrentService(startAt: currentParagraph)
-        state = .playing
+        state = wasPaused ? .paused : initialPlaybackState(for: provider)
         if wasPaused {
             // Preserve the paused state across the restart.
             service?.pause()
-            state = .paused
         }
         refreshNowPlaying()
     }
@@ -208,6 +229,10 @@ final class TTSController {
         )
     }
 
+    private func initialPlaybackState(for provider: TTSProvider) -> PlaybackState {
+        provider == .openAI ? .buffering : .playing
+    }
+
     // Kept out of the @Observable surface so it doesn't spam view updates.
     @MainActor
     private final class DelegateHolder: SpeechServiceDelegate {
@@ -217,6 +242,13 @@ final class TTSController {
         func speechService(_ service: SpeechService, didAdvanceTo paragraphIndex: Int) {
             guard let owner else { return }
             owner.currentParagraph = paragraphIndex
+            owner.refreshNowPlaying()
+        }
+
+        func speechServiceDidBeginPlayback(_ service: SpeechService) {
+            guard let owner else { return }
+            guard owner.state == .buffering else { return }
+            owner.state = .playing
             owner.refreshNowPlaying()
         }
 

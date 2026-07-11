@@ -3,8 +3,9 @@ import SwiftData
 
 /// Floating glass capsule shown while read-aloud is active. Left to right:
 /// animated waveform (doubles as a progress readout; tap to stop), voice
-/// selector, speed cycler, pause/play. Matches the reader mockup — no
-/// scrubber; time remaining lives in the navigation subtitle.
+/// selector, speed cycler, pause/play. While OpenAI is synthesizing the first
+/// chunk, the waveform is replaced by a "Loading" label and the transport
+/// control becomes a cancel button with a spinner ring.
 struct AudioPlayerBar: View {
     let controller: TTSController
     @Bindable var settings: AppSettings
@@ -16,16 +17,24 @@ struct AudioPlayerBar: View {
             Button {
                 controller.stop()
             } label: {
-                WaveformView(isAnimating: controller.isPlaying, progress: controller.progress)
-                    .frame(width: 88, height: 26)
-                    .contentShape(.rect)
+                Group {
+                    if controller.isBuffering {
+                        loadingLabel
+                    } else {
+                        WaveformView(isAnimating: controller.isPlaying, progress: controller.progress)
+                    }
+                }
+                .frame(width: 88, height: 26)
+                .contentShape(.rect)
             }
             .buttonStyle(.plain)
-            .accessibilityLabel("Stop listening")
+            .accessibilityLabel(controller.isBuffering ? "Cancel loading" : "Stop listening")
 
             Spacer(minLength: 12)
 
             voiceMenu
+                .disabled(controller.isBuffering)
+                .opacity(controller.isBuffering ? 0.45 : 1)
 
             Spacer(minLength: 12)
 
@@ -39,25 +48,51 @@ struct AudioPlayerBar: View {
                     .contentShape(.rect)
             }
             .buttonStyle(.plain)
+            .disabled(controller.isBuffering)
+            .opacity(controller.isBuffering ? 0.45 : 1)
             .accessibilityLabel("Playback speed")
 
             Spacer(minLength: 12)
 
-            Button {
-                controller.togglePlayPause()
-            } label: {
-                Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
-                    .font(.title3.weight(.semibold))
-                    .frame(width: 34, height: 34)
-                    .contentShape(.rect)
-            }
-            .buttonStyle(.plain)
-            .accessibilityLabel(controller.isPlaying ? "Pause" : "Play")
+            transportButton
         }
         .foregroundStyle(.primary)
         .padding(.horizontal, 20)
         .padding(.vertical, 11)
         .playerGlassCapsule()
+    }
+
+    private var loadingLabel: some View {
+        HStack(spacing: 6) {
+            Text("Loading")
+                .font(.subheadline.weight(.medium))
+                .foregroundStyle(.secondary)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .accessibilityHidden(true)
+    }
+
+    private var transportButton: some View {
+        Button {
+            controller.togglePlayPause()
+        } label: {
+            ZStack {
+                if controller.isBuffering {
+                    BufferingCancelControl()
+                } else {
+                    Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
+                        .font(.title3.weight(.semibold))
+                }
+            }
+            .frame(width: 34, height: 34)
+            .contentShape(.rect)
+        }
+        .buttonStyle(.plain)
+        .accessibilityLabel(
+            controller.isBuffering
+                ? "Cancel loading"
+                : (controller.isPlaying ? "Pause" : "Play")
+        )
     }
 
     private var voiceMenu: some View {
@@ -127,6 +162,28 @@ struct AudioPlayerBar: View {
         while s.hasSuffix("0") { s.removeLast() }
         if s.hasSuffix(".") { s.removeLast() }
         return s + "x"
+    }
+}
+
+/// Stop glyph inside a spinning indeterminate ring — used while OpenAI is
+/// synthesizing the first paragraph.
+private struct BufferingCancelControl: View {
+    var body: some View {
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { timeline in
+            let turns = timeline.date.timeIntervalSinceReferenceDate * 1.6
+            ZStack {
+                Circle()
+                    .stroke(.primary.opacity(0.15), lineWidth: 2)
+                Circle()
+                    .trim(from: 0, to: 0.72)
+                    .stroke(.primary, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .rotationEffect(.degrees(turns * 360))
+                Image(systemName: "stop.fill")
+                    .font(.system(size: 10, weight: .semibold))
+            }
+            .frame(width: 28, height: 28)
+        }
+        .accessibilityHidden(true)
     }
 }
 

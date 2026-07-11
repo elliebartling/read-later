@@ -28,7 +28,7 @@ private final class FakeSpeechService: SpeechService {
 
     func play(paragraphs: [String], voice: String, rate: Double, startAt: Int) {
         playCalls.append(PlayCall(paragraphCount: paragraphs.count, voice: voice, rate: rate, startAt: startAt))
-        isPlaying = true
+        isPlaying = false
     }
 
     func pause() {
@@ -53,6 +53,10 @@ private final class FakeSpeechService: SpeechService {
     // Test helpers to drive delegate callbacks like a real engine would.
     func advance(to index: Int) {
         delegate?.speechService(self, didAdvanceTo: index)
+    }
+
+    func beginPlayback() {
+        delegate?.speechServiceDidBeginPlayback(self)
     }
 
     func finish(successfully: Bool, errorMessage: String? = nil) {
@@ -250,5 +254,40 @@ final class TTSControllerTests: XCTestCase {
         XCTAssertEqual(controller.progress, 1.0 / 3.0, accuracy: 0.001)
         controller.stop()
         XCTAssertEqual(controller.progress, 0, accuracy: 0.001)
+    }
+
+    func testOpenAIStartEntersBufferingUntilAudioReady() async {
+        controller.start(
+            paragraphs: ["one two", "three four"],
+            provider: .openAI,
+            voice: "alloy",
+            rate: 1.0,
+            title: "Test Article"
+        )
+        XCTAssertEqual(controller.state, .buffering)
+        XCTAssertFalse(controller.isPlaying)
+        XCTAssertTrue(controller.isActive)
+
+        // OpenAI engine start is deferred a turn so the player bar can paint.
+        await Task.yield()
+        XCTAssertEqual(fake.playCalls.count, 1)
+
+        fake.beginPlayback()
+        XCTAssertEqual(controller.state, .playing)
+        XCTAssertTrue(controller.isPlaying)
+    }
+
+    func testCancelDuringBufferingStops() async {
+        controller.start(
+            paragraphs: ["one two"],
+            provider: .openAI,
+            voice: "alloy",
+            rate: 1.0,
+            title: "Test Article"
+        )
+        XCTAssertEqual(controller.state, .buffering)
+        controller.togglePlayPause()
+        XCTAssertEqual(controller.state, .idle)
+        XCTAssertFalse(controller.isActive)
     }
 }

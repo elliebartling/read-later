@@ -31,6 +31,8 @@ final class OpenAITTSService: NSObject, SpeechService {
     private var enqueuedThrough: Int = -1
     private var previousSynthTask: Task<Void, Never>?
     private var isRunning: Bool = false
+    private var wantsPlayback = false
+    private var hasSignaledPlaybackStart = false
     private var tempFiles: [URL] = []
 
     /// Number of paragraphs synthesized ahead of the currently-playing one.
@@ -79,25 +81,32 @@ final class OpenAITTSService: NSObject, SpeechService {
         self.currentRate = rate
         self.enqueuedThrough = self.currentIndex - 1
         self.isRunning = true
+        self.wantsPlayback = true
+        self.hasSignaledPlaybackStart = false
         delegate?.speechService(self, didAdvanceTo: currentIndex)
         pipelineNext()
     }
 
-    func pause() { player.pause() }
+    func pause() {
+        wantsPlayback = false
+        player.pause()
+    }
 
     func resume() {
-        // player.play() would reset the rate to 1.0 — restore the chosen speed.
-        player.rate = Float(currentRate)
+        wantsPlayback = true
+        startPlaybackIfReady()
     }
 
     func setRate(_ rate: Double) {
         currentRate = rate
-        if player.timeControlStatus == .playing {
+        if wantsPlayback, player.timeControlStatus == .playing {
             player.rate = Float(rate)
         }
     }
 
     func stop() {
+        wantsPlayback = false
+        hasSignaledPlaybackStart = false
         player.pause()
         player.removeAllItems()
         paragraphs = []
@@ -107,6 +116,16 @@ final class OpenAITTSService: NSObject, SpeechService {
         previousSynthTask = nil
         isRunning = false
         cleanupTempFiles()
+    }
+
+    /// Starts the queue only when the user wants playback and audio is ready.
+    private func startPlaybackIfReady() {
+        guard wantsPlayback, isRunning, !player.items().isEmpty else { return }
+        player.playImmediately(atRate: Float(currentRate))
+        if !hasSignaledPlaybackStart {
+            hasSignaledPlaybackStart = true
+            delegate?.speechServiceDidBeginPlayback(self)
+        }
     }
 
     // MARK: - Pipeline
@@ -149,9 +168,7 @@ final class OpenAITTSService: NSObject, SpeechService {
                 let item = AVPlayerItem(url: url)
                 item.audioTimePitchAlgorithm = .timeDomain
                 self.player.insert(item, after: nil)
-                if self.player.timeControlStatus != .playing {
-                    self.player.rate = Float(self.currentRate)
-                }
+                self.startPlaybackIfReady()
             }
             previousSynthTask = task
         }

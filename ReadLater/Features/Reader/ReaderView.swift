@@ -7,7 +7,12 @@ struct ReaderView: View {
     let article: Article
 
     @State private var tts = TTSController()
-    @State private var pendingNoteIntent: HighlightableTextView.HighlightIntent?
+    @State private var editingHighlight: Highlight?
+    /// When true, the edit sheet focuses the note field on appear (Add Note).
+    @State private var focusNoteOnAppear = false
+    /// Deletion requested from the edit sheet — performed after the sheet
+    /// dismisses so the sheet never renders a deleted model.
+    @State private var pendingDeleteID: UUID?
     @State private var showingTypographyControls = false
     @State private var showingTagSheet = false
     /// Immersive reading: the top chrome starts hidden and a tap toggles it.
@@ -15,6 +20,14 @@ struct ReaderView: View {
     /// Scroll position as a 0...1 fraction, kept minute-granular via
     /// `readingMinutesLeft` so scrolling doesn't spam view updates.
     @State private var readingMinutesLeft: Int?
+
+    /// Color for instantly-created highlights; updated whenever the user picks
+    /// a color, so new highlights reuse the last choice.
+    @AppStorage("lastHighlightColor") private var lastHighlightColorRaw = HighlightColor.yellow.rawValue
+
+    private var lastHighlightColor: HighlightColor {
+        HighlightColor(rawValue: lastHighlightColorRaw) ?? .yellow
+    }
 
     /// Chrome is forced visible outside the ready reading state so the user
     /// always has a back button while an article is parsing or has failed.
@@ -137,10 +150,16 @@ struct ReaderView: View {
         .sheet(isPresented: $showingTagSheet) {
             TagAssignmentSheet(article: article)
         }
-        .sheet(item: $pendingNoteIntent) { intent in
-            HighlightNoteSheet(intent: intent) { note in
-                persistHighlight(intent: intent, note: note)
+        .sheet(item: $editingHighlight, onDismiss: finishHighlightEditing) { highlight in
+            HighlightEditSheet(
+                highlight: highlight,
+                focusNoteOnAppear: focusNoteOnAppear
+            ) {
+                pendingDeleteID = highlight.id
             }
+            .presentationDetents([.medium, .large])
+            // Let the user drag selection handles in the reader behind the sheet.
+            .presentationBackgroundInteraction(.enabled(upThrough: .medium))
         }
         .alert(
             "Couldn't read aloud",
@@ -170,7 +189,20 @@ struct ReaderView: View {
                 theme: settings.readerTheme,
                 fontSize: CGFloat(settings.readerFontSize),
                 fontRaw: settings.readerFontRaw,
-                onHighlight: handleIntent,
+                defaultColor: lastHighlightColor,
+                editingHighlightID: editingHighlight?.id,
+                onCreateHighlight: createHighlight,
+                onUpdateHighlight: updateHighlight,
+                onRecolorHighlight: recolorHighlight,
+                onDeleteHighlight: deleteHighlight,
+                onRequestNote: { id in
+                    focusNoteOnAppear = true
+                    editingHighlight = findHighlight(id)
+                },
+                onTapHighlight: { id in
+                    focusNoteOnAppear = false
+                    editingHighlight = findHighlight(id)
+                },
                 onScrollProgress: handleScrollProgress,
                 onTap: {
                     withAnimation(.easeInOut(duration: 0.25)) {
@@ -245,26 +277,64 @@ struct ReaderView: View {
         try? context.save()
     }
 
-    private func handleIntent(_ intent: HighlightableTextView.HighlightIntent) {
-        if intent.requestsNote {
-            pendingNoteIntent = intent
-        } else {
-            persistHighlight(intent: intent, note: nil)
-        }
+    // MARK: - Highlight actions
+
+    private func findHighlight(_ id: UUID) -> Highlight? {
+        article.allHighlights.first { $0.id == id }
     }
 
-    private func persistHighlight(intent: HighlightableTextView.HighlightIntent, note: String?) {
+    private func createHighlight(_ intent: HighlightableTextView.HighlightIntent) -> UUID? {
         let h = Highlight(
             article: article,
             startOffset: intent.startOffset,
             endOffset: intent.endOffset,
             quotedText: intent.quotedText,
-            color: intent.color,
-            note: note
+            color: intent.color
         )
         context.insert(h)
         try? context.save()
         Task { exportToObsidian(silent: true) }
+        return h.id
+    }
+
+    /// Selection handles were dragged after the instant highlight was created:
+    /// move the existing highlight instead of stacking a duplicate. Obsidian
+    /// export is deferred to sheet dismiss / create / recolor / delete so
+    /// handle drags don't thrash the filesystem.
+    private func updateHighlight(id: UUID, range: NSRange, quotedText: String) {
+        guard let h = findHighlight(id) else { return }
+        h.startOffset = range.location
+        h.endOffset = range.location + range.length
+        h.quotedText = quotedText
+        try? context.save()
+    }
+
+    private func recolorHighlight(id: UUID, color: HighlightColor) {
+        guard let h = findHighlight(id) else { return }
+        h.color = color
+        lastHighlightColorRaw = color.rawValue
+        try? context.save()
+        Task { exportToObsidian(silent: true) }
+    }
+
+    private func deleteHighlight(id: UUID) {
+        guard let h = findHighlight(id) else { return }
+        context.delete(h)
+        try? context.save()
+        Task { exportToObsidian(silent: true) }
+    }
+
+    /// Runs when the edit sheet dismisses: perform a deferred delete, or
+    /// persist whatever the sheet changed (note, color, range via handles).
+    private func finishHighlightEditing() {
+        focusNoteOnAppear = false
+        if let id = pendingDeleteID {
+            pendingDeleteID = nil
+            deleteHighlight(id: id)
+        } else {
+            try? context.save()
+            Task { exportToObsidian(silent: true) }
+        }
     }
 
     private func exportToObsidian(silent: Bool = false) {
@@ -317,10 +387,6 @@ extension View {
                 }
             }
     }
-}
-
-extension HighlightableTextView.HighlightIntent: Identifiable {
-    var id: String { "\(startOffset)-\(endOffset)-\(color.rawValue)" }
 }
 
 extension UIColor {

@@ -26,6 +26,8 @@ protocol SpeechService: AnyObject {
 @MainActor
 protocol SpeechServiceDelegate: AnyObject {
     func speechService(_ service: SpeechService, didAdvanceTo paragraphIndex: Int)
+    /// First audible output is ready (OpenAI after synthesis; Apple at utterance start).
+    func speechServiceDidBeginPlayback(_ service: SpeechService)
     /// `errorMessage` is non-nil when playback ended because of a failure the
     /// user should see (missing API key, HTTP error) — not on normal finish
     /// or user-initiated stop.

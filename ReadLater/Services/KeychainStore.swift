@@ -6,7 +6,8 @@ import Security
 enum KeychainStore {
     private static let service = "com.ellenbartling.readlater"
 
-    static func set(_ value: String, account: String) {
+    @discardableResult
+    static func set(_ value: String, account: String) -> Bool {
         let data = Data(value.utf8)
         let base: [String: Any] = [
             kSecClass as String: kSecClassGenericPassword,
@@ -17,7 +18,11 @@ enum KeychainStore {
         var attrs = base
         attrs[kSecValueData as String] = data
         attrs[kSecAttrAccessible as String] = kSecAttrAccessibleAfterFirstUnlock
-        SecItemAdd(attrs as CFDictionary, nil)
+        let status = SecItemAdd(attrs as CFDictionary, nil)
+        if status != errSecSuccess {
+            NSLog("KeychainStore.set failed for account %@: OSStatus %d", account, Int(status))
+        }
+        return status == errSecSuccess
     }
 
     static func get(account: String) -> String? {
@@ -30,7 +35,12 @@ enum KeychainStore {
         ]
         var result: AnyObject?
         let status = SecItemCopyMatching(query as CFDictionary, &result)
-        guard status == errSecSuccess, let data = result as? Data else { return nil }
+        guard status == errSecSuccess, let data = result as? Data else {
+            if status != errSecItemNotFound {
+                NSLog("KeychainStore.get failed for account %@: OSStatus %d", account, Int(status))
+            }
+            return nil
+        }
         return String(data: data, encoding: .utf8)
     }
 
