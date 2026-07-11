@@ -18,6 +18,7 @@ struct LibraryView: View {
     var body: some View {
         NavigationStack {
             List {
+                ScrollDetectorRow()
                 if filtered.isEmpty {
                     ContentUnavailableView(
                         "No articles yet",
@@ -60,6 +61,7 @@ struct LibraryView: View {
             .sheet(isPresented: $showingAddSheet) {
                 AddArticleSheet()
             }
+            .hidesTabBarOnScrollDown()
         }
     }
 

@@ -8,9 +8,12 @@ struct SearchView: View {
 
     var body: some View {
         NavigationStack {
-            List(results) { article in
-                NavigationLink(value: article) {
-                    ArticleRow(article: article)
+            List {
+                ScrollDetectorRow()
+                ForEach(results) { article in
+                    NavigationLink(value: article) {
+                        ArticleRow(article: article)
+                    }
                 }
             }
             .listStyle(.plain)
@@ -22,6 +25,7 @@ struct SearchView: View {
             .navigationDestination(for: Article.self) { article in
                 ReaderView(article: article)
             }
+            .hidesTabBarOnScrollDown()
             .overlay {
                 if query.isEmpty {
                     ContentUnavailableView("Search", systemImage: "magnifyingglass",
