@@ -29,18 +29,6 @@ private struct SettingsForm: View {
     @State private var showingFolderPicker = false
     @State private var lastExportStatus: String?
 
-    private static let openAIVoices = ["alloy", "echo", "fable", "onyx", "nova", "shimmer"]
-
-    /// English voices first, then everything else, both alphabetized.
-    private var appleVoices: [AVSpeechSynthesisVoice] {
-        AVSpeechSynthesisVoice.speechVoices().sorted {
-            let lhsEnglish = $0.language.hasPrefix("en")
-            let rhsEnglish = $1.language.hasPrefix("en")
-            if lhsEnglish != rhsEnglish { return lhsEnglish }
-            return ($0.language, $0.name) < ($1.language, $1.name)
-        }
-    }
-
     var body: some View {
         Form {
             Section("Read Aloud") {
@@ -53,15 +41,20 @@ private struct SettingsForm: View {
                 case .apple:
                     Picker("Voice", selection: $settings.appleVoiceID) {
                         Text("System Default").tag("")
-                        ForEach(appleVoices, id: \.identifier) { voice in
+                        ForEach(VoiceCatalog.appleVoices(), id: \.identifier) { voice in
                             Text("\(voice.name) (\(voice.language))").tag(voice.identifier)
                         }
                     }
                 case .openAI:
                     Picker("Voice", selection: $settings.openAIVoice) {
-                        ForEach(Self.openAIVoices, id: \.self) { v in
+                        ForEach(VoiceCatalog.openAIVoices, id: \.self) { v in
                             Text(v.capitalized).tag(v)
                         }
+                    }
+                }
+                Picker("Speed", selection: $settings.ttsRate) {
+                    ForEach([0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { r in
+                        Text(AudioPlayerBar.speedLabel(for: r)).tag(r)
                     }
                 }
             }

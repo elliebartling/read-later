@@ -76,6 +76,13 @@ struct HighlightableTextView: UIViewRepresentable {
             }
             context.coordinator.lastRenderSignature = signature
         }
+        // Keep the spoken paragraph on screen as TTS advances.
+        if currentSpokenRange?.location != context.coordinator.lastSpokenLocation {
+            context.coordinator.lastSpokenLocation = currentSpokenRange?.location
+            if let range = currentSpokenRange {
+                context.coordinator.scrollToKeepVisible(range: range, in: tv)
+            }
+        }
     }
 
     func makeCoordinator() -> Coordinator { Coordinator() }
@@ -127,6 +134,36 @@ struct HighlightableTextView: UIViewRepresentable {
         weak var textView: UITextView?
         var parent: HighlightableTextView?
         var lastRenderSignature: String = ""
+        var lastSpokenLocation: Int?
+
+        /// Scrolls so the spoken paragraph stays visible while TTS advances,
+        /// without hijacking the view when the user is reading elsewhere.
+        func scrollToKeepVisible(range: NSRange, in tv: UITextView) {
+            // Never fight the user's finger.
+            guard !tv.isTracking, !tv.isDragging, !tv.isDecelerating else { return }
+            guard range.location + range.length <= (tv.text as NSString).length else { return }
+
+            tv.layoutManager.ensureLayout(forCharacterRange: range)
+            let glyphRange = tv.layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
+            var rect = tv.layoutManager.boundingRect(forGlyphRange: glyphRange, in: tv.textContainer)
+            rect.origin.y += tv.textContainerInset.top
+
+            let visibleTop = tv.contentOffset.y + tv.adjustedContentInset.top
+            let visibleHeight = tv.bounds.height - tv.adjustedContentInset.top - tv.adjustedContentInset.bottom
+            let visibleBottom = visibleTop + visibleHeight
+
+            // Only move when the paragraph's start drifts out of the
+            // comfortable band (with some margin for the player capsule).
+            let margin: CGFloat = 90
+            guard rect.minY < visibleTop + 8 || rect.minY > visibleBottom - margin else { return }
+
+            // Place the paragraph in the upper third, clamped to content.
+            let targetY = rect.minY - visibleHeight / 3
+            let maxOffset = max(-tv.adjustedContentInset.top,
+                                tv.contentSize.height - tv.bounds.height + tv.adjustedContentInset.bottom)
+            let clamped = min(max(-tv.adjustedContentInset.top, targetY - tv.adjustedContentInset.top), maxOffset)
+            tv.setContentOffset(CGPoint(x: 0, y: clamped), animated: true)
+        }
 
         @objc func handleTap(_ gesture: UITapGestureRecognizer) {
             guard gesture.state == .ended, let tv = textView else { return }
