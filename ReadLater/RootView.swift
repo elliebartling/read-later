@@ -1,6 +1,8 @@
 import SwiftUI
+import SwiftData
 
 struct RootView: View {
+    @Environment(\.modelContext) private var context
     @Environment(AppModel.self) private var appModel
 
     var body: some View {
@@ -21,6 +23,46 @@ struct RootView: View {
             SettingsView()
                 .tabItem { Label("Settings", systemImage: "gearshape") }
                 .tag(AppModel.Tab.settings)
+        }
+        .task {
+            await PendingSaveIngest.drain(context: context)
+        }
+        .onOpenURL { url in
+            Task { await handleDeepLink(url) }
+        }
+    }
+
+    private func handleDeepLink(_ url: URL) async {
+        guard url.scheme == AppGroup.urlScheme else { return }
+        let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
+
+        switch url.host {
+        case AppGroup.saveDeepLinkHost:
+            // readlater://save?url=<encoded> — used by the Safari Web Extension
+            // toolbar button; write a PendingSave and drain.
+            if let target = comps?.queryItems?.first(where: { $0.name == "url" })?.value,
+               let targetURL = URL(string: target)
+            {
+                let pending = PendingSave(url: targetURL, source: .urlScheme)
+                try? pending.write()
+                await PendingSaveIngest.drain(context: context)
+                appModel.selectedTab = .library
+                appModel.pendingArticleToOpen = pending.id
+            }
+
+        case AppGroup.openDeepLinkHost:
+            // readlater://open?id=<uuid> — fired by the Share Extension after
+            // it writes the pending save; we drain first (which inserts the
+            // stub Article using the SAME uuid) and then hand the id off to
+            // LibraryView for navigation.
+            guard let idStr = comps?.queryItems?.first(where: { $0.name == "id" })?.value,
+                  let id = UUID(uuidString: idStr) else { return }
+            appModel.selectedTab = .library
+            await PendingSaveIngest.drain(context: context)
+            appModel.pendingArticleToOpen = id
+
+        default:
+            break
         }
     }
 }

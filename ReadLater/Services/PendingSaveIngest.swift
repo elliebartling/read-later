@@ -2,45 +2,80 @@ import Foundation
 import SwiftData
 
 /// Drains PendingSave JSONs from the App Group container into SwiftData.
-/// Runs on app foreground and after a share/deep link fires.
+///
+/// Two-phase design:
+/// 1. **Insert stub** — synchronously insert an `Article` for each pending save,
+///    reusing the pending save's UUID as the article's UUID so a share-sheet
+///    deep link like `readlater://open?id=<uuid>` resolves immediately.
+/// 2. **Parse** — kick off background Tasks that run `ArticleParser` and fill
+///    in `plainText`, `title`, etc. once the WKWebView finishes.
+///
+/// Callers `await drain(context:)` and by the time it returns, phase 1 is
+/// complete and the deep link can push a `ReaderView` — even if phase 2 hasn't
+/// finished yet (ReaderView shows a loading state on `parseStatus == .pending`).
 @MainActor
-final class PendingSaveIngest {
-    static let shared = PendingSaveIngest()
+enum PendingSaveIngest {
 
-    private var context: ModelContext? {
-        // Grab the app's main context lazily. The App scene attaches its
-        // ModelContainer via `.modelContainer(...)`, which we can reach via
-        // ModelContainer.default once the app is up. We fall back to nil in
-        // tests / previews.
-        // In practice we accept an explicit context via `drain(using:)`.
-        nil
+    /// Serial chain so overlapping drain() calls (e.g. `.task` + `.onOpenURL`
+    /// firing on cold start) don't double-process the same file.
+    private static var chain: Task<Void, Never>?
+
+    /// Parses are serialized too because ArticleParser's WKWebView is single-slot.
+    private static var parseChain: Task<Void, Never>?
+
+    static func drain(context: ModelContext) async {
+        let prior = chain
+        let mine = Task { @MainActor in
+            _ = await prior?.value
+            await doDrain(context: context)
+        }
+        chain = mine
+        _ = await mine.value
     }
 
-    func drain() async {
+    private static func doDrain(context: ModelContext) async {
         let saves = PendingSave.loadAll()
         guard !saves.isEmpty else { return }
-        for save in saves {
-            await ingest(save)
-            PendingSave.remove(id: save.id)
-        }
-    }
 
-    private func ingest(_ save: PendingSave) async {
-        do {
-            let container = SharedModelContainer.make()
-            let ctx = container.mainContext
-            let placeholderTitle = save.title ?? save.url.host ?? save.url.absoluteString
+        var toParse: [(UUID, String?)] = []
+        for save in saves {
+            let id = save.id
+            var descriptor = FetchDescriptor<Article>(predicate: #Predicate { $0.id == id })
+            descriptor.fetchLimit = 1
+            let existing = (try? context.fetch(descriptor)) ?? []
+            if !existing.isEmpty {
+                PendingSave.remove(id: save.id)
+                continue
+            }
             let article = Article(
+                id: save.id,
                 url: save.url,
-                title: placeholderTitle,
+                title: save.title ?? save.url.host ?? save.url.absoluteString,
                 savedAt: save.savedAt,
                 parseStatus: .pending
             )
-            ctx.insert(article)
-            try ctx.save()
+            context.insert(article)
+            toParse.append((save.id, save.capturedHTML))
+            PendingSave.remove(id: save.id)
+        }
+        try? context.save()
 
-            let parsed = try await ArticleParser.shared.parse(url: save.url, prefetchedHTML: save.capturedHTML)
-            article.title = parsed.title.isEmpty ? placeholderTitle : parsed.title
+        for (id, html) in toParse {
+            let prior = parseChain
+            parseChain = Task { @MainActor in
+                _ = await prior?.value
+                await parseOne(id: id, context: context, prefetchedHTML: html)
+            }
+        }
+    }
+
+    private static func parseOne(id: UUID, context: ModelContext, prefetchedHTML: String?) async {
+        var descriptor = FetchDescriptor<Article>(predicate: #Predicate { $0.id == id })
+        descriptor.fetchLimit = 1
+        guard let article = try? context.fetch(descriptor).first else { return }
+        do {
+            let parsed = try await ArticleParser.shared.parse(url: article.url, prefetchedHTML: prefetchedHTML)
+            article.title = parsed.title.isEmpty ? article.title : parsed.title
             article.author = parsed.author
             article.siteName = parsed.siteName
             article.plainText = parsed.plainText
@@ -48,10 +83,12 @@ final class PendingSaveIngest {
             article.heroImageURL = parsed.heroImageURL
             article.estimatedReadingMinutes = parsed.estimatedReadingMinutes
             article.parseStatus = .ready
-            try ctx.save()
+            try context.save()
         } catch {
-            // Mark failed but keep the row so the user can retry.
-            NSLog("PendingSaveIngest failed for %@: %@", save.url.absoluteString, String(describing: error))
+            NSLog("PendingSaveIngest parse failed for %@: %@",
+                  article.url.absoluteString, String(describing: error))
+            article.parseStatus = .failed
+            try? context.save()
         }
     }
 }

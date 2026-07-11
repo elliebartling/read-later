@@ -62,13 +62,22 @@ ReadLaterTests/           XCTest unit tests
 
 - **Highlight anchoring.** A highlight persists both `(startOffset, endOffset)` into `Article.plainText` AND the `quotedText` itself. On render, offsets are tried first; on miss we search for the quoted text (with a whitespace-collapsed fallback) and update. This keeps highlights stable across re-parses. See `ReadLater/Services/Highlighting/HighlightAnchor.swift`.
 - **Article extraction.** Runs Readability.js in an off-screen `WKWebView`. The extracted plain text becomes the offset space for highlights; the extracted HTML is retained for future rich rendering.
-- **Save pipeline.** The Share Extension does NOT touch the CloudKit sync channel. It writes a `PendingSave` JSON into the App Group container; the main app drains this on foreground.
+- **Save pipeline.** The Share Extension does NOT touch the CloudKit sync channel. It writes a `PendingSave` JSON into the App Group container; the main app drains this on foreground. After writing the pending save, the extension deep-links back into the app (`readlater://open?id=<uuid>`) via the responder-chain `openURL:` trick so the user lands directly on the reader.
 - **CloudKit constraints.** All SwiftData `@Model`s use optional relationships and non-required uniqueness where CloudKit requires it.
 - **Obsidian export.** Deterministic markdown render → idempotent writes → doesn't churn file watchers.
 
 ## Roadmap
 
-See the plan doc at `/root/.claude/plans/repository-i-want-to-inherited-honey.md` for the full plan. MVP is items 1-9 there; YouTube, RSS, Shortcuts, and Pocket import are v2.
+See the plan doc at `/root/.claude/plans/repository-i-want-to-inherited-honey.md` for the full plan. MVP is items 1-9 there.
+
+**v2 backlog**
+
+- YouTube (transcript fetch + rendering; Whisper fallback)
+- Native RSS reader
+- Shortcuts intents (Save URL, Export Highlights, Read Aloud)
+- Pocket / Instapaper import
+- macOS Catalyst / visionOS
+- **Apple on-device intelligence.** Use Writing Tools (iOS 18+) or the Foundation Models framework (iOS 26+) to (a) auto-summarize a freshly-parsed article into a 2–3 sentence tl;dr shown above the reader body and (b) suggest tags by prompting the on-device model with the article title + first N paragraphs and matching against the user's existing `Tag` set. Both are on-device and free of API cost, so they can run automatically on every save. Requires bumping the deployment target to iOS 18 (Writing Tools) or 26 (Foundation Models) and gating with `#available`.
 
 ## License
 

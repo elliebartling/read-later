@@ -5,6 +5,7 @@ enum AppGroup {
     static let iCloudContainer = "iCloud.com.ellenbartling.readlater"
     static let urlScheme = "readlater"
     static let saveDeepLinkHost = "save"
+    static let openDeepLinkHost = "open"
 
     static var containerURL: URL {
         guard let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier) else {

@@ -33,16 +33,8 @@ struct ReaderView: View {
             settings.readerTheme.background.swiftUIColor
                 .ignoresSafeArea()
 
-            HighlightableTextView(
-                text: article.plainText,
-                highlights: article.highlights,
-                currentSpokenRange: currentParagraphRange,
-                theme: settings.readerTheme,
-                fontSize: CGFloat(settings.readerFontSize),
-                fontFamily: settings.readerFontFamily,
-                onHighlight: handleIntent
-            )
-            .ignoresSafeArea(.container, edges: .bottom)
+            readerContent
+                .ignoresSafeArea(.container, edges: .bottom)
 
             if tts.totalParagraphs > 0 {
                 TTSPlayerBar(controller: tts)
@@ -96,6 +88,52 @@ struct ReaderView: View {
             HighlightNoteSheet(intent: intent) { note in
                 persistHighlight(intent: intent, note: note)
             }
+        }
+    }
+
+    @ViewBuilder
+    private var readerContent: some View {
+        switch article.parseStatus {
+        case .pending:
+            parsingState
+        case .failed:
+            failedState
+        case .ready:
+            HighlightableTextView(
+                text: article.plainText,
+                highlights: article.highlights,
+                currentSpokenRange: currentParagraphRange,
+                theme: settings.readerTheme,
+                fontSize: CGFloat(settings.readerFontSize),
+                fontFamily: settings.readerFontFamily,
+                onHighlight: handleIntent
+            )
+        }
+    }
+
+    private var parsingState: some View {
+        VStack(spacing: 18) {
+            ProgressView().controlSize(.large)
+            Text("Extracting article…")
+                .font(.headline)
+                .foregroundStyle(.secondary)
+            if let host = article.url.host {
+                Text(host)
+                    .font(.footnote)
+                    .foregroundStyle(.tertiary)
+            }
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+    }
+
+    private var failedState: some View {
+        ContentUnavailableView {
+            Label("Couldn't parse this page", systemImage: "exclamationmark.triangle")
+        } description: {
+            Text("The extractor didn't find readable content on \(article.url.host ?? "this page").")
+        } actions: {
+            Link(destination: article.url) { Text("Open in Safari") }
+                .buttonStyle(.borderedProminent)
         }
     }
 

@@ -4,8 +4,13 @@ import UniformTypeIdentifiers
 
 /// Minimal share sheet UI: pulls the URL (and, if available, the current
 /// page's HTML) out of the incoming extension context, writes a PendingSave
-/// JSON into the App Group container, and dismisses. The main app drains
-/// the queue on next foreground.
+/// JSON into the App Group container, kicks the main app open at the reader
+/// via `readlater://open?id=<pending-save-uuid>`, then dismisses.
+///
+/// The main app's `RootView.handleDeepLink` drains PendingSaves before setting
+/// `AppModel.pendingArticleToOpen`, so LibraryView finds the freshly-inserted
+/// stub Article and pushes ReaderView immediately (parse continues in the
+/// background; the reader shows a loading state until it lands).
 final class ShareViewController: UIViewController {
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -72,12 +77,38 @@ final class ShareViewController: UIViewController {
                 source: .shareExtension
             )
             try? pending.write()
+            openContainingApp(articleID: pending.id)
         }
         complete()
     }
 
+    /// Uses the responder-chain trick to reach the extension's own
+    /// `UIApplication` and dispatch `openURL:`. Share extensions can't touch
+    /// `UIApplication.shared` directly (linker refuses), but they can walk the
+    /// responder chain to find one that responds to the legacy openURL:
+    /// selector — this is the widely-used pattern for share-to-open flows.
+    private func openContainingApp(articleID: UUID) {
+        var comps = URLComponents()
+        comps.scheme = AppGroup.urlScheme
+        comps.host = AppGroup.openDeepLinkHost
+        comps.queryItems = [URLQueryItem(name: "id", value: articleID.uuidString)]
+        guard let deepLink = comps.url else { return }
+
+        let selector = NSSelectorFromString("openURL:")
+        var responder: UIResponder? = self as UIResponder
+        while let r = responder {
+            if r.responds(to: selector) {
+                _ = r.perform(selector, with: deepLink)
+                return
+            }
+            responder = r.next
+        }
+    }
+
     private func complete() {
-        DispatchQueue.main.asyncAfter(deadline: .now() + 0.2) {
+        // Small delay so the openURL: dispatched above has a chance to fire
+        // before the extension host tears us down.
+        DispatchQueue.main.asyncAfter(deadline: .now() + 0.35) {
             self.extensionContext?.completeRequest(returningItems: nil)
         }
     }

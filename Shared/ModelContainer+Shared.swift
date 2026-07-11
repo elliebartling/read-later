@@ -6,7 +6,6 @@ enum SharedModelContainer {
     /// The Share Extension does NOT open this; it writes a PendingSave JSON
     /// instead, so it stays fast and avoids fighting with the app for the
     /// CloudKit sync channel.
-    @MainActor
     static func make(inMemory: Bool = false) -> ModelContainer {
         let schema = Schema([
             Article.self,
