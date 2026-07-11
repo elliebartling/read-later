@@ -34,6 +34,9 @@ struct HighlightableTextView: UIViewRepresentable {
     let fontRaw: String
     let onHighlight: (HighlightIntent) -> Void
     var onScrollProgress: ((Double) -> Void)? = nil
+    /// Fired on a plain single tap in the body (not a selection or link tap),
+    /// so the reader can toggle its chrome the way Books/Reader do.
+    var onTap: (() -> Void)? = nil
 
     func makeUIView(context: Context) -> UITextView {
         let tv = UITextView()
@@ -47,6 +50,16 @@ struct HighlightableTextView: UIViewRepresentable {
         tv.delegate = context.coordinator
         context.coordinator.textView = tv
         context.coordinator.parent = self
+
+        // Single-tap toggles the reader chrome. cancelsTouchesInView = false and
+        // simultaneous recognition keep the text view's own gestures (link taps,
+        // selection handles, the long-press that starts a selection) intact.
+        let tap = UITapGestureRecognizer(target: context.coordinator,
+                                         action: #selector(Coordinator.handleTap(_:)))
+        tap.delegate = context.coordinator
+        tap.cancelsTouchesInView = false
+        tv.addGestureRecognizer(tap)
+
         return tv
     }
 
@@ -110,10 +123,39 @@ struct HighlightableTextView: UIViewRepresentable {
 
     // MARK: - Coordinator
 
-    final class Coordinator: NSObject, UITextViewDelegate {
+    final class Coordinator: NSObject, UITextViewDelegate, UIGestureRecognizerDelegate {
         weak var textView: UITextView?
         var parent: HighlightableTextView?
         var lastRenderSignature: String = ""
+
+        @objc func handleTap(_ gesture: UITapGestureRecognizer) {
+            guard gesture.state == .ended, let tv = textView else { return }
+            // A tap that lands on an active selection or a link is meant for
+            // the text view (dismiss selection / open link), not chrome toggling.
+            if tv.selectedRange.length > 0 { return }
+            let point = gesture.location(in: tv)
+            if isLink(at: point, in: tv) { return }
+            parent?.onTap?()
+        }
+
+        /// True if `point` falls on a `.link`-attributed glyph.
+        private func isLink(at point: CGPoint, in tv: UITextView) -> Bool {
+            let inset = tv.textContainerInset
+            let local = CGPoint(x: point.x - inset.left, y: point.y - inset.top)
+            guard tv.textStorage.length > 0 else { return false }
+            let index = tv.layoutManager.characterIndex(
+                for: local,
+                in: tv.textContainer,
+                fractionOfDistanceBetweenInsertionPoints: nil
+            )
+            guard index < tv.textStorage.length else { return false }
+            return tv.textStorage.attribute(.link, at: index, effectiveRange: nil) != nil
+        }
+
+        func gestureRecognizer(_ gestureRecognizer: UIGestureRecognizer,
+                               shouldRecognizeSimultaneouslyWith other: UIGestureRecognizer) -> Bool {
+            true
+        }
 
         // The supported customization point for a UITextView's selection menu.
         func textView(_ textView: UITextView,

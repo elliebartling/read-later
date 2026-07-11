@@ -9,6 +9,14 @@ struct ReaderView: View {
     @State private var tts = TTSController()
     @State private var pendingNoteIntent: HighlightableTextView.HighlightIntent?
     @State private var showingTypographyControls = false
+    /// Immersive reading: the top chrome starts hidden and a tap toggles it.
+    @State private var chromeVisible = false
+
+    /// Chrome is forced visible outside the ready reading state so the user
+    /// always has a back button while an article is parsing or has failed.
+    private var showChrome: Bool {
+        chromeVisible || article.parseStatus != .ready
+    }
 
     // A row is seeded at startup (RootView); the transient fallback only
     // covers the first render tick and is never inserted or written to.
@@ -47,6 +55,8 @@ struct ReaderView: View {
         .navigationTitle(article.siteName ?? article.url?.host ?? "")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar(.hidden, for: .tabBar)
+        .toolbar(showChrome ? .visible : .hidden, for: .navigationBar)
+        .statusBarHidden(!showChrome)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -122,7 +132,12 @@ struct ReaderView: View {
                 fontSize: CGFloat(settings.readerFontSize),
                 fontRaw: settings.readerFontRaw,
                 onHighlight: handleIntent,
-                onScrollProgress: handleScrollProgress
+                onScrollProgress: handleScrollProgress,
+                onTap: {
+                    withAnimation(.easeInOut(duration: 0.25)) {
+                        chromeVisible.toggle()
+                    }
+                }
             )
         }
     }

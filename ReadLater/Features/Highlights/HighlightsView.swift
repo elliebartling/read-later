@@ -42,7 +42,6 @@ struct HighlightsView: View {
                 }
             }
             .navigationTitle("Highlights")
-            .hidesTabBarOnScrollDown()
         }
     }
 }

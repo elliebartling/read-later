@@ -24,7 +24,6 @@ struct SearchView: View {
             .navigationDestination(for: Article.self) { article in
                 ReaderView(article: article)
             }
-            .hidesTabBarOnScrollDown()
             .overlay {
                 if query.isEmpty {
                     ContentUnavailableView("Search", systemImage: "magnifyingglass",

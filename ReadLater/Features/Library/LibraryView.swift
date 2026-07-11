@@ -62,7 +62,6 @@ struct LibraryView: View {
             .sheet(isPresented: $showingAddSheet) {
                 AddArticleSheet()
             }
-            .hidesTabBarOnScrollDown()
         }
         .task(id: appModel.pendingArticleToOpen) {
             await handlePendingOpen()
