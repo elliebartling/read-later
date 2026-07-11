@@ -50,6 +50,7 @@ targets:
           - audio
           - processing
           - fetch
+          - remote-notification # CloudKit sync pushes
         BGTaskSchedulerPermittedIdentifiers:
           - com.ellenbartling.readlater.parse
         CFBundleURLTypes:

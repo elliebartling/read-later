@@ -7,6 +7,11 @@ enum SharedModelContainer {
     /// - "local": AppSettings only — holds a device-specific security-scoped
     ///   bookmark that must never sync between devices
     ///
+    /// Falls back gracefully when CloudKit is unavailable (no iCloud
+    /// entitlement in unsigned CI builds, iCloud signed out/disabled): same
+    /// store files without mirroring, and in-memory as a last resort. Never
+    /// crashes at launch over sync availability.
+    ///
     /// The Share Extension does NOT open this; it writes a PendingSave JSON
     /// instead, so it stays fast and avoids fighting with the app for the
     /// CloudKit sync channel.
@@ -19,33 +24,60 @@ enum SharedModelContainer {
         ])
 
         if inMemory {
-            let config = ModelConfiguration(schema: fullSchema, isStoredInMemoryOnly: true)
-            do {
-                return try ModelContainer(for: fullSchema, configurations: [config])
-            } catch {
-                fatalError("Failed to create in-memory ModelContainer: \(error)")
-            }
+            return makeInMemory(schema: fullSchema)
         }
 
         let syncedSchema = Schema([Article.self, Highlight.self, Tag.self])
         let localSchema = Schema([AppSettings.self])
 
-        let synced = ModelConfiguration(
-            "synced",
-            schema: syncedSchema,
-            isStoredInMemoryOnly: false,
-            cloudKitDatabase: .private(AppGroup.iCloudContainer)
-        )
-        let local = ModelConfiguration(
-            "local",
-            schema: localSchema,
-            isStoredInMemoryOnly: false,
-            cloudKitDatabase: .none
-        )
+        func localConfig() -> ModelConfiguration {
+            ModelConfiguration(
+                "local",
+                schema: localSchema,
+                isStoredInMemoryOnly: false,
+                cloudKitDatabase: .none
+            )
+        }
+
+        // Preferred: CloudKit-mirrored synced store.
         do {
-            return try ModelContainer(for: fullSchema, configurations: [synced, local])
+            let synced = ModelConfiguration(
+                "synced",
+                schema: syncedSchema,
+                isStoredInMemoryOnly: false,
+                cloudKitDatabase: .private(AppGroup.iCloudContainer)
+            )
+            return try ModelContainer(for: fullSchema, configurations: [synced, localConfig()])
         } catch {
-            fatalError("Failed to create ModelContainer: \(error)")
+            NSLog("CloudKit-backed store unavailable (%@) — falling back to local-only storage",
+                  String(describing: error))
+        }
+
+        // Fallback: same store files, no CloudKit mirroring. Data persists
+        // and will mirror once CloudKit becomes available on a later launch.
+        do {
+            let synced = ModelConfiguration(
+                "synced",
+                schema: syncedSchema,
+                isStoredInMemoryOnly: false,
+                cloudKitDatabase: .none
+            )
+            return try ModelContainer(for: fullSchema, configurations: [synced, localConfig()])
+        } catch {
+            NSLog("Persistent stores unavailable (%@) — using in-memory store",
+                  String(describing: error))
+        }
+
+        // Last resort: keep the app alive with an in-memory store.
+        return makeInMemory(schema: fullSchema)
+    }
+
+    private static func makeInMemory(schema: Schema) -> ModelContainer {
+        let config = ModelConfiguration(schema: schema, isStoredInMemoryOnly: true)
+        do {
+            return try ModelContainer(for: schema, configurations: [config])
+        } catch {
+            fatalError("Even the in-memory ModelContainer failed: \(error)")
         }
     }
 }
