@@ -27,6 +27,7 @@ final class OpenAITTSService: NSObject, SpeechService {
     private var paragraphs: [String] = []
     private var currentIndex: Int = 0
     private var currentVoice: String = "alloy"
+    private var currentRate: Double = 1.0
     private var enqueuedThrough: Int = -1
     private var previousSynthTask: Task<Void, Never>?
     private var isRunning: Bool = false
@@ -38,7 +39,9 @@ final class OpenAITTSService: NSObject, SpeechService {
     private let lookahead = 2
 
     var isPlaying: Bool { player.timeControlStatus == .playing }
-    var supportsPause: Bool { true }
+    /// AVQueuePlayer retimes mp3 audio on the fly (pitch-corrected via
+    /// .timeDomain), so speed changes apply without a restart.
+    var supportsLiveRateChange: Bool { true }
 
     override init() {
         super.init()
@@ -62,7 +65,7 @@ final class OpenAITTSService: NSObject, SpeechService {
 
     // MARK: - SpeechService
 
-    func play(paragraphs: [String], voice: String, startAt: Int = 0) async {
+    func play(paragraphs: [String], voice: String, rate: Double, startAt: Int = 0) {
         stop()
         guard let key = KeychainStore.get(account: KeychainStore.Account.openAI), !key.isEmpty else {
             delegate?.speechService(self, didFinish: false, errorMessage: ServiceError.noAPIKey.description)
@@ -73,6 +76,7 @@ final class OpenAITTSService: NSObject, SpeechService {
         self.paragraphs = paragraphs
         self.currentIndex = max(0, min(startAt, paragraphs.count - 1))
         self.currentVoice = voice.isEmpty ? "alloy" : voice
+        self.currentRate = rate
         self.enqueuedThrough = self.currentIndex - 1
         self.isRunning = true
         delegate?.speechService(self, didAdvanceTo: currentIndex)
@@ -80,7 +84,18 @@ final class OpenAITTSService: NSObject, SpeechService {
     }
 
     func pause() { player.pause() }
-    func resume() { player.play() }
+
+    func resume() {
+        // player.play() would reset the rate to 1.0 — restore the chosen speed.
+        player.rate = Float(currentRate)
+    }
+
+    func setRate(_ rate: Double) {
+        currentRate = rate
+        if player.timeControlStatus == .playing {
+            player.rate = Float(rate)
+        }
+    }
 
     func stop() {
         player.pause()
@@ -132,9 +147,10 @@ final class OpenAITTSService: NSObject, SpeechService {
                 guard let url = try? self.writeTempAudio(data: data, index: idx) else { return }
                 self.tempFiles.append(url)
                 let item = AVPlayerItem(url: url)
+                item.audioTimePitchAlgorithm = .timeDomain
                 self.player.insert(item, after: nil)
                 if self.player.timeControlStatus != .playing {
-                    self.player.play()
+                    self.player.rate = Float(self.currentRate)
                 }
             }
             previousSynthTask = task

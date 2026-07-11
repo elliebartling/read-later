@@ -9,6 +9,10 @@ struct ReaderView: View {
     @State private var tts = TTSController()
     @State private var pendingNoteIntent: HighlightableTextView.HighlightIntent?
     @State private var showingTypographyControls = false
+    @State private var showingTagSheet = false
+    /// Scroll position as a 0...1 fraction, kept minute-granular via
+    /// `readingMinutesLeft` so scrolling doesn't spam view updates.
+    @State private var readingMinutesLeft: Int?
 
     // A row is seeded at startup (RootView); the transient fallback only
     // covers the first render tick and is never inserted or written to.
@@ -24,10 +28,22 @@ struct ReaderView: View {
     }
 
     private var currentParagraphRange: NSRange? {
-        guard tts.isPlaying, tts.currentParagraph < paragraphs.count else { return nil }
+        guard tts.isActive, tts.currentParagraph < paragraphs.count else { return nil }
         let target = paragraphs[tts.currentParagraph]
         guard let range = article.plainText.range(of: target) else { return nil }
         return NSRange(range, in: article.plainText)
+    }
+
+    /// "XX minutes left" — listening time while the player is up, reading
+    /// time otherwise.
+    private var subtitleText: String {
+        if tts.isActive {
+            return ListeningTime.remainingLabel(seconds: tts.remainingSeconds)
+        }
+        let total = article.estimatedReadingMinutes
+        guard total > 0 else { return article.siteName ?? article.url?.host ?? "" }
+        let left = readingMinutesLeft ?? total
+        return left < 1 ? "Less than a minute left" : "\(left) min left"
     }
 
     var body: some View {
@@ -38,30 +54,39 @@ struct ReaderView: View {
             readerContent
                 .ignoresSafeArea(.container, edges: .bottom)
 
-            if tts.totalParagraphs > 0 {
-                TTSPlayerBar(controller: tts)
-                    .padding(.horizontal, 20)
-                    .padding(.bottom, 12)
+            if tts.isActive {
+                AudioPlayerBar(controller: tts, settings: settings)
+                    .padding(.horizontal, 24)
+                    .padding(.bottom, 10)
+                    .transition(
+                        .move(edge: .bottom)
+                            .combined(with: .opacity)
+                            .combined(with: .scale(scale: 0.85, anchor: .bottom))
+                    )
             }
         }
-        .navigationTitle(article.siteName ?? article.url?.host ?? "")
-        .navigationBarTitleDisplayMode(.inline)
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: tts.isActive)
+        .readerTitleBar(title: article.title, subtitle: subtitleText)
         .toolbar(.hidden, for: .tabBar)
+        .toolbar(tts.isActive ? .hidden : .visible, for: .bottomBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    if tts.isPlaying { tts.pause() } else { startTTS() }
+                    showingTypographyControls = true
                 } label: {
-                    Image(systemName: tts.isPlaying ? "pause.fill" : "play.fill")
+                    Image(systemName: "textformat.size")
                 }
+                .accessibilityLabel("Typography")
             }
-            ToolbarItem(placement: .topBarTrailing) {
+            ToolbarItemGroup(placement: .bottomBar) {
+                Button {
+                    showingTagSheet = true
+                } label: {
+                    Image(systemName: "tag.fill")
+                }
+                .accessibilityLabel("Tags")
+
                 Menu {
-                    Button {
-                        showingTypographyControls = true
-                    } label: {
-                        Label("Typography", systemImage: "textformat.size")
-                    }
                     Button {
                         exportToObsidian()
                     } label: {
@@ -80,13 +105,25 @@ struct ReaderView: View {
                         }
                     }
                 } label: {
-                    Image(systemName: "ellipsis.circle")
+                    Image(systemName: "ellipsis")
                 }
+
+                Spacer()
+
+                Button {
+                    startTTS()
+                } label: {
+                    Image(systemName: "play.fill")
+                }
+                .accessibilityLabel("Listen")
             }
         }
         .onDisappear { tts.stop() }
         .sheet(isPresented: $showingTypographyControls) {
             TypographyControls(settings: settings)
+        }
+        .sheet(isPresented: $showingTagSheet) {
+            TagAssignmentSheet(article: article)
         }
         .sheet(item: $pendingNoteIntent) { intent in
             HighlightNoteSheet(intent: intent) { note in
@@ -161,13 +198,24 @@ struct ReaderView: View {
             paragraphs: paragraphs,
             provider: settings.ttsProvider,
             voice: voice,
+            rate: settings.ttsRate,
+            title: article.title,
+            artist: article.siteName ?? article.url?.host,
             startAt: tts.currentParagraph
         )
     }
 
     /// GoodLinks-style read tracking: an article counts as read when the user
     /// actually reaches (nearly) the end, not when they merely open it.
+    /// Also feeds the "X min left" subtitle.
     private func handleScrollProgress(_ progress: Double) {
+        let total = article.estimatedReadingMinutes
+        if total > 0 {
+            let left = Int((Double(total) * (1 - progress)).rounded())
+            if left != readingMinutesLeft {
+                readingMinutesLeft = left
+            }
+        }
         guard progress >= 0.9, article.readAt == nil else { return }
         article.readAt = .now
         try? context.save()
@@ -208,6 +256,47 @@ struct ReaderView: View {
                 NSLog("Obsidian export failed: %@", String(describing: error))
             }
         }
+    }
+}
+
+extension View {
+    /// Inline title + "minutes left" subtitle. Native `navigationSubtitle` on
+    /// iOS 26; a principal-item VStack on earlier OSes/SDKs.
+    @ViewBuilder
+    func readerTitleBar(title: String, subtitle: String) -> some View {
+        #if compiler(>=6.2)
+        if #available(iOS 26.0, *) {
+            self
+                .navigationTitle(title)
+                .navigationSubtitle(subtitle)
+                .navigationBarTitleDisplayMode(.inline)
+        } else {
+            legacyReaderTitleBar(title: title, subtitle: subtitle)
+        }
+        #else
+        legacyReaderTitleBar(title: title, subtitle: subtitle)
+        #endif
+    }
+
+    private func legacyReaderTitleBar(title: String, subtitle: String) -> some View {
+        self
+            .navigationTitle(title)
+            .navigationBarTitleDisplayMode(.inline)
+            .toolbar {
+                ToolbarItem(placement: .principal) {
+                    VStack(spacing: 1) {
+                        Text(title)
+                            .font(.headline)
+                            .lineLimit(1)
+                        if !subtitle.isEmpty {
+                            Text(subtitle)
+                                .font(.caption)
+                                .foregroundStyle(.secondary)
+                                .lineLimit(1)
+                        }
+                    }
+                }
+            }
     }
 }
 

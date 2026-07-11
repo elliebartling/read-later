@@ -15,6 +15,8 @@ final class AppSettings {
     var appleVoiceID: String = ""
     /// OpenAI TTS voice name (alloy, echo, fable, onyx, nova, shimmer).
     var openAIVoice: String = "alloy"
+    /// Read-aloud speed multiplier (1.0 = normal). Shared by both engines.
+    var ttsRate: Double = 1.0
     /// Security-scoped bookmark data pointing at the user-chosen Obsidian vault folder.
     var obsidianBookmarkData: Data?
     /// Sub-folder inside the vault where markdown notes land, e.g. "Read Later".

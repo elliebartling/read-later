@@ -8,9 +8,12 @@ final class AppleSpeechService: NSObject, SpeechService {
     private var queue: [String] = []
     private var currentIndex: Int = 0
     private var currentVoice: AVSpeechSynthesisVoice?
+    private var currentRate: Double = 1.0
 
     var isPlaying: Bool { synthesizer.isSpeaking && !synthesizer.isPaused }
-    var supportsPause: Bool { true }
+    /// AVSpeechSynthesizer can't retime an utterance that is already speaking;
+    /// the controller restarts the current paragraph instead.
+    var supportsLiveRateChange: Bool { false }
 
     override init() {
         super.init()
@@ -27,11 +30,12 @@ final class AppleSpeechService: NSObject, SpeechService {
         }
     }
 
-    func play(paragraphs: [String], voice: String, startAt: Int = 0) async {
+    func play(paragraphs: [String], voice: String, rate: Double, startAt: Int = 0) {
         stop()
         queue = paragraphs
         currentIndex = max(0, min(startAt, paragraphs.count - 1))
         currentVoice = AVSpeechSynthesisVoice(identifier: voice) ?? AVSpeechSynthesisVoice(language: "en-US")
+        currentRate = rate
         speakCurrent()
     }
 
@@ -43,7 +47,7 @@ final class AppleSpeechService: NSObject, SpeechService {
         delegate?.speechService(self, didAdvanceTo: currentIndex)
         let utter = AVSpeechUtterance(string: queue[currentIndex])
         utter.voice = currentVoice
-        utter.rate = AVSpeechUtteranceDefaultSpeechRate
+        utter.rate = Self.utteranceRate(for: currentRate)
         synthesizer.speak(utter)
     }
 
@@ -56,6 +60,20 @@ final class AppleSpeechService: NSObject, SpeechService {
         }
         queue = []
         currentIndex = 0
+    }
+
+    func setRate(_ rate: Double) {
+        // Takes effect on the next utterance; the controller handles the
+        // restart-current-paragraph path for immediate changes.
+        currentRate = rate
+    }
+
+    /// Maps a user-facing multiplier (0.75x…2x) onto AVSpeechUtterance's
+    /// 0...1 rate scale, where the default (0.5) is "1x".
+    static func utteranceRate(for multiplier: Double) -> Float {
+        let base = AVSpeechUtteranceDefaultSpeechRate // 0.5
+        let scaled = base * Float(multiplier)
+        return min(AVSpeechUtteranceMaximumSpeechRate, max(AVSpeechUtteranceMinimumSpeechRate, scaled))
     }
 }
 

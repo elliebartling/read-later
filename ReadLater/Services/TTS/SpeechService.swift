@@ -6,13 +6,21 @@ import Foundation
 protocol SpeechService: AnyObject {
     var delegate: SpeechServiceDelegate? { get set }
     var isPlaying: Bool { get }
-    var supportsPause: Bool { get }
+    /// Whether the engine can change playback speed mid-paragraph without a
+    /// restart. When false, TTSController restarts the current paragraph to
+    /// apply a new rate.
+    var supportsLiveRateChange: Bool { get }
 
     /// Enqueues `paragraphs` in order. `startAt` skips forward N paragraphs.
-    func play(paragraphs: [String], voice: String, startAt: Int) async
+    /// `rate` is a speed multiplier (1.0 = normal). Engines kick off their own
+    /// async work internally; this returns immediately.
+    func play(paragraphs: [String], voice: String, rate: Double, startAt: Int)
     func pause()
     func resume()
     func stop()
+    /// Applies a new speed to in-flight playback. Only meaningful when
+    /// `supportsLiveRateChange` is true.
+    func setRate(_ rate: Double)
 }
 
 @MainActor
