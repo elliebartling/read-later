@@ -39,18 +39,26 @@ enum SharedModelContainer {
             )
         }
 
-        // Preferred: CloudKit-mirrored synced store.
-        do {
-            let synced = ModelConfiguration(
-                "synced",
-                schema: syncedSchema,
-                isStoredInMemoryOnly: false,
-                cloudKitDatabase: .private(AppGroup.iCloudContainer)
-            )
-            return try ModelContainer(for: fullSchema, configurations: [synced, localConfig()])
-        } catch {
-            NSLog("CloudKit-backed store unavailable (%@) — falling back to local-only storage",
-                  String(describing: error))
+        // Preferred: CloudKit-mirrored synced store. Only attempted when an
+        // iCloud identity exists — CloudKit TRAPS (uncatchable ObjC
+        // exception, not a Swift throw) when the entitlement is missing, so
+        // do/catch alone cannot protect unsigned CI builds or signed-out
+        // users. ubiquityIdentityToken is nil in both of those cases.
+        if FileManager.default.ubiquityIdentityToken != nil {
+            do {
+                let synced = ModelConfiguration(
+                    "synced",
+                    schema: syncedSchema,
+                    isStoredInMemoryOnly: false,
+                    cloudKitDatabase: .private(AppGroup.iCloudContainer)
+                )
+                return try ModelContainer(for: fullSchema, configurations: [synced, localConfig()])
+            } catch {
+                NSLog("CloudKit-backed store unavailable (%@) — falling back to local-only storage",
+                      String(describing: error))
+            }
+        } else {
+            NSLog("No iCloud identity — using local-only storage (will mirror when iCloud is available)")
         }
 
         // Fallback: same store files, no CloudKit mirroring. Data persists

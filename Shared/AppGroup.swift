@@ -8,10 +8,17 @@ enum AppGroup {
     static let openDeepLinkHost = "open"
 
     static var containerURL: URL {
-        guard let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier) else {
-            fatalError("App Group container missing — check entitlements for \(identifier)")
+        if let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier) {
+            return url
         }
-        return url
+        // No App Group entitlement (unsigned CI/simulator builds). Degrade to
+        // the app's own Application Support so in-process save flows still
+        // work — extensions can't hand off in this mode, but nothing crashes.
+        let fallback = FileManager.default
+            .urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("AppGroupFallback", isDirectory: true)
+        try? FileManager.default.createDirectory(at: fallback, withIntermediateDirectories: true)
+        return fallback
     }
 
     static var pendingSavesURL: URL {
