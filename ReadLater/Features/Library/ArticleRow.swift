@@ -15,7 +15,7 @@ struct ArticleRow: View {
                         .font(.subheadline)
                         .foregroundStyle(.secondary)
                 }
-                HStack(spacing: 8) {
+                HStack(spacing: 10) {
                     if article.estimatedReadingMinutes > 0 {
                         Label("\(article.estimatedReadingMinutes) min", systemImage: "clock")
                     }
@@ -28,9 +28,19 @@ struct ArticleRow: View {
                 }
                 .font(.caption)
                 .foregroundStyle(.secondary)
+                .labelStyle(CompactLabelStyle())
             }
             Spacer(minLength: 0)
         }
         .padding(.vertical, 6)
+    }
+}
+
+private struct CompactLabelStyle: LabelStyle {
+    func makeBody(configuration: Configuration) -> some View {
+        HStack(spacing: 3) {
+            configuration.icon.imageScale(.small)
+            configuration.title
+        }
     }
 }
