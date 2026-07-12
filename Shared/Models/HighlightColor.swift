@@ -24,13 +24,14 @@ enum HighlightColor: String, Codable, CaseIterable, Identifiable {
     /// - Light pages: the marker multiplied onto near-white at 0.55 strength
     ///   (matches the old translucent look, but opaque so it composites cleanly
     ///   over sepia/paper too).
-    /// - Dark pages: a screen-lifted mid band, brighter than the page so the
-    ///   text underneath stays readable.
+    /// - Dark pages: a screen-lifted band, brighter than the page so the text
+    ///   underneath stays readable, at 0.40 strength — 0.55 read as glowing on
+    ///   dark/slate papers.
     func uiColor(darkBackground: Bool) -> UIColor {
         let (r, g, b) = rgb
         if darkBackground {
             let base: CGFloat = 0.16   // nominal dark page level
-            func screen(_ m: CGFloat) -> CGFloat { 1 - (1 - base) * (1 - m * 0.55) }
+            func screen(_ m: CGFloat) -> CGFloat { 1 - (1 - base) * (1 - m * 0.40) }
             return UIColor(red: screen(r), green: screen(g), blue: screen(b), alpha: 1)
         } else {
             let page: CGFloat = 0.99   // nominal light page level
