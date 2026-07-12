@@ -15,7 +15,7 @@ enum SharedModelContainer {
     static let cloudKitSyncEnabled = false
 
     /// Container with two stores:
-    /// - "synced": Article/Highlight/Tag in the CloudKit private DB
+    /// - "synced": Article/Highlight/Tag/Feed in the CloudKit private DB
     /// - "local": AppSettings only — holds a device-specific security-scoped
     ///   bookmark that must never sync between devices
     ///
@@ -32,6 +32,7 @@ enum SharedModelContainer {
             Article.self,
             Highlight.self,
             Tag.self,
+            Feed.self,
             AppSettings.self,
         ])
 
@@ -39,7 +40,7 @@ enum SharedModelContainer {
             return makeInMemory(schema: fullSchema)
         }
 
-        let syncedSchema = Schema([Article.self, Highlight.self, Tag.self])
+        let syncedSchema = Schema([Article.self, Highlight.self, Tag.self, Feed.self])
         let localSchema = Schema([AppSettings.self])
 
         func localConfig() -> ModelConfiguration {

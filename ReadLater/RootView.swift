@@ -13,6 +13,10 @@ struct RootView: View {
                 .tabItem { Label("Library", systemImage: "books.vertical") }
                 .tag(AppModel.Tab.library)
 
+            FeedsView()
+                .tabItem { Label("Feeds", systemImage: "dot.radiowaves.up.forward") }
+                .tag(AppModel.Tab.feeds)
+
             HighlightsView()
                 .tabItem { Label("Highlights", systemImage: "highlighter") }
                 .tag(AppModel.Tab.highlights)

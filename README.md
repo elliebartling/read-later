@@ -12,9 +12,10 @@ Very early v0.1 scaffold. What's here:
 - Apple `AVSpeechSynthesizer` TTS + OpenAI `/v1/audio/speech` TTS (BYO API key, stored in Keychain)
 - Obsidian export to any user-picked folder in Files (security-scoped bookmark)
 - Full-text search across saved articles
+- Native RSS reader — subscribe by pasting a site or feed URL (RSS 2.0 / Atom / RDF); items save through the normal article pipeline, so highlights, TTS, and export all work
 - XcodeGen-driven project (no `.xcodeproj` in the repo — regenerate with `make gen`)
 
-Not here yet: YouTube, RSS, Shortcuts, Pocket import (see the plan doc).
+Not here yet: YouTube, Shortcuts, Pocket import (see the plan doc).
 
 ## Requirements
 
@@ -75,7 +76,6 @@ See the plan doc at `/root/.claude/plans/repository-i-want-to-inherited-honey.md
 **v2 backlog**
 
 - YouTube (transcript fetch + rendering; Whisper fallback)
-- Native RSS reader
 - Shortcuts intents (Save URL, Export Highlights, Read Aloud)
 - Pocket / Instapaper import
 - macOS Catalyst / visionOS
