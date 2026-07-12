@@ -272,8 +272,7 @@ struct HighlightableTextView: UIViewRepresentable {
         /// True if `point` falls on a `.link`-attributed glyph.
         private func isLink(at point: CGPoint, in tv: UITextView) -> Bool {
             guard let index = characterIndex(at: point, in: tv) else { return false }
-            let attributed = tv.attributedText
-            guard index < attributed.length else { return false }
+            guard let attributed = tv.attributedText, index < attributed.length else { return false }
             return attributed.attribute(.link, at: index, effectiveRange: nil) != nil
         }
 
