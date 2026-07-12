@@ -4,20 +4,24 @@ import UniformTypeIdentifiers
 
 /// Minimal share sheet UI: pulls the URL (and, if available, the current
 /// page's title) out of the incoming extension context, writes a PendingSave
-/// JSON into the App Group container, tries to hop straight into the main app
-/// at the reader via `readlater://open?id=<pending-save-uuid>`, then dismisses.
+/// JSON into the App Group container, then offers an "Open Read Later" button
+/// and auto-dismisses.
 ///
-/// The main app's `RootView.handleDeepLink` drains PendingSaves before setting
-/// `AppModel.pendingArticleToOpen`, so LibraryView finds the freshly-inserted
-/// stub Article and pushes ReaderView immediately (parse continues in the
-/// background; the reader shows a loading state until it lands).
-///
-/// If the system won't let the extension open the app, the save still lands in
-/// the App Group queue — the app ingests it on the next foreground, so the
-/// article shows up regardless. The auto-open is a best-effort convenience, not
-/// the mechanism the save depends on.
+/// Design note — why there's no reliable auto-open: a *share* extension has no
+/// dependable public API to launch its containing app. `extensionContext.open`
+/// is documented for Today widgets and its completion handler frequently never
+/// fires for share extensions (awaiting it hangs the sheet). The responder
+/// chain `openURL:` trick is deprecated and no longer reaches `UIApplication`.
+/// So the save NEVER depends on opening the app: the PendingSave lands in the
+/// App Group queue and the app drains it on its next foreground. Opening is a
+/// best-effort convenience, kicked off fire-and-forget (never awaited) and also
+/// exposed as a user-tappable button, since a user-initiated open is far more
+/// likely to be honored by the system than an automatic one.
 final class ShareViewController: UIViewController {
     private let statusLabel = UILabel()
+    private let openButton = UIButton(type: .system)
+    private var pendingDeepLink: URL?
+    private var autoDismiss: DispatchWorkItem?
 
     override func viewDidLoad() {
         super.viewDidLoad()
@@ -26,13 +30,26 @@ final class ShareViewController: UIViewController {
         statusLabel.text = "Saving to Read Later…"
         statusLabel.textAlignment = .center
         statusLabel.numberOfLines = 0
+        statusLabel.font = .preferredFont(forTextStyle: .headline)
         statusLabel.translatesAutoresizingMaskIntoConstraints = false
-        view.addSubview(statusLabel)
+
+        openButton.setTitle("Open Read Later", for: .normal)
+        openButton.titleLabel?.font = .preferredFont(forTextStyle: .body)
+        openButton.addTarget(self, action: #selector(openTapped), for: .touchUpInside)
+        openButton.isHidden = true
+        openButton.translatesAutoresizingMaskIntoConstraints = false
+
+        let stack = UIStackView(arrangedSubviews: [statusLabel, openButton])
+        stack.axis = .vertical
+        stack.alignment = .center
+        stack.spacing = 16
+        stack.translatesAutoresizingMaskIntoConstraints = false
+        view.addSubview(stack)
         NSLayoutConstraint.activate([
-            statusLabel.centerXAnchor.constraint(equalTo: view.centerXAnchor),
-            statusLabel.centerYAnchor.constraint(equalTo: view.centerYAnchor),
-            statusLabel.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 24),
-            statusLabel.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -24),
+            stack.centerXAnchor.constraint(equalTo: view.centerXAnchor),
+            stack.centerYAnchor.constraint(equalTo: view.centerYAnchor),
+            stack.leadingAnchor.constraint(greaterThanOrEqualTo: view.leadingAnchor, constant: 24),
+            stack.trailingAnchor.constraint(lessThanOrEqualTo: view.trailingAnchor, constant: -24),
         ])
     }
 
@@ -46,13 +63,13 @@ final class ShareViewController: UIViewController {
         // writes to its own sandbox and the app can't see the save. Surface it
         // instead of pretending it worked.
         guard AppGroup.hasSharedContainer else {
-            await finish(message: "Read Later isn't set up to receive shares (App Group unavailable).",
-                         success: false)
+            finish(message: "Read Later isn't set up to receive shares (App Group unavailable).",
+                   showOpen: false, delay: 2.5)
             return
         }
 
         guard let items = extensionContext?.inputItems as? [NSExtensionItem] else {
-            await finish(message: "Nothing to save.", success: false)
+            finish(message: "Nothing to save.", showOpen: false, delay: 2.0)
             return
         }
 
@@ -77,7 +94,7 @@ final class ShareViewController: UIViewController {
         }
 
         guard let url = capturedURL else {
-            await finish(message: "Couldn't find a link to save.", success: false)
+            finish(message: "Couldn't find a link to save.", showOpen: false, delay: 2.0)
             return
         }
 
@@ -89,59 +106,58 @@ final class ShareViewController: UIViewController {
         do {
             try pending.write()
         } catch {
-            await finish(message: "Couldn't save this link.", success: false)
+            finish(message: "Couldn't save this link.", showOpen: false, delay: 2.0)
             return
         }
 
-        // Best-effort hop into the app at the reader. Whether or not this
-        // succeeds, the save is already queued.
-        let opened = await openContainingApp(articleID: pending.id)
-        if opened {
-            // The app is coming to the foreground; hand off cleanly.
-            extensionContext?.completeRequest(returningItems: nil)
-        } else {
-            await finish(message: "Saved to Read Later", success: true)
-        }
+        // The save is now safely queued. Offer to jump into the app, and fire a
+        // best-effort auto-open (never awaited, so it can't hang the sheet).
+        pendingDeepLink = openDeepLink(articleID: pending.id)
+        attemptOpen()
+        finish(message: "Saved to Read Later", showOpen: true, delay: 5.0)
     }
 
-    /// Asks the system to open `readlater://open?id=<uuid>` in the containing
-    /// app. Prefers `NSExtensionContext.open` — the sanctioned API — and falls
-    /// back to walking the responder chain for a legacy `openURL:` responder,
-    /// which is how older iOS reaches `UIApplication` from an extension.
-    /// Returns whether either path reported success.
-    private func openContainingApp(articleID: UUID) async -> Bool {
+    private func openDeepLink(articleID: UUID) -> URL? {
         var comps = URLComponents()
         comps.scheme = AppGroup.urlScheme
         comps.host = AppGroup.openDeepLinkHost
         comps.queryItems = [URLQueryItem(name: "id", value: articleID.uuidString)]
-        guard let deepLink = comps.url else { return false }
+        return comps.url
+    }
 
-        if let ctx = extensionContext {
-            let opened = await withCheckedContinuation { continuation in
-                ctx.open(deepLink) { success in continuation.resume(returning: success) }
-            }
-            if opened { return true }
-        }
+    /// Fire-and-forget open attempt. Tries the sanctioned API first, then the
+    /// legacy responder-chain walk. Neither call is awaited, so nothing can
+    /// stall the sheet if the system ignores the request.
+    private func attemptOpen() {
+        guard let deepLink = pendingDeepLink else { return }
+        extensionContext?.open(deepLink, completionHandler: nil)
 
         let selector = NSSelectorFromString("openURL:")
         var responder: UIResponder? = self as UIResponder
         while let r = responder {
             if r.responds(to: selector) {
                 _ = r.perform(selector, with: deepLink)
-                return true
+                break
             }
             responder = r.next
         }
-        return false
     }
 
-    /// Shows a short-lived outcome message, then dismisses. The delay is tied
-    /// to the message the user needs to read — not to any launch race — so the
-    /// sheet never tears down before the save/open has actually happened.
-    private func finish(message: String, success: Bool) async {
-        statusLabel.text = message
-        let delay: UInt64 = success ? 500_000_000 : 1_500_000_000
-        try? await Task.sleep(nanoseconds: delay)
+    @objc private func openTapped() {
+        autoDismiss?.cancel()
+        attemptOpen()
         extensionContext?.completeRequest(returningItems: nil)
+    }
+
+    /// Shows an outcome, optionally reveals the Open button, and schedules a
+    /// dismiss so the sheet never lingers. All UI work; no awaits that can hang.
+    private func finish(message: String, showOpen: Bool, delay: TimeInterval) {
+        statusLabel.text = message
+        openButton.isHidden = !showOpen
+        let work = DispatchWorkItem { [weak self] in
+            self?.extensionContext?.completeRequest(returningItems: nil)
+        }
+        autoDismiss = work
+        DispatchQueue.main.asyncAfter(deadline: .now() + delay, execute: work)
     }
 }
