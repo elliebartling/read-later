@@ -193,3 +193,32 @@ extension ReaderTypographyTests {
         XCTAssertEqual(a.readerLightTheme, .paper)
     }
 }
+
+extension ReaderTypographyTests {
+    /// Bundled faces must resolve to their real families — a bad PostScript
+    /// name or broken UIAppFonts registration would silently hit the
+    /// system-font fallback, which this catches by family name.
+    func testBundledFontsActuallyResolve() {
+        let expected: [ReaderFont: String] = [
+            .literata: "Literata",
+            .atkinson: "Atkinson Hyperlegible Next",
+            .lexend: "Lexend",
+            .inter: "Inter",
+            .geist: "Geist",
+        ]
+        for (font, family) in expected {
+            XCTAssertEqual(font.uiFont(size: 18).familyName, family,
+                           "\(font.rawValue) fell back instead of resolving its bundled family")
+        }
+    }
+
+    func testFontGroupAssignments() {
+        XCTAssertEqual(ReaderFont.literata.group, .reading)
+        XCTAssertEqual(ReaderFont.atkinson.group, .accessibility)
+        XCTAssertEqual(ReaderFont.lexend.group, .accessibility)
+        XCTAssertEqual(ReaderFont.inter.group, .sans)
+        XCTAssertEqual(ReaderFont.geist.group, .sans)
+        XCTAssertEqual(ReaderFont.sansSerif.group, .sans)
+        XCTAssertEqual(ReaderFont.serif.group, .reading)
+    }
+}

@@ -47,6 +47,17 @@ targets:
         ITSAppUsesNonExemptEncryption: false
         LSApplicationCategoryType: public.app-category.productivity
         UILaunchScreen: {}
+        # Bundled OFL reading fonts (ReadLater/Resources/Fonts/**). Resources
+        # copy flat into the bundle root, so plain filenames here.
+        UIAppFonts:
+          - Literata-VF.ttf
+          - Literata-Italic-VF.ttf
+          - AtkinsonHyperlegibleNext-VF.ttf
+          - AtkinsonHyperlegibleNext-Italic-VF.ttf
+          - Lexend-VF.ttf
+          - Inter-VF.ttf
+          - Inter-Italic-VF.ttf
+          - Geist-VF.ttf
         UIBackgroundModes:
           - audio
           - processing
