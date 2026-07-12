@@ -101,6 +101,10 @@ struct HighlightableTextView: UIViewRepresentable {
         // reading insets; setting the base is enough (see applyReaderInsets).
         if let reader = tv as? ReaderTextView {
             reader.baseTextInsets = Self.inset(for: width)
+            // Defensive: keep UIKit from ever re-insetting the text for the bars.
+            if reader.contentInsetAdjustmentBehavior != .never {
+                reader.contentInsetAdjustmentBehavior = .never
+            }
         }
         let signature = renderSignature()
         if signature != context.coordinator.lastRenderSignature {
@@ -220,10 +224,13 @@ struct HighlightableTextView: UIViewRepresentable {
             guard !tv.isTracking, !tv.isDragging, !tv.isDecelerating else { return }
             guard range.location + range.length <= (tv.text as NSString).length else { return }
 
-            tv.layoutManager.ensureLayout(forCharacterRange: range)
-            let glyphRange = tv.layoutManager.glyphRange(forCharacterRange: range, actualCharacterRange: nil)
-            var rect = tv.layoutManager.boundingRect(forGlyphRange: glyphRange, in: tv.textContainer)
-            rect.origin.y += tv.textContainerInset.top
+            // UITextInput geometry (not layoutManager) so we don't downgrade the
+            // text view off TextKit 2 — see characterIndex(at:in:) for why.
+            guard let start = tv.position(from: tv.beginningOfDocument, offset: range.location),
+                  let end = tv.position(from: start, offset: range.length),
+                  let textRange = tv.textRange(from: start, to: end) else { return }
+            let rect = tv.firstRect(for: textRange)
+            guard !rect.isNull, rect.minY.isFinite else { return }
 
             let visibleTop = tv.contentOffset.y + tv.adjustedContentInset.top
             let visibleHeight = tv.bounds.height - tv.adjustedContentInset.top - tv.adjustedContentInset.bottom
@@ -265,7 +272,9 @@ struct HighlightableTextView: UIViewRepresentable {
         /// True if `point` falls on a `.link`-attributed glyph.
         private func isLink(at point: CGPoint, in tv: UITextView) -> Bool {
             guard let index = characterIndex(at: point, in: tv) else { return false }
-            return tv.textStorage.attribute(.link, at: index, effectiveRange: nil) != nil
+            let attributed = tv.attributedText
+            guard index < attributed.length else { return false }
+            return attributed.attribute(.link, at: index, effectiveRange: nil) != nil
         }
 
         /// ID of the highlight whose range contains `point`, if any.
@@ -285,16 +294,24 @@ struct HighlightableTextView: UIViewRepresentable {
             return nil
         }
 
+        /// Character index at `point`, computed via UITextInput geometry.
+        ///
+        /// Deliberately avoids `layoutManager`/`textStorage`: touching either
+        /// permanently downgrades the text view from TextKit 2 to TextKit 1,
+        /// which re-renders highlights as solid blocks and makes UIKit re-apply
+        /// the safe-area inset (shifting the whole article down). Everything here
+        /// stays on TextKit 2.
         private func characterIndex(at point: CGPoint, in tv: UITextView) -> Int? {
-            let inset = tv.textContainerInset
-            let local = CGPoint(x: point.x - inset.left, y: point.y - inset.top)
-            guard tv.textStorage.length > 0 else { return nil }
-            let index = tv.layoutManager.characterIndex(
-                for: local,
-                in: tv.textContainer,
-                fractionOfDistanceBetweenInsertionPoints: nil
-            )
-            guard index < tv.textStorage.length else { return nil }
+            let length = (tv.text as NSString).length
+            guard length > 0, let position = tv.closestPosition(to: point) else { return nil }
+            let index = tv.offset(from: tv.beginningOfDocument, to: position)
+            guard index >= 0, index < length else { return nil }
+            // `closestPosition` snaps to the nearest glyph even when the tap is in
+            // the margins, so confirm the point is actually on that line — blank
+            // taps should toggle the chrome, not land on a nearby highlight.
+            let caret = tv.caretRect(for: position)
+            guard caret.minY.isFinite, caret.height > 0,
+                  point.y >= caret.minY - 4, point.y <= caret.maxY + 4 else { return nil }
             return index
         }
 
