@@ -1,7 +1,8 @@
 name: Ship TestFlight
 
 # Ships a signed build to App Store Connect / TestFlight.
-# Triggers: merge/push to main (app code only), or manual "Run workflow".
+# Triggers: manual "Run workflow" only — ship deliberately so a burst of
+# merges to main produces one build you choose, not one per commit.
 #
 # Required repo secrets:
 #   APP_STORE_CONNECT_API_KEY_ID    — Key ID (e.g. GM7RX2Y3B8)
@@ -9,21 +10,11 @@ name: Ship TestFlight
 #   APP_STORE_CONNECT_API_KEY_P8    — full .p8 private key contents
 
 on:
-  push:
-    branches: [main]
-    paths:
-      - "ReadLater/**"
-      - "Shared/**"
-      - "ShareExtension/**"
-      - "SafariWebExtension/**"
-      - "project.yml"
-      - "ci/ExportOptions.plist"
-      - ".github/workflows/ship-testflight.yml"
   workflow_dispatch:
 
 concurrency:
   group: ship-testflight
-  cancel-in-progress: false
+  cancel-in-progress: true
 
 jobs:
   ship:
