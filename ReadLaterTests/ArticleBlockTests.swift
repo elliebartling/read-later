@@ -175,4 +175,36 @@ final class ArticleBlockTests: XCTestCase {
         XCTAssertEqual(ArticleBlocks.derivePlainText(blocks),
                        texts.joined(separator: "\n\n"))
     }
+
+    // MARK: - Task 5: ArticleImageCache pure helpers
+
+    func testCacheKeyCombinesURLAndTruncatedTargetWidth() {
+        let url = URL(string: "https://cdn.example.com/pic.jpg")!
+        XCTAssertEqual(
+            ArticleImageCache.cacheKey(url: url, targetWidth: 320),
+            "https://cdn.example.com/pic.jpg#320"
+        )
+        // Fractional widths truncate toward zero (matches "\(Int(targetWidth))").
+        XCTAssertEqual(
+            ArticleImageCache.cacheKey(url: url, targetWidth: 320.7),
+            "https://cdn.example.com/pic.jpg#320"
+        )
+        // Distinct widths must yield distinct keys so we don't serve a
+        // too-small decode when the layout gets wider.
+        XCTAssertNotEqual(
+            ArticleImageCache.cacheKey(url: url, targetWidth: 320),
+            ArticleImageCache.cacheKey(url: url, targetWidth: 640)
+        )
+    }
+
+    func testMaxPixelSizeScalesWidthByDisplayScaleAndRounds() {
+        XCTAssertEqual(ArticleImageCache.maxPixelSize(targetWidth: 320, scale: 3), 960)
+        XCTAssertEqual(ArticleImageCache.maxPixelSize(targetWidth: 200, scale: 2), 400)
+        // Rounds to the nearest whole pixel (200.8 -> 201).
+        XCTAssertEqual(ArticleImageCache.maxPixelSize(targetWidth: 100.4, scale: 2), 201)
+        // Non-positive scale falls back to 1x rather than producing 0.
+        XCTAssertEqual(ArticleImageCache.maxPixelSize(targetWidth: 320, scale: 0), 320)
+        // Never returns below 1 (ImageIO rejects a 0 max pixel size).
+        XCTAssertEqual(ArticleImageCache.maxPixelSize(targetWidth: 0, scale: 3), 1)
+    }
 }
