@@ -93,13 +93,16 @@ jobs:
           printf '%s\n' "$ASC_API_KEY_P8" > "$KEY_PATH"
           chmod 600 "$KEY_PATH"
 
-      # Sign AT ARCHIVE TIME (cloud signing via the ASC API key). Entitlements
-      # (app groups, iCloud) are baked into each binary by the codesign step
-      # that runs during the build — an unsigned archive (CODE_SIGNING_ALLOWED=NO)
-      # skips that step, and export-time re-signing CANNOT recover them. That
-      # exact failure shipped builds 4+ without the App Group entitlement and
-      # broke Share-sheet handoff and manual saves (2026-07-12 incident).
-      - name: Archive (cloud-signed)
+      # Archive unsigned, then EMBED ENTITLEMENTS via ad-hoc signatures below.
+      # Why: entitlements are normally baked in by build-time codesign, which
+      # an unsigned archive skips — and export-time re-signing only PRESERVES
+      # entitlements it finds already embedded in each binary's signature.
+      # Archive-time real signing is not possible here: automatic signing
+      # archives via the Development flow (ASC API keys cannot create dev
+      # certs → bearer-token auth failure), and forcing Apple Distribution
+      # conflicts with automatic signing (both verified 2026-07-12). Ad-hoc
+      # signatures need no certificate, so this stays secret-free.
+      - name: Archive (unsigned)
         run: |
           rm -rf build/ReadLater.xcarchive build/export build/DerivedData
           set -o pipefail
@@ -110,14 +113,25 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath build/ReadLater.xcarchive \
             -derivedDataPath build/DerivedData \
-            -allowProvisioningUpdates \
-            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
-            -authenticationKeyID "$ASC_KEY_ID" \
-            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
-            CODE_SIGN_STYLE=Automatic \
-            CODE_SIGN_IDENTITY="Apple Distribution" \
-            DEVELOPMENT_TEAM=RLQ5M29933 \
+            CODE_SIGNING_ALLOWED=NO \
             | tail -80
+
+      # Ad-hoc sign each product WITH its entitlements (variables expanded)
+      # so the export re-sign finds and preserves them. Nested bundles first,
+      # the app last (the app seal covers its PlugIns).
+      - name: Embed entitlements (ad-hoc)
+        run: |
+          APP="build/ReadLater.xcarchive/Products/Applications/ReadLater.app"
+          TEAM="RLQ5M29933"
+          expand() { sed "s/\$(TeamIdentifierPrefix)/${TEAM}./g" "$1" > "$2"; }
+          expand ShareExtension/ShareExtension.entitlements /tmp/share.ent
+          expand SafariWebExtension/SafariWebExtension.entitlements /tmp/safari.ent
+          expand ReadLater/ReadLater.entitlements /tmp/app.ent
+          /usr/bin/codesign --force -s - --entitlements /tmp/share.ent  "$APP/PlugIns/ShareExtension.appex"
+          /usr/bin/codesign --force -s - --entitlements /tmp/safari.ent "$APP/PlugIns/SafariWebExtension.appex"
+          /usr/bin/codesign --force -s - --entitlements /tmp/app.ent    "$APP"
+          echo "=== embedded app entitlements ==="
+          codesign -d --entitlements :- "$APP" 2>/dev/null | head -30
 
       - name: Export signed IPA
         run: |
