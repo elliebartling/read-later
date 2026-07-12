@@ -123,9 +123,12 @@ private struct SettingsForm: View {
             }
 
             Section("Reader") {
-                Picker("Theme", selection: $settings.readerTheme) {
-                    ForEach(ReaderTheme.allCases) { t in
-                        Text(t.displayName).tag(t)
+                Picker("Appearance", selection: .init(
+                    get: { settings.readerAppearance },
+                    set: { settings.readerAppearance = $0 }
+                )) {
+                    ForEach(ReaderAppearance.allCases) { a in
+                        Text(a.displayName).tag(a)
                     }
                 }
                 VStack(alignment: .leading) {
