@@ -73,7 +73,10 @@ struct ReaderView: View {
                 .ignoresSafeArea()
 
             readerContent
-                .ignoresSafeArea(.container, edges: .bottom)
+                // Extend under both bars so revealing the chrome only grows the
+                // scroll view's content inset (text stays put) instead of moving
+                // the text view's frame down — which made the whole page jump.
+                .ignoresSafeArea(.container, edges: .vertical)
 
             floatingPlayer
         }
@@ -187,7 +190,11 @@ struct ReaderView: View {
                 },
                 onScrollProgress: handleScrollProgress,
                 onTap: {
-                    withAnimation(.easeInOut(duration: 0.25)) {
+                    // Use the same spring the chrome layout animates with (see
+                    // the `.animation(value: showChrome)` modifier) so the toolbar,
+                    // status bar and floating player reveal as one smooth motion
+                    // instead of two competing curves.
+                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
                         chromeVisible.toggle()
                     }
                 }

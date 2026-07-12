@@ -1,5 +1,6 @@
 import SwiftUI
 import UIKit
+import QuartzCore
 
 /// SwiftUI wrapper around UITextView that:
 /// 1. Renders `plainText` with existing highlights painted in place.
@@ -196,6 +197,16 @@ struct HighlightableTextView: UIViewRepresentable {
         /// re-selecting on every SwiftUI tick while the sheet is open.
         private var appliedEditingHighlightID: UUID?
 
+        /// True while the user's finger is driving the scroll view (drag or the
+        /// momentum that follows). Used to reject taps that are really the tail
+        /// end of a scroll so the chrome doesn't toggle while reading.
+        private var isUserScrolling = false
+        /// Timestamp of the last user-driven scroll. A tap within a short window
+        /// after scrolling is treated as part of that gesture, not a chrome tap.
+        private var lastScrollTime: CFTimeInterval = 0
+        /// How long after a scroll a tap is still considered "part of scrolling".
+        private let scrollTapCooldown: CFTimeInterval = 0.25
+
         /// Scrolls so the spoken paragraph stays visible while TTS advances,
         /// without hijacking the view when the user is reading elsewhere.
         func scrollToKeepVisible(range: NSRange, in tv: UITextView) {
@@ -230,6 +241,12 @@ struct HighlightableTextView: UIViewRepresentable {
             // A tap that lands on an active selection or a link is meant for
             // the text view (dismiss selection / open link), not chrome toggling.
             if tv.selectedRange.length > 0 { return }
+            // Reject taps that are really part of scrolling: a finger lifting
+            // after a flick, a tap that stops momentum, or one that lands just
+            // after the page settles. This keeps chrome from toggling while the
+            // user is only scrolling.
+            if isUserScrolling || tv.isDragging || tv.isDecelerating { return }
+            if CACurrentMediaTime() - lastScrollTime < scrollTapCooldown { return }
             let point = gesture.location(in: tv)
             if isLink(at: point, in: tv) { return }
             if let highlightID = highlightID(at: point, in: tv) {
@@ -408,11 +425,31 @@ struct HighlightableTextView: UIViewRepresentable {
         }
 
         func scrollViewDidScroll(_ scrollView: UIScrollView) {
+            // Only user-driven movement should arm the tap cooldown; programmatic
+            // scrolls (TTS follow, bring-selection-into-view) must not.
+            if scrollView.isDragging || scrollView.isDecelerating {
+                lastScrollTime = CACurrentMediaTime()
+            }
             guard let onProgress = parent?.onScrollProgress else { return }
             let visibleBottom = scrollView.contentOffset.y + scrollView.bounds.height
             let total = scrollView.contentSize.height
             guard total > 0 else { return }
             onProgress(min(1.0, max(0.0, Double(visibleBottom / total))))
+        }
+
+        func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
+            isUserScrolling = true
+            lastScrollTime = CACurrentMediaTime()
+        }
+
+        func scrollViewDidEndDragging(_ scrollView: UIScrollView, willDecelerate decelerate: Bool) {
+            lastScrollTime = CACurrentMediaTime()
+            if !decelerate { isUserScrolling = false }
+        }
+
+        func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
+            isUserScrolling = false
+            lastScrollTime = CACurrentMediaTime()
         }
     }
 }
