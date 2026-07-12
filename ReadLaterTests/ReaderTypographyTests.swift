@@ -106,3 +106,21 @@ extension ReaderTypographyTests {
         }
     }
 }
+
+extension ReaderTypographyTests {
+    func testReaderFontRawFallback() {
+        XCTAssertEqual(ReaderFont(rawValue: "Bogus") ?? .serif, .serif)
+    }
+
+    func testEveryFontResolvesToAFont() {
+        for font in ReaderFont.allCases {
+            XCTAssertGreaterThan(font.uiFont(size: 18).pointSize, 0)
+        }
+    }
+
+    func testFontGroupsCoverAllCases() {
+        for font in ReaderFont.allCases {
+            XCTAssertFalse(font.group.title.isEmpty)
+        }
+    }
+}
