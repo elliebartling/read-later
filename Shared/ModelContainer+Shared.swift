@@ -2,6 +2,18 @@ import Foundation
 import SwiftData
 
 enum SharedModelContainer {
+    /// CloudKit mirroring requires the container `iCloud.com.ellenbartling.readlater`
+    /// to exist AND its schema to be deployed to the **Production** CloudKit
+    /// environment — TestFlight and the App Store both use Production, while the
+    /// simulator/debug use Development. Until Production is set up, mirroring
+    /// setup aborts *uncatchably* on `com.apple.coredata.cloudkit.queue` at
+    /// launch (EXC_BREAKPOINT) — it happens asynchronously after the
+    /// ModelContainer is created, so the do/catch below cannot stop it.
+    ///
+    /// Ship local-only until then. Flip to `true` only AFTER deploying the
+    /// schema to Production (CloudKit Console → Deploy Schema to Production).
+    static let cloudKitSyncEnabled = false
+
     /// Container with two stores:
     /// - "synced": Article/Highlight/Tag in the CloudKit private DB
     /// - "local": AppSettings only — holds a device-specific security-scoped
@@ -44,7 +56,7 @@ enum SharedModelContainer {
         // exception, not a Swift throw) when the entitlement is missing, so
         // do/catch alone cannot protect unsigned CI builds or signed-out
         // users. ubiquityIdentityToken is nil in both of those cases.
-        if FileManager.default.ubiquityIdentityToken != nil {
+        if cloudKitSyncEnabled, FileManager.default.ubiquityIdentityToken != nil {
             do {
                 let synced = ModelConfiguration(
                     "synced",
@@ -58,7 +70,7 @@ enum SharedModelContainer {
                       String(describing: error))
             }
         } else {
-            NSLog("No iCloud identity — using local-only storage (will mirror when iCloud is available)")
+            NSLog("CloudKit sync disabled or no iCloud identity — using local-only storage")
         }
 
         // Fallback: same store files, no CloudKit mirroring. Data persists
