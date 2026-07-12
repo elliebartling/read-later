@@ -25,6 +25,12 @@ final class AppSettings {
     var readerFontSize: Double = 18
     /// Raw value of ReaderFont (see ReadLater/UI/ReaderFont.swift).
     var readerFontRaw: String = "Serif"
+    /// NSParagraphStyle.lineSpacing for reader body text.
+    var readerLineSpacing: Double = 6
+    /// NSParagraphStyle.paragraphSpacing between reader paragraphs.
+    var readerParagraphSpacing: Double = 12
+    /// Raw value of ReaderWidth (column measure).
+    var readerWidthRaw: String = ReaderWidth.medium.rawValue
 
     var ttsProvider: TTSProvider {
         get { TTSProvider(rawValue: ttsProviderRaw) ?? .apple }
@@ -34,6 +40,11 @@ final class AppSettings {
     var readerTheme: ReaderTheme {
         get { ReaderTheme(rawValue: readerThemeRaw) ?? .system }
         set { readerThemeRaw = newValue.rawValue }
+    }
+
+    var readerWidth: ReaderWidth {
+        get { ReaderWidth(rawValue: readerWidthRaw) ?? .medium }
+        set { readerWidthRaw = newValue.rawValue }
     }
 
     init() {}
@@ -54,7 +65,31 @@ enum TTSProvider: String, Codable, CaseIterable, Identifiable {
 
 enum ReaderTheme: String, Codable, CaseIterable, Identifiable {
     case light, dark, sepia, system
+    case darkGray, mediumGray, slate, paper, forest
+
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .darkGray:   return "Dark Gray"
+        case .mediumGray: return "Medium Gray"
+        default:          return rawValue.capitalized
+        }
+    }
+}
+
+enum ReaderWidth: String, Codable, CaseIterable, Identifiable {
+    case narrow, medium, wide, full
 
     var id: String { rawValue }
     var displayName: String { rawValue.capitalized }
+
+    /// Left/right `textContainerInset` in points. Narrower column = larger inset.
+    var horizontalInset: CGFloat {
+        switch self {
+        case .narrow: return 48
+        case .medium: return 32
+        case .wide:   return 20
+        case .full:   return 12
+        }
+    }
 }
