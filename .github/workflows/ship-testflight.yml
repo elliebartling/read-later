@@ -126,7 +126,13 @@ jobs:
           expand() { sed "s/\$(TeamIdentifierPrefix)/${TEAM}./g" "$1" > "$2"; }
           expand ShareExtension/ShareExtension.entitlements /tmp/share.ent
           expand SafariWebExtension/SafariWebExtension.entitlements /tmp/safari.ent
-          expand ReadLater/ReadLater.entitlements /tmp/app.ent
+          # App: APP-GROUP ONLY for now. CloudKit is code-gated off
+          # (SharedModelContainer.cloudKitSyncEnabled = false) and the iCloud
+          # container isn't deployed to Production; requesting iCloud-capable
+          # profiles is the suspected cause of export-time provisioning
+          # failures (run 29210746725). Restore the full
+          # ReadLater/ReadLater.entitlements here when CloudKit ships.
+          expand ShareExtension/ShareExtension.entitlements /tmp/app.ent
           /usr/bin/codesign --force -s - --entitlements /tmp/share.ent  "$APP/PlugIns/ShareExtension.appex"
           /usr/bin/codesign --force -s - --entitlements /tmp/safari.ent "$APP/PlugIns/SafariWebExtension.appex"
           /usr/bin/codesign --force -s - --entitlements /tmp/app.ent    "$APP"
