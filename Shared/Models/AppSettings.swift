@@ -65,9 +65,16 @@ enum TTSProvider: String, Codable, CaseIterable, Identifiable {
 
 enum ReaderTheme: String, Codable, CaseIterable, Identifiable {
     case light, dark, sepia, system
+    case darkGray, mediumGray, slate, paper, forest
 
     var id: String { rawValue }
-    var displayName: String { rawValue.capitalized }
+    var displayName: String {
+        switch self {
+        case .darkGray:   return "Dark Gray"
+        case .mediumGray: return "Medium Gray"
+        default:          return rawValue.capitalized
+        }
+    }
 }
 
 enum ReaderWidth: String, Codable, CaseIterable, Identifiable {

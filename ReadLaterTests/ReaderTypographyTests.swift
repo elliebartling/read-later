@@ -32,3 +32,37 @@ final class ReaderTypographyTests: XCTestCase {
         XCTAssertEqual(s.readerWidth, .wide)
     }
 }
+
+extension ReaderTypographyTests {
+    func testReaderThemeRawFallback() {
+        let s = AppSettings()
+        s.readerThemeRaw = "bogus"
+        XCTAssertEqual(s.readerTheme, .system)
+    }
+
+    func testAllThemesHaveOpaqueColors() {
+        for theme in ReaderTheme.allCases {
+            var alpha: CGFloat = 0
+            theme.background.getRed(nil, green: nil, blue: nil, alpha: &alpha)
+            XCTAssertEqual(alpha, 1, accuracy: 0.001, "\(theme) background must be opaque")
+        }
+    }
+
+    func testExplicitThemeDarkness() {
+        XCTAssertTrue(ReaderTheme.dark.isDarkBackground(for: nil))
+        XCTAssertTrue(ReaderTheme.slate.isDarkBackground(for: nil))
+        XCTAssertTrue(ReaderTheme.forest.isDarkBackground(for: nil))
+        XCTAssertTrue(ReaderTheme.darkGray.isDarkBackground(for: nil))
+        XCTAssertFalse(ReaderTheme.light.isDarkBackground(for: nil))
+        XCTAssertFalse(ReaderTheme.sepia.isDarkBackground(for: nil))
+        XCTAssertFalse(ReaderTheme.paper.isDarkBackground(for: nil))
+        XCTAssertFalse(ReaderTheme.mediumGray.isDarkBackground(for: nil))
+    }
+
+    func testNewThemeCasesExist() {
+        let raws = Set(ReaderTheme.allCases.map(\.rawValue))
+        for expected in ["darkGray", "mediumGray", "slate", "paper", "forest"] {
+            XCTAssertTrue(raws.contains(expected), "missing theme \(expected)")
+        }
+    }
+}

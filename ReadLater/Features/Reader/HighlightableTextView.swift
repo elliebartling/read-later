@@ -401,22 +401,3 @@ struct HighlightableTextView: UIViewRepresentable {
         }
     }
 }
-
-extension ReaderTheme {
-    var foreground: UIColor {
-        switch self {
-        case .light:  return UIColor(red: 0.11, green: 0.10, blue: 0.10, alpha: 1)
-        case .dark:   return UIColor(white: 0.92, alpha: 1)
-        case .sepia:  return UIColor(red: 0.35, green: 0.24, blue: 0.14, alpha: 1)
-        case .system: return .label
-        }
-    }
-    var background: UIColor {
-        switch self {
-        case .light:  return UIColor(white: 0.99, alpha: 1)
-        case .dark:   return UIColor(white: 0.06, alpha: 1)
-        case .sepia:  return UIColor(red: 0.98, green: 0.94, blue: 0.85, alpha: 1)
-        case .system: return .systemBackground
-        }
-    }
-}
