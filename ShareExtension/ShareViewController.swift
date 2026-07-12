@@ -7,16 +7,14 @@ import UniformTypeIdentifiers
 /// JSON into the App Group container, then offers an "Open Read Later" button
 /// and auto-dismisses.
 ///
-/// Design note — why there's no reliable auto-open: a *share* extension has no
-/// dependable public API to launch its containing app. `extensionContext.open`
-/// is documented for Today widgets and its completion handler frequently never
-/// fires for share extensions (awaiting it hangs the sheet). The responder
-/// chain `openURL:` trick is deprecated and no longer reaches `UIApplication`.
-/// So the save NEVER depends on opening the app: the PendingSave lands in the
-/// App Group queue and the app drains it on its next foreground. Opening is a
-/// best-effort convenience, kicked off fire-and-forget (never awaited) and also
-/// exposed as a user-tappable button, since a user-initiated open is far more
-/// likely to be honored by the system than an automatic one.
+/// Design note — the open is button-only, never automatic: a *share* extension
+/// has no dependable public API to launch its containing app on its own.
+/// `extensionContext.open` is documented for Today widgets and its completion
+/// handler frequently never fires for share extensions (awaiting it once hung
+/// this sheet). A user-initiated open from the button tap is the sanctioned,
+/// reliably-honored path. The save never depends on opening the app either
+/// way: the PendingSave lands in the App Group queue and the app drains it on
+/// its next foreground.
 final class ShareViewController: UIViewController {
     private let statusLabel = UILabel()
     private let openButton = UIButton(type: .system)
@@ -110,10 +108,9 @@ final class ShareViewController: UIViewController {
             return
         }
 
-        // The save is now safely queued. Offer to jump into the app, and fire a
-        // best-effort auto-open (never awaited, so it can't hang the sheet).
+        // The save is now safely queued. Offer the button to jump into the app
+        // at this article; if untapped, the sheet dismisses on its own.
         pendingDeepLink = openDeepLink(articleID: pending.id)
-        attemptOpen()
         finish(message: "Saved to Read Later", showOpen: true, delay: 5.0)
     }
 
@@ -125,9 +122,10 @@ final class ShareViewController: UIViewController {
         return comps.url
     }
 
-    /// Fire-and-forget open attempt. Tries the sanctioned API first, then the
-    /// legacy responder-chain walk. Neither call is awaited, so nothing can
-    /// stall the sheet if the system ignores the request.
+    /// Open attempt, only ever invoked from the button tap. Tries the
+    /// sanctioned API first, then the legacy responder-chain walk. Neither
+    /// call is awaited, so nothing can stall the sheet if the system ignores
+    /// the request.
     private func attemptOpen() {
         guard let deepLink = pendingDeepLink else { return }
         extensionContext?.open(deepLink, completionHandler: nil)
