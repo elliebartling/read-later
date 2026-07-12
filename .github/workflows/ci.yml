@@ -12,7 +12,7 @@ concurrency:
 jobs:
   build-and-test:
     # NOTE: macOS runner minutes bill at 10x on private repos.
-    runs-on: macos-15
+    runs-on: macos-26
     timeout-minutes: 45
     defaults:
       run:
