@@ -66,13 +66,18 @@ struct HighlightableTextView: UIViewRepresentable {
     var onTap: (() -> Void)? = nil
 
     func makeUIView(context: Context) -> UITextView {
-        let tv = UITextView()
+        let tv = ReaderTextView()
         tv.isEditable = false
         tv.isSelectable = true
         tv.isScrollEnabled = true
         tv.dataDetectorTypes = [.link]
         tv.backgroundColor = .clear
-        tv.textContainerInset = Self.inset(for: width)
+        // Pin the text with our own insets and never let UIKit's automatic
+        // safe-area adjustment move it. Revealing the chrome grows the safe
+        // area, but the text position is frozen — the (translucent) nav bar
+        // overlays the top instead of pushing the article down.
+        tv.contentInsetAdjustmentBehavior = .never
+        tv.baseTextInsets = Self.inset(for: width)
         tv.textContainer.lineFragmentPadding = 0
         tv.delegate = context.coordinator
         context.coordinator.textView = tv
@@ -92,9 +97,10 @@ struct HighlightableTextView: UIViewRepresentable {
 
     func updateUIView(_ tv: UITextView, context: Context) {
         context.coordinator.parent = self
-        let desiredInset = Self.inset(for: width)
-        if tv.textContainerInset != desiredInset {
-            tv.textContainerInset = desiredInset
+        // ReaderTextView adds the frozen safe-area padding on top of these
+        // reading insets; setting the base is enough (see applyReaderInsets).
+        if let reader = tv as? ReaderTextView {
+            reader.baseTextInsets = Self.inset(for: width)
         }
         let signature = renderSignature()
         if signature != context.coordinator.lastRenderSignature {
@@ -450,6 +456,61 @@ struct HighlightableTextView: UIViewRepresentable {
         func scrollViewDidEndDecelerating(_ scrollView: UIScrollView) {
             isUserScrolling = false
             lastScrollTime = CACurrentMediaTime()
+        }
+    }
+}
+
+/// A UITextView that keeps the article text in a fixed position regardless of
+/// the reader chrome.
+///
+/// The text's top padding is frozen at the *immersive* safe-area inset (notch /
+/// status bar, chrome hidden). When the nav bar is later revealed the safe area
+/// grows, but we keep using the frozen value, so the text never shifts — the
+/// translucent bar simply overlays it. `contentInsetAdjustmentBehavior` is
+/// `.never` (set by the representable) so UIKit doesn't re-inset either.
+final class ReaderTextView: UITextView {
+    /// Reading padding (top/bottom breathing room + width-based side margins)
+    /// supplied by the representable. Safe-area accommodation is layered on top.
+    var baseTextInsets: UIEdgeInsets = .zero {
+        didSet { if baseTextInsets != oldValue { applyReaderInsets() } }
+    }
+
+    /// The top safe-area inset while the chrome is hidden. Frozen at its minimum
+    /// so revealing the nav bar (which enlarges the safe area) can't move the text.
+    private var immersiveTopInset: CGFloat?
+
+    override func safeAreaInsetsDidChange() {
+        super.safeAreaInsetsDidChange()
+        applyReaderInsets()
+    }
+
+    override func didMoveToWindow() {
+        super.didMoveToWindow()
+        applyReaderInsets()
+    }
+
+    private func applyReaderInsets() {
+        let liveTop = safeAreaInsets.top
+        if liveTop > 0 {
+            immersiveTopInset = min(immersiveTopInset ?? liveTop, liveTop)
+        }
+        let frozenTop = immersiveTopInset ?? liveTop
+
+        let desired = UIEdgeInsets(
+            top: baseTextInsets.top + frozenTop,
+            left: baseTextInsets.left,
+            bottom: baseTextInsets.bottom + safeAreaInsets.bottom,
+            right: baseTextInsets.right
+        )
+        if textContainerInset != desired {
+            textContainerInset = desired
+        }
+
+        // Scroll indicators should still dodge the *live* bars, not the frozen
+        // inset — the scrollbar tucking under the nav bar looks broken.
+        let indicator = UIEdgeInsets(top: liveTop, left: 0, bottom: safeAreaInsets.bottom, right: 0)
+        if verticalScrollIndicatorInsets != indicator {
+            verticalScrollIndicatorInsets = indicator
         }
     }
 }
