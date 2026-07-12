@@ -212,7 +212,9 @@ struct HighlightableTextView: UIViewRepresentable {
                 in: text,
                 startOffset: h.startOffset,
                 endOffset: h.endOffset,
-                quotedText: h.quotedText
+                quotedText: h.quotedText,
+                prefixContext: h.prefixContext,
+                suffixContext: h.suffixContext
             ) {
                 let nsRange = NSRange(located.range, in: text)
                 str.addAttribute(.backgroundColor, value: h.color.uiColor(darkBackground: darkBackground), range: nsRange)
@@ -326,7 +328,9 @@ struct HighlightableTextView: UIViewRepresentable {
                     in: parent.text,
                     startOffset: h.startOffset,
                     endOffset: h.endOffset,
-                    quotedText: h.quotedText
+                    quotedText: h.quotedText,
+                    prefixContext: h.prefixContext,
+                    suffixContext: h.suffixContext
                 ), index >= located.startOffset, index < located.endOffset {
                     return h.id
                 }
@@ -374,7 +378,9 @@ struct HighlightableTextView: UIViewRepresentable {
                     in: parent.text,
                     startOffset: h.startOffset,
                     endOffset: h.endOffset,
-                    quotedText: h.quotedText
+                    quotedText: h.quotedText,
+                    prefixContext: h.prefixContext,
+                    suffixContext: h.suffixContext
                   ) else {
                 // Editing ended — collapse selection and clear the session
                 // unless a fresh selection is already in progress.

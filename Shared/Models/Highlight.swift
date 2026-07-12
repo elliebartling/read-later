@@ -14,6 +14,13 @@ final class Highlight {
     var endOffset: Int = 0
     /// Verbatim selected text — used as a fuzzy re-anchor if plainText shifts (re-parse).
     var quotedText: String = ""
+    /// Up to 32 UTF-16 units of text immediately preceding the quoted range at
+    /// creation time. Disambiguates re-anchoring when quotedText occurs more than
+    /// once. Optional/defaulted for CloudKit safety. Nil when at the text start.
+    var prefixContext: String? = nil
+    /// Up to 32 UTF-16 units of text immediately following the quoted range at
+    /// creation time. Companion to prefixContext. Nil when at the text end.
+    var suffixContext: String? = nil
     var colorRaw: String = HighlightColor.yellow.rawValue
     var note: String?
     var createdAt: Date = Date.now

@@ -288,6 +288,12 @@ struct ReaderView: View {
             quotedText: intent.quotedText,
             color: intent.color
         )
+        let (prefix, suffix) = HighlightAnchor.contextAround(
+            range: NSRange(location: intent.startOffset, length: intent.endOffset - intent.startOffset),
+            in: article.plainText
+        )
+        h.prefixContext = prefix
+        h.suffixContext = suffix
         context.insert(h)
         try? context.save()
         Task { exportToObsidian(silent: true) }
