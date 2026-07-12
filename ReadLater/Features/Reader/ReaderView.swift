@@ -75,25 +75,15 @@ struct ReaderView: View {
             readerContent
                 .ignoresSafeArea(.container, edges: .bottom)
 
-            if tts.isActive {
-                AudioPlayerBar(controller: tts, settings: settings)
-                    .padding(.horizontal, 24)
-                    .padding(.bottom, 10)
-                    .transition(
-                        .move(edge: .bottom)
-                            .combined(with: .opacity)
-                            .combined(with: .scale(scale: 0.85, anchor: .bottom))
-                    )
-            }
+            floatingPlayer
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: tts.isActive)
+        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: showChrome)
         .readerTitleBar(title: article.title, subtitle: subtitleText)
         .toolbar(.hidden, for: .tabBar)
         .toolbar(showChrome ? .visible : .hidden, for: .navigationBar)
         .statusBarHidden(!showChrome)
-        // Bottom tag/overflow/play bar only when chrome is up and the
-        // floating AudioPlayerBar isn't already covering that space.
-        .toolbar((showChrome && !tts.isActive) ? .visible : .hidden, for: .bottomBar)
+        .toolbar(.hidden, for: .bottomBar)
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
@@ -103,49 +93,10 @@ struct ReaderView: View {
                 }
                 .accessibilityLabel("Typography")
             }
-            ToolbarItemGroup(placement: .bottomBar) {
-                Button {
-                    showingTagSheet = true
-                } label: {
-                    Image(systemName: "tag.fill")
-                }
-                .accessibilityLabel("Tags")
-
-                Menu {
-                    Button {
-                        exportToObsidian()
-                    } label: {
-                        Label("Export to Obsidian", systemImage: "square.and.arrow.up")
-                    }
-                    Button {
-                        toggleRead()
-                    } label: {
-                        Label(article.readAt == nil ? "Mark as Read" : "Mark as Unread",
-                              systemImage: article.readAt == nil ? "checkmark.circle" : "circle")
-                    }
-                    Divider()
-                    if let url = article.url {
-                        Link(destination: url) {
-                            Label("Open Original", systemImage: "safari")
-                        }
-                    }
-                } label: {
-                    Image(systemName: "ellipsis")
-                }
-
-                Spacer()
-
-                Button {
-                    startTTS()
-                } label: {
-                    Image(systemName: "play.fill")
-                }
-                .accessibilityLabel("Listen")
-            }
         }
         .onDisappear { tts.stop() }
         .sheet(isPresented: $showingTypographyControls) {
-            TypographyControls(settings: settings)
+            TypographyControls(settings: settings, controller: tts)
         }
         .sheet(isPresented: $showingTagSheet) {
             TagAssignmentSheet(article: article)
@@ -172,6 +123,34 @@ struct ReaderView: View {
         } message: {
             Text(tts.lastError ?? "")
         }
+    }
+
+    /// The floating pink capsule: the playing bar while read-aloud is active,
+    /// the idle overflow/share/tag/play bar when chrome is up, and nothing in
+    /// immersive reading. The two states cross-fade as one reshaping object.
+    @ViewBuilder
+    private var floatingPlayer: some View {
+        Group {
+            if tts.isActive {
+                AudioPlayerBar(controller: tts, settings: settings)
+                    .transition(
+                        .move(edge: .bottom)
+                            .combined(with: .opacity)
+                            .combined(with: .scale(scale: 0.85, anchor: .bottom))
+                    )
+            } else if showChrome {
+                IdlePlayerBar(
+                    article: article,
+                    onTags: { showingTagSheet = true },
+                    onPlay: startTTS,
+                    onExport: { exportToObsidian() },
+                    onToggleRead: toggleRead
+                )
+                .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottom)))
+            }
+        }
+        .padding(.horizontal, 24)
+        .padding(.bottom, 10)
     }
 
     @ViewBuilder

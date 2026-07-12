@@ -3,6 +3,9 @@ import SwiftData
 
 struct TypographyControls: View {
     @Bindable var settings: AppSettings
+    /// Optional live controller so a voice change while listening applies
+    /// immediately (restarts the current paragraph) rather than next start.
+    var controller: TTSController? = nil
     @Environment(\.dismiss) private var dismiss
 
     var body: some View {
@@ -30,6 +33,28 @@ struct TypographyControls: View {
                     }
                     .pickerStyle(.segmented)
                 }
+                Section("Read Aloud") {
+                    Picker("Provider", selection: $settings.ttsProvider) {
+                        ForEach(TTSProvider.allCases) { p in
+                            Text(p.displayName).tag(p)
+                        }
+                    }
+                    switch settings.ttsProvider {
+                    case .apple:
+                        Picker("Voice", selection: appleVoiceBinding) {
+                            Text("System Default").tag("")
+                            ForEach(VoiceCatalog.appleVoices(), id: \.identifier) { voice in
+                                Text("\(voice.name) (\(voice.language))").tag(voice.identifier)
+                            }
+                        }
+                    case .openAI:
+                        Picker("Voice", selection: openAIVoiceBinding) {
+                            ForEach(VoiceCatalog.openAIVoices, id: \.self) { v in
+                                Text(v.capitalized).tag(v)
+                            }
+                        }
+                    }
+                }
             }
             .navigationTitle("Typography")
             .navigationBarTitleDisplayMode(.inline)
@@ -39,5 +64,25 @@ struct TypographyControls: View {
                 }
             }
         }
+    }
+
+    private var openAIVoiceBinding: Binding<String> {
+        Binding(
+            get: { settings.openAIVoice },
+            set: { newVoice in
+                settings.openAIVoice = newVoice
+                controller?.setVoice(newVoice)
+            }
+        )
+    }
+
+    private var appleVoiceBinding: Binding<String> {
+        Binding(
+            get: { settings.appleVoiceID },
+            set: { newVoice in
+                settings.appleVoiceID = newVoice
+                controller?.setVoice(newVoice)
+            }
+        )
     }
 }

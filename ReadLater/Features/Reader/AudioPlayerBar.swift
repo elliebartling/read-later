@@ -1,11 +1,12 @@
 import SwiftUI
 import SwiftData
 
-/// Floating glass capsule shown while read-aloud is active. Left to right:
-/// animated waveform (doubles as a progress readout; tap to stop), voice
-/// selector, speed cycler, pause/play. While OpenAI is synthesizing the first
-/// chunk, the waveform is replaced by a "Loading" label and the transport
-/// control becomes a cancel button with a spinner ring.
+/// Floating pink capsule shown while read-aloud is active. Left to right:
+/// silk-ribbon waveform (doubles as a progress readout; tap to stop), speed
+/// cycler, and a transport cluster (skip-back paragraph, pause/play,
+/// skip-forward paragraph). While OpenAI is synthesizing the first chunk, the
+/// waveform is replaced by a "Loading" label and the play control becomes a
+/// cancel button with a spinner ring.
 struct AudioPlayerBar: View {
     let controller: TTSController
     @Bindable var settings: AppSettings
@@ -13,7 +14,7 @@ struct AudioPlayerBar: View {
     private static let speedSteps: [Double] = [1.0, 1.25, 1.5, 2.0, 0.75]
 
     var body: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: 14) {
             Button {
                 controller.stop()
             } label: {
@@ -21,30 +22,22 @@ struct AudioPlayerBar: View {
                     if controller.isBuffering {
                         loadingLabel
                     } else {
-                        WaveformView(isAnimating: controller.isPlaying, progress: controller.progress)
+                        SilkWaveformView(isAnimating: controller.isPlaying, progress: controller.progress)
                     }
                 }
-                .frame(width: 88, height: 26)
+                .frame(maxWidth: .infinity, minHeight: 30, maxHeight: 30)
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
             .accessibilityLabel(controller.isBuffering ? "Cancel loading" : "Stop listening")
 
-            Spacer(minLength: 12)
-
-            voiceMenu
-                .disabled(controller.isBuffering)
-                .opacity(controller.isBuffering ? 0.45 : 1)
-
-            Spacer(minLength: 12)
-
             Button {
                 cycleSpeed()
             } label: {
                 Text(Self.speedLabel(for: controller.rate))
-                    .font(.subheadline.weight(.semibold))
+                    .font(.subheadline.weight(.bold))
                     .monospacedDigit()
-                    .frame(minWidth: 34)
+                    .frame(minWidth: 32)
                     .contentShape(.rect)
             }
             .buttonStyle(.plain)
@@ -52,24 +45,50 @@ struct AudioPlayerBar: View {
             .opacity(controller.isBuffering ? 0.45 : 1)
             .accessibilityLabel("Playback speed")
 
-            Spacer(minLength: 12)
+            transportCluster
+                .disabled(controller.isBuffering)
+                .opacity(controller.isBuffering ? 0.45 : 1)
 
             transportButton
         }
-        .foregroundStyle(.primary)
+        .foregroundStyle(.white)
         .padding(.horizontal, 20)
         .padding(.vertical, 11)
         .playerGlassCapsule()
     }
 
-    private var loadingLabel: some View {
-        HStack(spacing: 6) {
-            Text("Loading")
-                .font(.subheadline.weight(.medium))
-                .foregroundStyle(.secondary)
+    /// Previous / next paragraph. The engine is paragraph-based, so these skip
+    /// whole paragraphs rather than a fixed number of seconds.
+    private var transportCluster: some View {
+        HStack(spacing: 18) {
+            Button {
+                controller.skipBackward()
+            } label: {
+                Image(systemName: "backward.fill")
+                    .font(.body.weight(.semibold))
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Previous paragraph")
+
+            Button {
+                controller.skipForward()
+            } label: {
+                Image(systemName: "forward.fill")
+                    .font(.body.weight(.semibold))
+                    .contentShape(.rect)
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Next paragraph")
         }
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .accessibilityHidden(true)
+    }
+
+    private var loadingLabel: some View {
+        Text("Loading")
+            .font(.subheadline.weight(.medium))
+            .foregroundStyle(.white.opacity(0.85))
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityHidden(true)
     }
 
     private var transportButton: some View {
@@ -81,7 +100,7 @@ struct AudioPlayerBar: View {
                     BufferingCancelControl()
                 } else {
                     Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.title3.weight(.semibold))
+                        .font(.title3.weight(.bold))
                 }
             }
             .frame(width: 34, height: 34)
@@ -92,57 +111,6 @@ struct AudioPlayerBar: View {
             controller.isBuffering
                 ? "Cancel loading"
                 : (controller.isPlaying ? "Pause" : "Play")
-        )
-    }
-
-    private var voiceMenu: some View {
-        Menu {
-            switch settings.ttsProvider {
-            case .openAI:
-                Picker("Voice", selection: openAIVoiceBinding) {
-                    ForEach(VoiceCatalog.openAIVoices, id: \.self) { v in
-                        Text(v.capitalized).tag(v)
-                    }
-                }
-            case .apple:
-                Picker("Voice", selection: appleVoiceBinding) {
-                    Text("Default").tag("")
-                    ForEach(VoiceCatalog.appleVoices(), id: \.identifier) { v in
-                        Text("\(v.name) (\(v.language))").tag(v.identifier)
-                    }
-                }
-            }
-        } label: {
-            HStack(spacing: 6) {
-                Image(systemName: "chevron.up.chevron.down")
-                    .font(.footnote.weight(.semibold))
-                Text(VoiceCatalog.displayName(provider: settings.ttsProvider, voice: controller.voice))
-                    .font(.subheadline.weight(.medium))
-                    .lineLimit(1)
-            }
-            .contentShape(.rect)
-        }
-        .buttonStyle(.plain)
-        .accessibilityLabel("Voice")
-    }
-
-    private var openAIVoiceBinding: Binding<String> {
-        Binding(
-            get: { settings.openAIVoice },
-            set: { newVoice in
-                settings.openAIVoice = newVoice
-                controller.setVoice(newVoice)
-            }
-        )
-    }
-
-    private var appleVoiceBinding: Binding<String> {
-        Binding(
-            get: { settings.appleVoiceID },
-            set: { newVoice in
-                settings.appleVoiceID = newVoice
-                controller.setVoice(newVoice)
-            }
         )
     }
 
@@ -165,18 +133,85 @@ struct AudioPlayerBar: View {
     }
 }
 
+/// Idle counterpart to `AudioPlayerBar`: the pink capsule shown when the reader
+/// chrome is up but nothing is playing. Overflow · share · tag · play.
+struct IdlePlayerBar: View {
+    let article: Article
+    var onTags: () -> Void
+    var onPlay: () -> Void
+    var onExport: () -> Void
+    var onToggleRead: () -> Void
+
+    var body: some View {
+        HStack(spacing: 22) {
+            Menu {
+                Button {
+                    onExport()
+                } label: {
+                    Label("Export to Obsidian", systemImage: "square.and.arrow.up")
+                }
+                Button {
+                    onToggleRead()
+                } label: {
+                    Label(article.readAt == nil ? "Mark as Read" : "Mark as Unread",
+                          systemImage: article.readAt == nil ? "checkmark.circle" : "circle")
+                }
+                if let url = article.url {
+                    Divider()
+                    Link(destination: url) {
+                        Label("Open Original", systemImage: "safari")
+                    }
+                }
+            } label: {
+                capsuleGlyph("ellipsis")
+            }
+            .accessibilityLabel("More")
+
+            if let url = article.url {
+                ShareLink(item: url) {
+                    capsuleGlyph("square.and.arrow.up")
+                }
+                .accessibilityLabel("Share")
+            }
+
+            Button(action: onTags) {
+                capsuleGlyph("tag.fill")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Tags")
+
+            Button(action: onPlay) {
+                capsuleGlyph("play.fill")
+            }
+            .buttonStyle(.plain)
+            .accessibilityLabel("Listen")
+        }
+        .foregroundStyle(.white)
+        .padding(.horizontal, 24)
+        .padding(.vertical, 13)
+        .playerGlassCapsule()
+    }
+
+    private func capsuleGlyph(_ name: String) -> some View {
+        Image(systemName: name)
+            .font(.title3.weight(.semibold))
+            .frame(width: 30, height: 30)
+            .contentShape(.rect)
+    }
+}
+
 /// Stop glyph inside a spinning indeterminate ring — used while OpenAI is
-/// synthesizing the first paragraph.
+/// synthesizing the first paragraph. White to sit on the pink capsule.
 private struct BufferingCancelControl: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { timeline in
             let turns = timeline.date.timeIntervalSinceReferenceDate * 1.6
             ZStack {
                 Circle()
-                    .stroke(.primary.opacity(0.15), lineWidth: 2)
+                    .stroke(.white.opacity(0.3), lineWidth: 2)
                 Circle()
                     .trim(from: 0, to: 0.72)
-                    .stroke(.primary, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .stroke(.white, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                     .rotationEffect(.degrees(turns * 360))
                 Image(systemName: "stop.fill")
                     .font(.system(size: 10, weight: .semibold))
@@ -187,66 +222,121 @@ private struct BufferingCancelControl: View {
     }
 }
 
-/// Bar-style waveform that pulses while speaking and freezes when paused.
-/// Bars ahead of `progress` render dimmed, giving an at-a-glance position
-/// readout without a scrubber.
-private struct WaveformView: View {
+/// Continuous "silk ribbon" waveform: a soft filled body under a bright top
+/// line plus a fainter trailing line, undulating via layered sine motion while
+/// speaking and freezing to a static curve when paused. The already-spoken
+/// fraction renders at full brightness; the upcoming fraction fades back, so
+/// the ribbon doubles as an at-a-glance position readout. White on pink.
+private struct SilkWaveformView: View {
     let isAnimating: Bool
     /// 0...1 fraction of the article already spoken.
     let progress: Double
 
-    private static let barCount = 14
-    // Fixed pseudo-random heights used when frozen and as per-bar variation
-    // while animating, so the wave looks organic rather than uniform.
-    private static let seeds: [Double] = (0..<barCount).map { i in
-        0.35 + 0.65 * abs(sin(Double(i) * 1.7 + 0.9))
-    }
-
     var body: some View {
-        TimelineView(.animation(minimumInterval: 1.0 / 24.0, paused: !isAnimating)) { timeline in
+        TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isAnimating)) { timeline in
             let t = timeline.date.timeIntervalSinceReferenceDate
-            HStack(spacing: 3) {
-                ForEach(0..<Self.barCount, id: \.self) { i in
-                    let fraction = Double(i) / Double(Self.barCount - 1)
-                    Capsule(style: .continuous)
-                        .frame(width: 3)
-                        .frame(maxHeight: .infinity)
-                        .scaleEffect(y: barScale(index: i, time: t), anchor: .center)
-                        .opacity(fraction <= progress ? 1.0 : 0.35)
+            Canvas { context, size in
+                let clamped = CGFloat(min(max(progress, 0), 1))
+                let playedX = size.width * clamped
+
+                // Upcoming fraction — dimmed.
+                if playedX < size.width {
+                    var upcoming = context
+                    upcoming.clip(to: Path(CGRect(x: playedX, y: 0,
+                                                  width: size.width - playedX, height: size.height)))
+                    drawRibbon(in: &upcoming, size: size, t: t, alpha: 0.4)
+                }
+                // Played fraction — full brightness.
+                if playedX > 0 {
+                    var played = context
+                    played.clip(to: Path(CGRect(x: 0, y: 0, width: playedX, height: size.height)))
+                    drawRibbon(in: &played, size: size, t: t, alpha: 1.0)
                 }
             }
         }
-        .foregroundStyle(.primary)
         .accessibilityHidden(true)
     }
 
-    private func barScale(index: Int, time: TimeInterval) -> CGFloat {
-        let seed = Self.seeds[index]
-        guard isAnimating else { return CGFloat(seed * 0.6) }
-        // Two offset sine waves per bar → lively, non-repeating-looking pulse.
-        let phase = Double(index) * 0.55
-        let wave = 0.5 + 0.5 * sin(time * 5.2 + phase) * sin(time * 1.7 + phase * 1.3)
-        return CGFloat(max(0.15, (0.3 + 0.7 * wave) * seed))
+    private func drawRibbon(in context: inout GraphicsContext, size: CGSize, t: TimeInterval, alpha: Double) {
+        let w = size.width
+        let h = size.height
+        let mid = Double(h) / 2
+
+        // Envelope-modulated sine: the second sine slowly reshapes the first so
+        // the ribbon never looks like a repeating pattern.
+        func y(_ px: CGFloat, amp: Double, k: Double, sp: Double, offset: Double = 0) -> CGFloat {
+            let x = Double(px)
+            let v = mid + sin(x * k + t * sp) * amp * sin(x * 0.012 + t * 0.6) + offset
+            return CGFloat(v)
+        }
+
+        let bodyAmp = Double(h) * 0.30
+        let step: CGFloat = 2
+
+        // Filled body between the top curve and its mirror about the centerline.
+        var body = Path()
+        body.move(to: CGPoint(x: 0, y: y(0, amp: bodyAmp, k: 0.055, sp: 3.1)))
+        var px: CGFloat = 0
+        while px <= w {
+            body.addLine(to: CGPoint(x: px, y: y(px, amp: bodyAmp, k: 0.055, sp: 3.1)))
+            px += step
+        }
+        px = w
+        while px >= 0 {
+            let top = y(px, amp: bodyAmp, k: 0.055, sp: 3.1)
+            body.addLine(to: CGPoint(x: px, y: CGFloat(Double(h) - Double(top))))
+            px -= step
+        }
+        body.closeSubpath()
+        context.fill(body, with: .color(.white.opacity(0.22 * alpha)))
+
+        // Bright top line.
+        var top = Path()
+        top.move(to: CGPoint(x: 0, y: y(0, amp: Double(h) * 0.32, k: 0.05, sp: 3.4)))
+        px = 0
+        while px <= w {
+            top.addLine(to: CGPoint(x: px, y: y(px, amp: Double(h) * 0.32, k: 0.05, sp: 3.4)))
+            px += 1
+        }
+        context.stroke(top, with: .color(.white.opacity(0.95 * alpha)),
+                       style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
+
+        // Fainter trailing line, phase-shifted the other way.
+        var trail = Path()
+        trail.move(to: CGPoint(x: 0, y: y(0, amp: Double(h) * 0.24, k: 0.07, sp: -2.2, offset: 2)))
+        px = 0
+        while px <= w {
+            trail.addLine(to: CGPoint(x: px, y: y(px, amp: Double(h) * 0.24, k: 0.07, sp: -2.2, offset: 2)))
+            px += 1
+        }
+        context.stroke(trail, with: .color(.white.opacity(0.45 * alpha)),
+                       style: StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round))
     }
 }
 
+extension Color {
+    /// Figma `Accents/Pink` — the player capsule accent.
+    static let playerPink = Color(red: 1.0, green: 45.0 / 255.0, blue: 85.0 / 255.0)
+}
+
 extension View {
-    /// Liquid-glass capsule on iOS 26, material capsule with a soft shadow on
+    /// Prominent pink capsule for the audio / idle player. Liquid glass with a
+    /// pink tint on iOS 26; a solid pink capsule with a soft pink shadow on
     /// earlier OSes / SDKs.
     @ViewBuilder
     func playerGlassCapsule() -> some View {
         #if compiler(>=6.2)
         if #available(iOS 26.0, *) {
-            self.glassEffect(.regular.interactive(), in: .capsule)
+            self.glassEffect(.regular.tint(.playerPink).interactive(), in: .capsule)
         } else {
             self
-                .background(.regularMaterial, in: .capsule)
-                .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
+                .background(Color.playerPink, in: .capsule)
+                .shadow(color: Color.playerPink.opacity(0.4), radius: 10, y: 4)
         }
         #else
         self
-            .background(.regularMaterial, in: .capsule)
-            .shadow(color: .black.opacity(0.12), radius: 8, y: 3)
+            .background(Color.playerPink, in: .capsule)
+            .shadow(color: Color.playerPink.opacity(0.4), radius: 10, y: 4)
         #endif
     }
 }
