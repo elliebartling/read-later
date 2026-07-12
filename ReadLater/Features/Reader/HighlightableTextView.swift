@@ -40,6 +40,9 @@ struct HighlightableTextView: UIViewRepresentable {
     let theme: ReaderTheme
     let fontSize: CGFloat
     let fontRaw: String
+    let lineSpacing: CGFloat
+    let paragraphSpacing: CGFloat
+    let width: ReaderWidth
     /// Color applied to instantly-created highlights (the last-used color).
     let defaultColor: HighlightColor
     /// When non-nil, the matching highlight's range is kept selected so the
@@ -68,7 +71,7 @@ struct HighlightableTextView: UIViewRepresentable {
         tv.isScrollEnabled = true
         tv.dataDetectorTypes = [.link]
         tv.backgroundColor = .clear
-        tv.textContainerInset = UIEdgeInsets(top: 24, left: 20, bottom: 40, right: 20)
+        tv.textContainerInset = Self.inset(for: width)
         tv.textContainer.lineFragmentPadding = 0
         tv.delegate = context.coordinator
         context.coordinator.textView = tv
@@ -88,6 +91,10 @@ struct HighlightableTextView: UIViewRepresentable {
 
     func updateUIView(_ tv: UITextView, context: Context) {
         context.coordinator.parent = self
+        let desiredInset = Self.inset(for: width)
+        if tv.textContainerInset != desiredInset {
+            tv.textContainerInset = desiredInset
+        }
         let signature = renderSignature()
         if signature != context.coordinator.lastRenderSignature {
             let preservedSelection = tv.selectedRange
@@ -120,21 +127,26 @@ struct HighlightableTextView: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
+    private static func inset(for width: ReaderWidth) -> UIEdgeInsets {
+        UIEdgeInsets(top: 24, left: width.horizontalInset, bottom: 40, right: width.horizontalInset)
+    }
+
     private func renderSignature() -> String {
         let highlightSig = highlights
             .map { "\($0.id.uuidString):\($0.startOffset):\($0.endOffset):\($0.colorRaw)" }
             .joined(separator: "|")
         let spoken = currentSpokenRange.map { "\($0.location)-\($0.length)" } ?? ""
-        return "\(text.utf16.count)|\(theme.rawValue)|\(fontSize)|\(fontRaw)|\(highlightSig)|\(spoken)"
+        return "\(text.utf16.count)|\(theme.rawValue)|\(fontSize)|\(fontRaw)|\(lineSpacing)|\(paragraphSpacing)|\(width.rawValue)|\(highlightSig)|\(spoken)"
     }
 
     // MARK: - Rendering
 
     private func render() -> NSAttributedString {
+        let darkBackground = theme.isDarkBackground(for: UITraitCollection.current)
         let font = (ReaderFont(rawValue: fontRaw) ?? .serif).uiFont(size: fontSize)
         let paragraphStyle = NSMutableParagraphStyle()
-        paragraphStyle.lineSpacing = 6
-        paragraphStyle.paragraphSpacing = 12
+        paragraphStyle.lineSpacing = lineSpacing
+        paragraphStyle.paragraphSpacing = paragraphSpacing
 
         let attrs: [NSAttributedString.Key: Any] = [
             .font: font,
@@ -151,12 +163,15 @@ struct HighlightableTextView: UIViewRepresentable {
                 quotedText: h.quotedText
             ) {
                 let nsRange = NSRange(located.range, in: text)
-                str.addAttribute(.backgroundColor, value: h.color.uiColor.withAlphaComponent(0.55), range: nsRange)
+                str.addAttribute(.backgroundColor, value: h.color.uiColor(darkBackground: darkBackground), range: nsRange)
             }
         }
 
         if let range = currentSpokenRange, range.location + range.length <= (text as NSString).length {
-            str.addAttribute(.backgroundColor, value: UIColor.systemYellow.withAlphaComponent(0.15), range: range)
+            let spokenTint: UIColor = darkBackground
+                ? UIColor(white: 1, alpha: 0.14)
+                : UIColor.systemYellow.withAlphaComponent(0.16)
+            str.addAttribute(.backgroundColor, value: spokenTint, range: range)
         }
         return str
     }
