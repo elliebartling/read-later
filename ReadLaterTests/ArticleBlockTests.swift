@@ -207,4 +207,84 @@ final class ArticleBlockTests: XCTestCase {
         // Never returns below 1 (ImageIO rejects a 0 max pixel size).
         XCTAssertEqual(ArticleImageCache.maxPixelSize(targetWidth: 0, scale: 3), 1)
     }
+
+    // MARK: - Task 7: block reader layout helpers
+
+    func testTextBlockRangesByIndexAlignsToBlockIndexAndSkipsNonText() {
+        let blocks: [ArticleBlock] = [
+            block(.paragraph, "One"),                    // idx 0: base 0, len 3
+            ArticleBlock(type: .image, src: nil),        // idx 1: no range
+            block(.paragraph, ""),                       // idx 2: empty -> no range
+            block(.paragraph, "Two"),                    // idx 3: base 5, len 3
+            block(.divider),                             // idx 4: no range
+            block(.heading, "Head"),                     // idx 5: base 10, len 4
+        ]
+        let ranges = ArticleBlocks.textBlockRangesByIndex(blocks)
+        XCTAssertEqual(ranges[0], NSRange(location: 0, length: 3))
+        XCTAssertNil(ranges[1])
+        XCTAssertNil(ranges[2])
+        XCTAssertEqual(ranges[3], NSRange(location: 5, length: 3))
+        XCTAssertNil(ranges[4])
+        XCTAssertEqual(ranges[5], NSRange(location: 10, length: 4))
+        // Base offsets match derivePlainText: "One\n\nTwo\n\nHead".
+        XCTAssertEqual(ArticleBlocks.derivePlainText(blocks), "One\n\nTwo\n\nHead")
+    }
+
+    func testClipHighlightSpansParagraphBreakIntoPartialLocalRanges() {
+        // Two blocks: A = [0,5), B = [7,12) with a "\n\n" break between them.
+        let a = NSRange(location: 0, length: 5)
+        let b = NSRange(location: 7, length: 5)
+        // A cross-paragraph highlight covering global 3..<9.
+        let global = NSRange(location: 3, length: 6)
+        XCTAssertEqual(ArticleBlocks.clipHighlight(global: global, toBlock: a),
+                       NSRange(location: 3, length: 2))   // A[3..<5], local
+        XCTAssertEqual(ArticleBlocks.clipHighlight(global: global, toBlock: b),
+                       NSRange(location: 0, length: 2))   // B[7..<9] -> local 0..<2
+        // A highlight fully inside B shifts to local coordinates.
+        XCTAssertEqual(ArticleBlocks.clipHighlight(global: NSRange(location: 8, length: 3), toBlock: b),
+                       NSRange(location: 1, length: 3))
+        // No overlap -> nil.
+        XCTAssertNil(ArticleBlocks.clipHighlight(global: NSRange(location: 5, length: 2), toBlock: a))
+    }
+
+    func testListMarkersResetOrderedNumberingPerConsecutiveRun() {
+        let blocks: [ArticleBlock] = [
+            block(.paragraph, "intro"),
+            ArticleBlock(type: .listItem, text: "a", listStyle: .unordered),
+            ArticleBlock(type: .listItem, text: "b", listStyle: .unordered),
+            block(.paragraph, "break"),
+            ArticleBlock(type: .listItem, text: "1", listStyle: .ordered),
+            ArticleBlock(type: .listItem, text: "2", listStyle: .ordered),
+            ArticleBlock(type: .listItem, text: "3", listStyle: .ordered),
+        ]
+        let markers = ArticleBlocks.listMarkers(blocks)
+        XCTAssertNil(markers[0])
+        XCTAssertEqual(markers[1], "•")
+        XCTAssertEqual(markers[2], "•")
+        XCTAssertNil(markers[3])
+        XCTAssertEqual(markers[4], "1.")   // ordinal resets at the run start
+        XCTAssertEqual(markers[5], "2.")
+        XCTAssertEqual(markers[6], "3.")
+    }
+
+    func testParagraphBlockIndicesMapMultilinePreformattedToOneBlock() {
+        let blocks: [ArticleBlock] = [
+            block(.heading, "Title"),                    // 1 paragraph -> block 0
+            block(.paragraph, "One"),                    // 1 paragraph -> block 1
+            block(.preformatted, "let x = 1\n  y = 2"),  // 2 paragraphs -> block 2
+            ArticleBlock(type: .image, src: nil),        // no paragraph
+            block(.paragraph, "Two"),                    // 1 paragraph -> block 4
+        ]
+        XCTAssertEqual(ArticleBlocks.paragraphBlockIndices(blocks), [0, 1, 2, 2, 4])
+
+        // Correspondence check: the mapping must match how ReaderView derives
+        // paragraphs from plainText (split on "\n", trim, drop empties).
+        let plainText = ArticleBlocks.derivePlainText(blocks)
+        let paragraphCount = plainText
+            .components(separatedBy: "\n")
+            .map { $0.trimmingCharacters(in: .whitespaces) }
+            .filter { !$0.isEmpty }
+            .count
+        XCTAssertEqual(ArticleBlocks.paragraphBlockIndices(blocks).count, paragraphCount)
+    }
 }

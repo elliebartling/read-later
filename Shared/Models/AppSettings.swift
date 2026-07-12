@@ -38,6 +38,10 @@ final class AppSettings {
     var readerLightThemeRaw: String = ReaderTheme.light.rawValue
     /// Palette used in dark appearance (and system-dark). Dark palettes only.
     var readerDarkThemeRaw: String = ReaderTheme.dark.rawValue
+    /// Render block-parsed articles with the native block reader (images,
+    /// captions, per-block highlighting). Off falls back to the TextKit reader.
+    /// Local-only store, so no CloudKit concern.
+    var useBlockReader: Bool = true
 
     var ttsProvider: TTSProvider {
         get { TTSProvider(rawValue: ttsProviderRaw) ?? .apple }
