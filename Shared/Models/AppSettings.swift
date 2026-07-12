@@ -31,6 +31,13 @@ final class AppSettings {
     var readerParagraphSpacing: Double = 12
     /// Raw value of ReaderWidth (column measure).
     var readerWidthRaw: String = ReaderWidth.medium.rawValue
+    /// Raw value of ReaderAppearance. Empty string = not yet migrated from the
+    /// legacy single readerThemeRaw (see migrateLegacyThemeIfNeeded).
+    var readerAppearanceRaw: String = ""
+    /// Palette used in light appearance (and system-light). Light palettes only.
+    var readerLightThemeRaw: String = ReaderTheme.light.rawValue
+    /// Palette used in dark appearance (and system-dark). Dark palettes only.
+    var readerDarkThemeRaw: String = ReaderTheme.dark.rawValue
 
     var ttsProvider: TTSProvider {
         get { TTSProvider(rawValue: ttsProviderRaw) ?? .apple }
@@ -45,6 +52,57 @@ final class AppSettings {
     var readerWidth: ReaderWidth {
         get { ReaderWidth(rawValue: readerWidthRaw) ?? .medium }
         set { readerWidthRaw = newValue.rawValue }
+    }
+
+    var readerAppearance: ReaderAppearance {
+        get { ReaderAppearance(rawValue: readerAppearanceRaw) ?? .system }
+        set { readerAppearanceRaw = newValue.rawValue }
+    }
+
+    /// Falls back to .light if the stored raw is missing or a dark palette.
+    var readerLightTheme: ReaderTheme {
+        get {
+            guard let t = ReaderTheme(rawValue: readerLightThemeRaw),
+                  ReaderTheme.lightCases.contains(t) else { return .light }
+            return t
+        }
+        set { readerLightThemeRaw = newValue.rawValue }
+    }
+
+    /// Falls back to .dark if the stored raw is missing or a light palette.
+    var readerDarkTheme: ReaderTheme {
+        get {
+            guard let t = ReaderTheme(rawValue: readerDarkThemeRaw),
+                  ReaderTheme.darkCases.contains(t) else { return .dark }
+            return t
+        }
+        set { readerDarkThemeRaw = newValue.rawValue }
+    }
+
+    /// The concrete palette to render given the OS appearance.
+    func resolvedReaderTheme(systemIsDark: Bool) -> ReaderTheme {
+        switch readerAppearance {
+        case .light:  return readerLightTheme
+        case .dark:   return readerDarkTheme
+        case .system: return systemIsDark ? readerDarkTheme : readerLightTheme
+        }
+    }
+
+    /// One-time migration from the legacy single readerThemeRaw. Sentinel:
+    /// an empty readerAppearanceRaw means "not migrated yet"; the method is a
+    /// no-op afterwards, so user edits are never clobbered.
+    func migrateLegacyThemeIfNeeded() {
+        guard readerAppearanceRaw.isEmpty else { return }
+        if let old = ReaderTheme(rawValue: readerThemeRaw), ReaderTheme.lightCases.contains(old) {
+            readerAppearance = .light
+            readerLightTheme = old
+        } else if let old = ReaderTheme(rawValue: readerThemeRaw), ReaderTheme.darkCases.contains(old) {
+            readerAppearance = .dark
+            readerDarkTheme = old
+        } else {
+            // "system", unknown, or empty → system mode with default palettes.
+            readerAppearance = .system
+        }
     }
 
     init() {}
@@ -75,6 +133,30 @@ enum ReaderTheme: String, Codable, CaseIterable, Identifiable {
         default:          return rawValue.capitalized
         }
     }
+
+    /// Palettes offered for light appearance / system-light.
+    static let lightCases: [ReaderTheme] = [.light, .sepia, .paper, .mediumGray]
+    /// Palettes offered for dark appearance / system-dark.
+    static let darkCases: [ReaderTheme] = [.dark, .darkGray, .slate, .forest]
+
+    /// Fixed page darkness. Drives highlight compositing and palette grouping.
+    var isDark: Bool {
+        switch self {
+        case .dark, .darkGray, .slate, .forest:
+            return true
+        case .light, .sepia, .paper, .mediumGray:
+            return false
+        case .system:
+            return false // legacy case; removed in the cleanup task
+        }
+    }
+}
+
+enum ReaderAppearance: String, Codable, CaseIterable, Identifiable {
+    case light, dark, system
+
+    var id: String { rawValue }
+    var displayName: String { rawValue.capitalized }
 }
 
 enum ReaderWidth: String, Codable, CaseIterable, Identifiable {
