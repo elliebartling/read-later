@@ -21,9 +21,10 @@ struct ReaderView: View {
     /// Scroll position as a 0...1 fraction, kept minute-granular via
     /// `readingMinutesLeft` so scrolling doesn't spam view updates.
     @State private var readingMinutesLeft: Int?
-    /// Latest scroll fraction seen while reading. Written back to the article on
-    /// disappear so reopening restores the spot instead of jumping to the top.
-    @State private var latestProgress: Double?
+    /// UTF-16 index of the character at the top of the viewport, updated while
+    /// reading and written back to the article on disappear so reopening resumes
+    /// at the same word instead of jumping to the top.
+    @State private var latestTopOffset: Int?
 
     /// Color for instantly-created highlights; updated whenever the user picks
     /// a color, so new highlights reuse the last choice.
@@ -204,7 +205,8 @@ struct ReaderView: View {
                     editingHighlight = findHighlight(id)
                 },
                 onScrollProgress: handleScrollProgress,
-                initialProgress: article.readingProgress,
+                onTopCharacterOffset: { latestTopOffset = $0 },
+                initialCharacterOffset: article.readingCharacterOffset,
                 onTap: {
                     // Drive the chrome from a single explicit animation so both
                     // directions match. A redundant implicit `.animation(value:)`
@@ -264,9 +266,6 @@ struct ReaderView: View {
     /// actually reaches (nearly) the end, not when they merely open it.
     /// Also feeds the "X min left" subtitle.
     private func handleScrollProgress(_ progress: Double) {
-        // Remember the spot; persisted on disappear so leaving and re-entering
-        // the article resumes where the reader left off.
-        latestProgress = progress
         let total = article.estimatedReadingMinutes
         if total > 0 {
             let left = Int((Double(total) * (1 - progress)).rounded())
@@ -279,11 +278,11 @@ struct ReaderView: View {
         try? context.save()
     }
 
-    /// Persists the last scroll fraction when leaving the reader. Written once
-    /// on disappear rather than on every scroll tick to avoid save churn.
+    /// Persists the top-of-viewport character offset when leaving the reader.
+    /// Written once on disappear rather than on every scroll tick to avoid churn.
     private func saveReadingProgress() {
-        guard let progress = latestProgress, progress != article.readingProgress else { return }
-        article.readingProgress = progress
+        guard let offset = latestTopOffset, offset != article.readingCharacterOffset else { return }
+        article.readingCharacterOffset = offset
         try? context.save()
     }
 

@@ -4,30 +4,26 @@ import UIKit
 
 final class ReadingPositionTests: XCTestCase {
 
-    typealias TextView = HighlightableTextView
+    typealias Coordinator = HighlightableTextView.Coordinator
 
-    func testRestoreOffsetRoundTripsWithReportedProgress() {
-        // scrollViewDidScroll reports (contentOffset.y + viewport) / content.
-        // restoreOffset must invert that to the same contentOffset.
-        let content: CGFloat = 5000
-        let viewport: CGFloat = 800
-        let savedOffsetY: CGFloat = 2200
-
-        let reportedFraction = Double((savedOffsetY + viewport) / content)
-        let restored = TextView.Coordinator.restoreOffset(
-            fraction: reportedFraction,
-            contentHeight: content,
-            viewportHeight: viewport,
-            topInset: 0,
+    func testRestoreOffsetPlacesCaretAtViewportTop() {
+        // The saved character's caret sits at y=2200 in content space; with a
+        // 50pt top inset it should land 50pt above the caret so the caret is
+        // flush with the top of the visible text area.
+        let restored = Coordinator.restoreOffsetY(
+            caretMinY: 2200,
+            contentHeight: 5000,
+            viewportHeight: 800,
+            topInset: 50,
             bottomInset: 0
         )
-        XCTAssertEqual(restored, savedOffsetY, accuracy: 0.001)
+        XCTAssertEqual(restored, 2150, accuracy: 0.001)
     }
 
     func testRestoreOffsetClampsToTop() {
-        // A tiny fraction should never scroll above the top of the content.
-        let restored = TextView.Coordinator.restoreOffset(
-            fraction: 0.01,
+        // A caret near the very top must not scroll above the content.
+        let restored = Coordinator.restoreOffsetY(
+            caretMinY: 10,
             contentHeight: 5000,
             viewportHeight: 800,
             topInset: 50,
@@ -37,12 +33,12 @@ final class ReadingPositionTests: XCTestCase {
     }
 
     func testRestoreOffsetClampsToBottom() {
-        // Progress at the very end lands at the maximum valid offset, not past it.
+        // A caret deep in the article can't scroll past the last full screen.
         let content: CGFloat = 5000
         let viewport: CGFloat = 800
         let bottomInset: CGFloat = 34
-        let restored = TextView.Coordinator.restoreOffset(
-            fraction: 1.0,
+        let restored = Coordinator.restoreOffsetY(
+            caretMinY: 4990,
             contentHeight: content,
             viewportHeight: viewport,
             topInset: 0,
@@ -53,8 +49,8 @@ final class ReadingPositionTests: XCTestCase {
 
     func testRestoreOffsetShortContentStaysAtTop() {
         // Content that fits within the viewport has no scroll range.
-        let restored = TextView.Coordinator.restoreOffset(
-            fraction: 0.9,
+        let restored = Coordinator.restoreOffsetY(
+            caretMinY: 300,
             contentHeight: 400,
             viewportHeight: 800,
             topInset: 50,

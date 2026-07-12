@@ -61,9 +61,12 @@ struct HighlightableTextView: UIViewRepresentable {
     /// A single tap landed on an existing highlight.
     let onTapHighlight: (UUID) -> Void
     var onScrollProgress: ((Double) -> Void)? = nil
-    /// Saved reading position (0...1 scroll fraction) to restore on first
+    /// Reports the UTF-16 index of the first character at the top of the
+    /// viewport as the user scrolls, so the reader can persist the spot.
+    var onTopCharacterOffset: ((Int) -> Void)? = nil
+    /// Saved reading position as a UTF-16 character offset, restored on first
     /// layout. Zero means start at the top. Applied exactly once per view.
-    var initialProgress: Double = 0
+    var initialCharacterOffset: Int = 0
     /// Fired on a plain single tap in the body (not a selection, link, or
     /// highlight tap), so the reader can toggle its chrome the way Books/Reader do.
     var onTap: (() -> Void)? = nil
@@ -273,49 +276,74 @@ struct HighlightableTextView: UIViewRepresentable {
         private let scrollTapCooldown: CFTimeInterval = 0.25
 
         /// Restores the saved reading position on first layout, then unblocks
-        /// progress reporting. Runs once: either it applies the saved fraction
-        /// (once content is tall enough to scroll) or, when there's nothing to
-        /// restore, it simply marks restoration done so live progress can flow.
+        /// progress reporting. Runs once: either it scrolls the saved character
+        /// to the top of the viewport (once the text has laid out) or, when
+        /// there's nothing to restore, marks restoration done so live progress
+        /// can flow.
         func restoreScrollIfNeeded() {
             guard !didRestoreScroll, let tv = textView, let parent = parent else { return }
 
-            let fraction = parent.initialProgress
-            // Nothing meaningful saved — start at the top and report immediately.
-            guard fraction > 0.0001 else {
+            let offset = parent.initialCharacterOffset
+            let length = (tv.text as NSString).length
+            // Nothing meaningful saved (or the text shrank past it) — start at
+            // the top and report immediately.
+            guard offset > 0, offset < length else {
                 didRestoreScroll = true
                 return
             }
 
-            // Wait for a real layout: a valid viewport and content taller than it.
-            let content = tv.contentSize.height
-            let viewport = tv.bounds.height
-            guard viewport > 0, content > 0 else { return }
+            // Wait for a real layout before trusting caret geometry.
+            guard tv.bounds.height > 0, tv.contentSize.height > 0 else { return }
 
-            let offset = Self.restoreOffset(
-                fraction: fraction,
-                contentHeight: content,
-                viewportHeight: viewport,
+            // Caret geometry (UITextInput) rather than layoutManager so we stay
+            // on TextKit 2 — see characterIndex(at:in:) for why that matters.
+            guard let position = tv.position(from: tv.beginningOfDocument, offset: offset) else {
+                didRestoreScroll = true
+                return
+            }
+            let caret = tv.caretRect(for: position)
+            guard caret.minY.isFinite else {
+                didRestoreScroll = true
+                return
+            }
+
+            let targetY = Self.restoreOffsetY(
+                caretMinY: caret.minY,
+                contentHeight: tv.contentSize.height,
+                viewportHeight: tv.bounds.height,
                 topInset: tv.adjustedContentInset.top,
                 bottomInset: tv.adjustedContentInset.bottom
             )
             didRestoreScroll = true
-            tv.setContentOffset(CGPoint(x: 0, y: offset), animated: false)
+            tv.setContentOffset(CGPoint(x: 0, y: targetY), animated: false)
         }
 
-        /// Content offset that puts the saved reading position back on screen.
-        ///
-        /// `fraction` is visibleBottom / contentHeight (matching the metric
-        /// reported by `scrollViewDidScroll`), so the matching top offset is
-        /// `fraction * contentHeight - viewportHeight`, clamped to the scroll
-        /// view's valid range. Pure so it can be unit-tested without UIKit.
-        static func restoreOffset(
-            fraction: Double,
+        /// UTF-16 index of the first character at the top of the viewport, used
+        /// to persist the reading spot. Nil until the text has laid out.
+        func topCharacterOffset(in tv: UITextView) -> Int? {
+            let length = (tv.text as NSString).length
+            guard length > 0 else { return nil }
+            // Just below the top of the visible text area (past the safe-area /
+            // nav-bar inset), a hair inside the left margin.
+            let topY = tv.contentOffset.y + tv.adjustedContentInset.top + 1
+            let point = CGPoint(x: tv.textContainerInset.left + 1, y: topY)
+            guard let position = tv.closestPosition(to: point) else { return nil }
+            let index = tv.offset(from: tv.beginningOfDocument, to: position)
+            guard index >= 0, index <= length else { return nil }
+            return index
+        }
+
+        /// Content offset that scrolls the saved character's caret to the top of
+        /// the viewport, clamped to the scroll view's valid range. Pure so it
+        /// can be unit-tested without UIKit.
+        static func restoreOffsetY(
+            caretMinY: CGFloat,
             contentHeight: CGFloat,
             viewportHeight: CGFloat,
             topInset: CGFloat,
             bottomInset: CGFloat
         ) -> CGFloat {
-            let target = CGFloat(fraction) * contentHeight - viewportHeight
+            let target = caretMinY - topInset
             let minY = -topInset
             let maxY = max(minY, contentHeight - viewportHeight + bottomInset)
             return min(max(target, minY), maxY)
@@ -559,11 +587,19 @@ struct HighlightableTextView: UIViewRepresentable {
             // Hold off until the saved position is restored so the initial
             // top-of-document offset can't be reported (and saved) as progress.
             guard didRestoreScroll else { return }
-            guard let onProgress = parent?.onScrollProgress else { return }
-            let visibleBottom = scrollView.contentOffset.y + scrollView.bounds.height
             let total = scrollView.contentSize.height
             guard total > 0 else { return }
-            onProgress(min(1.0, max(0.0, Double(visibleBottom / total))))
+
+            // Fraction drives the "X min left" subtitle and read-tracking.
+            if let onProgress = parent?.onScrollProgress {
+                let visibleBottom = scrollView.contentOffset.y + scrollView.bounds.height
+                onProgress(min(1.0, max(0.0, Double(visibleBottom / total))))
+            }
+            // Character offset is the persisted anchor for resuming the spot.
+            if let onOffset = parent?.onTopCharacterOffset, let tv = textView,
+               let index = topCharacterOffset(in: tv) {
+                onOffset(index)
+            }
         }
 
         func scrollViewWillBeginDragging(_ scrollView: UIScrollView) {
