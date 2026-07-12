@@ -222,3 +222,25 @@ extension ReaderTypographyTests {
         XCTAssertEqual(ReaderFont.serif.group, .reading)
     }
 }
+
+extension ReaderTypographyTests {
+    /// plainText separates paragraphs with "\n\n"; the renderer collapses the
+    /// blank paragraph so paragraphSpacing is the only inter-paragraph space.
+    /// This pins the range math: only the 2nd..nth newlines of a run count.
+    func testBlankLineRangesFindOnlyEmptyParagraphNewlines() {
+        let text = "One\n\nTwo\n\n\nThree\nFour"
+        let ranges = HighlightableTextView.blankLineRanges(in: text)
+        XCTAssertEqual(ranges, [
+            NSRange(location: 4, length: 1),   // 2nd \n of "One\n\n"
+            NSRange(location: 9, length: 1),   // 2nd \n of the triple run
+            NSRange(location: 10, length: 1),  // 3rd \n of the triple run
+        ])
+        // A single newline (Three\nFour) is a plain paragraph break — untouched.
+    }
+
+    func testBlankLineRangesEmptyAndNoNewlineTexts() {
+        XCTAssertTrue(HighlightableTextView.blankLineRanges(in: "").isEmpty)
+        XCTAssertTrue(HighlightableTextView.blankLineRanges(in: "no breaks here").isEmpty)
+        XCTAssertTrue(HighlightableTextView.blankLineRanges(in: "a\nb").isEmpty)
+    }
+}

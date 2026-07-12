@@ -152,6 +152,29 @@ struct HighlightableTextView: UIViewRepresentable {
 
     // MARK: - Rendering
 
+    /// UTF-16 ranges of the newline characters that terminate *empty*
+    /// paragraphs — the 2nd..nth newline in every run of consecutive
+    /// newlines. `plainText` separates paragraphs with "\n\n", so each break
+    /// contains exactly one such blank paragraph.
+    static func blankLineRanges(in text: String) -> [NSRange] {
+        let ns = text as NSString
+        var ranges: [NSRange] = []
+        var i = 0
+        while i < ns.length {
+            if ns.character(at: i) == 0x0A { // "\n"
+                var j = i + 1
+                while j < ns.length, ns.character(at: j) == 0x0A {
+                    ranges.append(NSRange(location: j, length: 1))
+                    j += 1
+                }
+                i = j
+            } else {
+                i += 1
+            }
+        }
+        return ranges
+    }
+
     private func render() -> NSAttributedString {
         let darkBackground = theme.isDark
         let font = (ReaderFont(rawValue: fontRaw) ?? .serif).uiFont(size: fontSize)
@@ -165,6 +188,24 @@ struct HighlightableTextView: UIViewRepresentable {
             .paragraphStyle: paragraphStyle,
         ]
         let str = NSMutableAttributedString(string: text, attributes: attrs)
+
+        // The parser separates paragraphs with a blank line ("\n\n"). Rendered
+        // literally, that empty paragraph adds a full line box plus a second
+        // round of paragraphSpacing — dwarfing the user's spacing setting. The
+        // text (and therefore highlight offsets) must stay untouched, so
+        // instead collapse each blank line to near-zero height, making
+        // `paragraphSpacing` the single source of inter-paragraph space.
+        let collapsedStyle = NSMutableParagraphStyle()
+        collapsedStyle.maximumLineHeight = 1
+        collapsedStyle.lineSpacing = 0
+        collapsedStyle.paragraphSpacing = 0
+        let collapsedAttrs: [NSAttributedString.Key: Any] = [
+            .font: UIFont.systemFont(ofSize: 1),
+            .paragraphStyle: collapsedStyle,
+        ]
+        for range in Self.blankLineRanges(in: text) {
+            str.addAttributes(collapsedAttrs, range: range)
+        }
 
         for h in highlights {
             if let located = HighlightAnchor.locate(
