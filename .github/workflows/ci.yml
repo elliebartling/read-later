@@ -1,24 +1,46 @@
 name: CI
 
+# macOS runner minutes bill at 10x on private repos, so this workflow is
+# deliberately stingy:
+#   - Feature branches are covered by their PR run only. The old
+#     `push: ["**"]` + `pull_request` pair billed every PR-branch push
+#     TWICE (two events, two concurrency groups, neither cancelled the
+#     other).
+#   - Doc/agent-config changes skip the Mac job entirely (paths-ignore).
+#   - One `xcodebuild test` pass builds the app + embedded extensions and
+#     runs the tests; the old separate build step compiled everything a
+#     second time.
 on:
   push:
-    branches: ["**"]
+    branches: [main]
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".agents/**"
+      - "LICENSE"
   pull_request:
+    paths-ignore:
+      - "**.md"
+      - "docs/**"
+      - ".agents/**"
+      - "LICENSE"
+  workflow_dispatch:
 
 concurrency:
-  group: ci-${{ github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 jobs:
   build-and-test:
-    # NOTE: macOS runner minutes bill at 10x on private repos.
     runs-on: macos-15
-    timeout-minutes: 45
+    # Keep this tight: a hung build bills 10 minutes for every minute it
+    # sits here. Successful runs finish well under 15.
+    timeout-minutes: 20
     defaults:
       run:
         # Explicit `shell: bash` runs with `-eo pipefail` (the implicit
         # default shell does NOT set pipefail) — without it the
-        # `xcodebuild | tail` pipes below mask failures and the job goes
+        # `xcodebuild | tail` pipe below masks failures and the job goes
         # green on a broken build. Run #1 did exactly that.
         shell: bash
     steps:
@@ -30,16 +52,6 @@ jobs:
       - name: Generate project
         run: xcodegen generate
 
-      - name: Build (simulator, unsigned)
-        run: |
-          xcodebuild build \
-            -project ReadLater.xcodeproj \
-            -scheme ReadLater \
-            -destination 'generic/platform=iOS Simulator' \
-            CODE_SIGNING_ALLOWED=NO \
-            CODE_SIGN_IDENTITY="" \
-            | tail -100
-
       - name: Pick a simulator
         id: sim
         run: |
@@ -47,7 +59,7 @@ jobs:
           echo "device=${DEVICE:-iPhone 16}" >> "$GITHUB_OUTPUT"
           echo "Using simulator: ${DEVICE:-iPhone 16}"
 
-      - name: Unit tests
+      - name: Build & test
         run: |
           xcodebuild test \
             -project ReadLater.xcodeproj \
@@ -55,4 +67,4 @@ jobs:
             -destination "platform=iOS Simulator,name=${{ steps.sim.outputs.device }}" \
             CODE_SIGNING_ALLOWED=NO \
             CODE_SIGN_IDENTITY="" \
-            | tail -100
+            | tail -150
