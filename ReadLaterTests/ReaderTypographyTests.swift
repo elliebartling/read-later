@@ -66,3 +66,43 @@ extension ReaderTypographyTests {
         }
     }
 }
+
+extension ReaderTypographyTests {
+    private func luminance(_ c: UIColor) -> CGFloat {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        c.getRed(&r, green: &g, blue: &b, alpha: &a)
+        return 0.2126 * r + 0.7152 * g + 0.0722 * b
+    }
+
+    func testCompositedHighlightsAreOpaque() {
+        for color in HighlightColor.allCases {
+            for dark in [true, false] {
+                var a: CGFloat = 0
+                color.uiColor(darkBackground: dark).getRed(nil, green: nil, blue: nil, alpha: &a)
+                XCTAssertEqual(a, 1, accuracy: 0.001)
+            }
+        }
+    }
+
+    func testLightAndDarkRecipesDiffer() {
+        for color in HighlightColor.allCases {
+            XCTAssertNotEqual(color.uiColor(darkBackground: false),
+                              color.uiColor(darkBackground: true))
+        }
+    }
+
+    func testDarkRecipeIsLighterThanDarkPage() {
+        // On a dark page the band must be brighter than the page to stay legible.
+        let darkPage = ReaderTheme.dark.background
+        for color in HighlightColor.allCases {
+            XCTAssertGreaterThan(luminance(color.uiColor(darkBackground: true)),
+                                 luminance(darkPage))
+        }
+    }
+
+    func testLightRecipeStaysBelowWhite() {
+        for color in HighlightColor.allCases {
+            XCTAssertLessThan(luminance(color.uiColor(darkBackground: false)), 1.0)
+        }
+    }
+}
