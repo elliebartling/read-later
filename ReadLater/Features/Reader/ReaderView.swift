@@ -36,6 +36,9 @@ struct ReaderView: View {
         chromeVisible || article.parseStatus != .ready
     }
 
+    /// One spring for every chrome reveal/dismiss so the two directions match.
+    private static let chromeAnimation: Animation = .spring(response: 0.4, dampingFraction: 0.85)
+
     // A row is seeded at startup (RootView); the transient fallback only
     // covers the first render tick and is never inserted or written to.
     private var settings: AppSettings {
@@ -79,15 +82,15 @@ struct ReaderView: View {
                 .ignoresSafeArea()
 
             readerContent
-                // Extend under both bars so revealing the chrome only grows the
-                // scroll view's content inset (text stays put) instead of moving
-                // the text view's frame down — which made the whole page jump.
+                // Keep the text view full-screen under both bars so its frame
+                // never moves when the chrome appears. ReaderTextView then pins
+                // the text with a frozen inset, so revealing the nav bar has no
+                // effect on where the article sits — the bar just overlays it.
                 .ignoresSafeArea(.container, edges: .vertical)
 
             floatingPlayer
         }
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: tts.isActive)
-        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: showChrome)
         .readerTitleBar(title: article.title, subtitle: subtitleText)
         .toolbar(.hidden, for: .tabBar)
         .toolbar(showChrome ? .visible : .hidden, for: .navigationBar)
@@ -196,11 +199,10 @@ struct ReaderView: View {
                 },
                 onScrollProgress: handleScrollProgress,
                 onTap: {
-                    // Use the same spring the chrome layout animates with (see
-                    // the `.animation(value: showChrome)` modifier) so the toolbar,
-                    // status bar and floating player reveal as one smooth motion
-                    // instead of two competing curves.
-                    withAnimation(.spring(response: 0.4, dampingFraction: 0.85)) {
+                    // Drive the chrome from a single explicit animation so both
+                    // directions match. A redundant implicit `.animation(value:)`
+                    // modifier used to fight this and left the *dismiss* un-animated.
+                    withAnimation(Self.chromeAnimation) {
                         chromeVisible.toggle()
                     }
                 }
@@ -238,7 +240,7 @@ struct ReaderView: View {
 
     private func startTTS() {
         // Keep the title / "X min left" nav chrome visible while listening.
-        chromeVisible = true
+        withAnimation(Self.chromeAnimation) { chromeVisible = true }
         let voice = settings.ttsProvider == .apple ? settings.appleVoiceID : settings.openAIVoice
         tts.start(
             paragraphs: paragraphs,
