@@ -3,6 +3,7 @@ import SwiftData
 
 struct ReaderView: View {
     @Environment(\.modelContext) private var context
+    @Environment(\.colorScheme) private var colorScheme
     @Query private var settingsRows: [AppSettings]
     let article: Article
 
@@ -41,6 +42,11 @@ struct ReaderView: View {
         settingsRows.first ?? AppSettings()
     }
 
+    /// Concrete palette for the current appearance mode + OS color scheme.
+    private var resolvedTheme: ReaderTheme {
+        settings.resolvedReaderTheme(systemIsDark: colorScheme == .dark)
+    }
+
     private var paragraphs: [String] {
         article.plainText
             .components(separatedBy: "\n")
@@ -69,7 +75,7 @@ struct ReaderView: View {
 
     var body: some View {
         ZStack(alignment: .bottom) {
-            settings.readerTheme.background.swiftUIColor
+            resolvedTheme.background.swiftUIColor
                 .ignoresSafeArea()
 
             readerContent
@@ -165,7 +171,7 @@ struct ReaderView: View {
                 text: article.plainText,
                 highlights: article.allHighlights,
                 currentSpokenRange: currentParagraphRange,
-                theme: settings.readerTheme,
+                theme: resolvedTheme,
                 fontSize: CGFloat(settings.readerFontSize),
                 fontRaw: settings.readerFontRaw,
                 lineSpacing: CGFloat(settings.readerLineSpacing),

@@ -95,15 +95,14 @@ struct HighlightableTextView: UIViewRepresentable {
         if tv.textContainerInset != desiredInset {
             tv.textContainerInset = desiredInset
         }
-        let darkBackground = theme.isDarkBackground(for: tv.traitCollection)
-        let signature = renderSignature(darkBackground: darkBackground)
+        let signature = renderSignature()
         if signature != context.coordinator.lastRenderSignature {
             let preservedSelection = tv.selectedRange
             // Re-rendering resets the selection to zero before we restore it.
             // Suppress the selection-change callback so that transient reset
             // doesn't end the highlight session mid-selection.
             context.coordinator.suppressSelectionChange = true
-            tv.attributedText = render(darkBackground: darkBackground)
+            tv.attributedText = render()
             // Restore selection if it still fits — protects an in-progress highlight
             // from being wiped by unrelated SwiftUI updates (e.g. TTS paragraph advance).
             if preservedSelection.location + preservedSelection.length <= (tv.text as NSString).length {
@@ -132,17 +131,18 @@ struct HighlightableTextView: UIViewRepresentable {
         UIEdgeInsets(top: 24, left: width.horizontalInset, bottom: 40, right: width.horizontalInset)
     }
 
-    private func renderSignature(darkBackground: Bool) -> String {
+    private func renderSignature() -> String {
         let highlightSig = highlights
             .map { "\($0.id.uuidString):\($0.startOffset):\($0.endOffset):\($0.colorRaw)" }
             .joined(separator: "|")
         let spoken = currentSpokenRange.map { "\($0.location)-\($0.length)" } ?? ""
-        return "\(text.utf16.count)|\(theme.rawValue)|\(fontSize)|\(fontRaw)|\(lineSpacing)|\(paragraphSpacing)|\(width.rawValue)|\(highlightSig)|\(spoken)|\(darkBackground)"
+        return "\(text.utf16.count)|\(theme.rawValue)|\(fontSize)|\(fontRaw)|\(lineSpacing)|\(paragraphSpacing)|\(width.rawValue)|\(highlightSig)|\(spoken)"
     }
 
     // MARK: - Rendering
 
-    private func render(darkBackground: Bool) -> NSAttributedString {
+    private func render() -> NSAttributedString {
+        let darkBackground = theme.isDark
         let font = (ReaderFont(rawValue: fontRaw) ?? .serif).uiFont(size: fontSize)
         let paragraphStyle = NSMutableParagraphStyle()
         paragraphStyle.lineSpacing = lineSpacing
