@@ -128,9 +128,10 @@ private struct SettingsForm: View {
                         Text(t.displayName).tag(t)
                     }
                 }
-                Stepper("Font Size: \(Int(settings.readerFontSize))",
-                        value: $settings.readerFontSize,
-                        in: 14...28)
+                VStack(alignment: .leading) {
+                    Text("Font Size: \(Int(settings.readerFontSize)) pt")
+                    Slider(value: $settings.readerFontSize, in: 12...32, step: 1)
+                }
             }
         }
         .navigationTitle("Settings")
