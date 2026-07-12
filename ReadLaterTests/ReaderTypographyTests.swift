@@ -34,12 +34,6 @@ final class ReaderTypographyTests: XCTestCase {
 }
 
 extension ReaderTypographyTests {
-    func testReaderThemeRawFallback() {
-        let s = AppSettings()
-        s.readerThemeRaw = "bogus"
-        XCTAssertEqual(s.readerTheme, .system)
-    }
-
     func testAllThemesHaveOpaqueColors() {
         for theme in ReaderTheme.allCases {
             var alpha: CGFloat = 0
@@ -49,14 +43,14 @@ extension ReaderTypographyTests {
     }
 
     func testExplicitThemeDarkness() {
-        XCTAssertTrue(ReaderTheme.dark.isDarkBackground(for: nil))
-        XCTAssertTrue(ReaderTheme.slate.isDarkBackground(for: nil))
-        XCTAssertTrue(ReaderTheme.forest.isDarkBackground(for: nil))
-        XCTAssertTrue(ReaderTheme.darkGray.isDarkBackground(for: nil))
-        XCTAssertFalse(ReaderTheme.light.isDarkBackground(for: nil))
-        XCTAssertFalse(ReaderTheme.sepia.isDarkBackground(for: nil))
-        XCTAssertFalse(ReaderTheme.paper.isDarkBackground(for: nil))
-        XCTAssertFalse(ReaderTheme.mediumGray.isDarkBackground(for: nil))
+        XCTAssertTrue(ReaderTheme.dark.isDark)
+        XCTAssertTrue(ReaderTheme.slate.isDark)
+        XCTAssertTrue(ReaderTheme.forest.isDark)
+        XCTAssertTrue(ReaderTheme.darkGray.isDark)
+        XCTAssertFalse(ReaderTheme.light.isDark)
+        XCTAssertFalse(ReaderTheme.sepia.isDark)
+        XCTAssertFalse(ReaderTheme.paper.isDark)
+        XCTAssertFalse(ReaderTheme.mediumGray.isDark)
     }
 
     func testNewThemeCasesExist() {

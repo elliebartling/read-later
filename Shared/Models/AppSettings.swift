@@ -21,7 +21,7 @@ final class AppSettings {
     var obsidianBookmarkData: Data?
     /// Sub-folder inside the vault where markdown notes land, e.g. "Read Later".
     var obsidianSubfolder: String = "Read Later"
-    var readerThemeRaw: String = ReaderTheme.system.rawValue
+    var readerThemeRaw: String = "system"
     var readerFontSize: Double = 18
     /// Raw value of ReaderFont (see ReadLater/UI/ReaderFont.swift).
     var readerFontRaw: String = "Serif"
@@ -42,11 +42,6 @@ final class AppSettings {
     var ttsProvider: TTSProvider {
         get { TTSProvider(rawValue: ttsProviderRaw) ?? .apple }
         set { ttsProviderRaw = newValue.rawValue }
-    }
-
-    var readerTheme: ReaderTheme {
-        get { ReaderTheme(rawValue: readerThemeRaw) ?? .system }
-        set { readerThemeRaw = newValue.rawValue }
     }
 
     var readerWidth: ReaderWidth {
@@ -122,7 +117,7 @@ enum TTSProvider: String, Codable, CaseIterable, Identifiable {
 }
 
 enum ReaderTheme: String, Codable, CaseIterable, Identifiable {
-    case light, dark, sepia, system
+    case light, dark, sepia
     case darkGray, mediumGray, slate, paper, forest
 
     var id: String { rawValue }
@@ -146,8 +141,6 @@ enum ReaderTheme: String, Codable, CaseIterable, Identifiable {
             return true
         case .light, .sepia, .paper, .mediumGray:
             return false
-        case .system:
-            return false // legacy case; removed in the cleanup task
         }
     }
 }
