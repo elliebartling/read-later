@@ -93,7 +93,13 @@ jobs:
           printf '%s\n' "$ASC_API_KEY_P8" > "$KEY_PATH"
           chmod 600 "$KEY_PATH"
 
-      - name: Archive (unsigned)
+      # Sign AT ARCHIVE TIME (cloud signing via the ASC API key). Entitlements
+      # (app groups, iCloud) are baked into each binary by the codesign step
+      # that runs during the build — an unsigned archive (CODE_SIGNING_ALLOWED=NO)
+      # skips that step, and export-time re-signing CANNOT recover them. That
+      # exact failure shipped builds 4+ without the App Group entitlement and
+      # broke Share-sheet handoff and manual saves (2026-07-12 incident).
+      - name: Archive (cloud-signed)
         run: |
           rm -rf build/ReadLater.xcarchive build/export build/DerivedData
           set -o pipefail
@@ -104,7 +110,12 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath build/ReadLater.xcarchive \
             -derivedDataPath build/DerivedData \
-            CODE_SIGNING_ALLOWED=NO \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            CODE_SIGN_STYLE=Automatic \
+            DEVELOPMENT_TEAM=RLQ5M29933 \
             | tail -80
 
       - name: Export signed IPA
@@ -120,6 +131,26 @@ jobs:
             -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             | tee /tmp/export.log | tail -40
           test -f build/export/ReadLater.ipa
+
+      # Tripwire: a build without the App Group entitlement is broken on
+      # device even though it uploads and installs fine. Fail the run instead
+      # of shipping it.
+      - name: Verify entitlements survived signing
+        run: |
+          unzip -q build/export/ReadLater.ipa -d build/ipa-check
+          APP="build/ipa-check/Payload/ReadLater.app"
+          FAIL=0
+          for BIN in "$APP" "$APP"/PlugIns/*.appex; do
+            echo "=== entitlements: $BIN ==="
+            if ! codesign -d --entitlements :- "$BIN" 2>/dev/null | tee /tmp/ent.plist | grep -q "group.com.ellenbartling.readlater"; then
+              echo "::error::App Group entitlement missing from ${BIN} — archive-time signing regressed (see 'Archive (cloud-signed)' comment)."
+              FAIL=1
+            fi
+          done
+          if ! grep -q "icloud-container-identifiers" <(codesign -d --entitlements :- "$APP" 2>/dev/null); then
+            echo "::warning::iCloud entitlements missing from the app binary (CloudKit is code-gated off today, but flag this before re-enabling sync)."
+          fi
+          exit $FAIL
 
       - name: Upload to TestFlight
         run: |
