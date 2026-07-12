@@ -41,3 +41,8 @@ Config/Local.xcconfig
 
 # Brainstorm / agent scratch
 .superpowers/
+
+# Claude Code worktrees & tool scratch (machine-local)
+.claude/worktrees/
+.tmp/
+.xcodebuildmcp/
