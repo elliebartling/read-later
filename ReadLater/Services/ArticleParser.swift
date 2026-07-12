@@ -412,6 +412,31 @@ final class ArticleParser: NSObject {
     }
 }
 
+extension Article {
+    /// Applies a fresh `ArticleParser.Parsed` to this article's derived fields.
+    /// Shared by the initial ingest (`PendingSaveIngest`) and the Re-extract
+    /// action so the field-write set can never drift between the two paths.
+    ///
+    /// `updateTitle` is true on first ingest (adopt the parsed title unless it
+    /// is empty) and false on Re-extract (the user-visible title stays put).
+    /// Highlights are never touched here — they re-anchor lazily on next render.
+    /// `parseStatus` is left to the caller (ingest flips it to `.ready`).
+    func apply(_ parsed: ArticleParser.Parsed, updateTitle: Bool) {
+        if updateTitle, !parsed.title.isEmpty {
+            title = parsed.title
+        }
+        author = parsed.author
+        siteName = parsed.siteName
+        plainText = parsed.plainText
+        if !parsed.blocks.isEmpty {
+            try? setBlocks(parsed.blocks)
+        }
+        extractedHTML = parsed.extractedHTML
+        heroImageURL = parsed.heroImageURL
+        estimatedReadingMinutes = parsed.estimatedReadingMinutes
+    }
+}
+
 extension ArticleParser: WKNavigationDelegate {
     nonisolated func webView(_ webView: WKWebView, didFinish navigation: WKNavigation!) {
         Task { @MainActor in

@@ -141,6 +141,9 @@ struct IdlePlayerBar: View {
     var onPlay: () -> Void
     var onExport: () -> Void
     var onToggleRead: () -> Void
+    var onReextract: () -> Void
+    /// Disables the Re-extract menu item while a parse is in flight.
+    var isReextracting: Bool
 
     var body: some View {
         HStack(spacing: 22) {
@@ -158,6 +161,12 @@ struct IdlePlayerBar: View {
                 }
                 if let url = article.url {
                     Divider()
+                    Button {
+                        onReextract()
+                    } label: {
+                        Label("Re-extract", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(isReextracting)
                     Link(destination: url) {
                         Label("Open Original", systemImage: "safari")
                     }

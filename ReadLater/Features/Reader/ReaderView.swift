@@ -21,6 +21,10 @@ struct ReaderView: View {
     /// Scroll position as a 0...1 fraction, kept minute-granular via
     /// `readingMinutesLeft` so scrolling doesn't spam view updates.
     @State private var readingMinutesLeft: Int?
+    /// True while a Re-extract parse is running — disables the menu item.
+    @State private var isReextracting = false
+    /// Non-nil drives the "Couldn't re-extract" alert (parallels `tts.lastError`).
+    @State private var reextractError: String?
 
     /// Color for instantly-created highlights; updated whenever the user picks
     /// a color, so new highlights reuse the last choice.
@@ -135,6 +139,17 @@ struct ReaderView: View {
         } message: {
             Text(tts.lastError ?? "")
         }
+        .alert(
+            "Couldn't re-extract",
+            isPresented: Binding(
+                get: { reextractError != nil },
+                set: { if !$0 { reextractError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(reextractError ?? "")
+        }
     }
 
     /// The floating pink capsule: the playing bar while read-aloud is active,
@@ -156,7 +171,9 @@ struct ReaderView: View {
                     onTags: { showingTagSheet = true },
                     onPlay: startTTS,
                     onExport: { exportToObsidian() },
-                    onToggleRead: toggleRead
+                    onToggleRead: toggleRead,
+                    onReextract: reextract,
+                    isReextracting: isReextracting
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottom)))
             }
@@ -272,6 +289,33 @@ struct ReaderView: View {
     private func toggleRead() {
         article.readAt = article.readAt == nil ? .now : nil
         try? context.save()
+    }
+
+    /// Re-runs the extractor over the article's URL and refreshes its derived
+    /// fields (plainText, extractedHTML, blocks, reading time) via the shared
+    /// `Article.apply` helper — the same parse path used on first ingest. The
+    /// user-visible title and existing highlights are left untouched; highlights
+    /// re-anchor lazily on the next render. Failures surface in an alert.
+    private func reextract() {
+        guard let url = article.url, !isReextracting else { return }
+        isReextracting = true
+        // Stop read-aloud before swapping the text out from under it — audio
+        // reading stale paragraphs against refreshed text is a desync. No-op
+        // when idle.
+        tts.stop()
+        Task { @MainActor in
+            defer { isReextracting = false }
+            do {
+                let parsed = try await ArticleParser.shared.parse(url: url)
+                article.apply(parsed, updateTitle: false)
+                // Harmless when already ready; recovers an article stuck in
+                // .failed whose re-extract succeeded.
+                article.parseStatus = .ready
+                try context.save()
+            } catch {
+                reextractError = error.localizedDescription
+            }
+        }
     }
 
     // MARK: - Highlight actions
