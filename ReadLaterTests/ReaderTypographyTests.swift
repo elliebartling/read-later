@@ -34,12 +34,6 @@ final class ReaderTypographyTests: XCTestCase {
 }
 
 extension ReaderTypographyTests {
-    func testReaderThemeRawFallback() {
-        let s = AppSettings()
-        s.readerThemeRaw = "bogus"
-        XCTAssertEqual(s.readerTheme, .system)
-    }
-
     func testAllThemesHaveOpaqueColors() {
         for theme in ReaderTheme.allCases {
             var alpha: CGFloat = 0
@@ -49,14 +43,14 @@ extension ReaderTypographyTests {
     }
 
     func testExplicitThemeDarkness() {
-        XCTAssertTrue(ReaderTheme.dark.isDarkBackground(for: nil))
-        XCTAssertTrue(ReaderTheme.slate.isDarkBackground(for: nil))
-        XCTAssertTrue(ReaderTheme.forest.isDarkBackground(for: nil))
-        XCTAssertTrue(ReaderTheme.darkGray.isDarkBackground(for: nil))
-        XCTAssertFalse(ReaderTheme.light.isDarkBackground(for: nil))
-        XCTAssertFalse(ReaderTheme.sepia.isDarkBackground(for: nil))
-        XCTAssertFalse(ReaderTheme.paper.isDarkBackground(for: nil))
-        XCTAssertFalse(ReaderTheme.mediumGray.isDarkBackground(for: nil))
+        XCTAssertTrue(ReaderTheme.dark.isDark)
+        XCTAssertTrue(ReaderTheme.slate.isDark)
+        XCTAssertTrue(ReaderTheme.forest.isDark)
+        XCTAssertTrue(ReaderTheme.darkGray.isDark)
+        XCTAssertFalse(ReaderTheme.light.isDark)
+        XCTAssertFalse(ReaderTheme.sepia.isDark)
+        XCTAssertFalse(ReaderTheme.paper.isDark)
+        XCTAssertFalse(ReaderTheme.mediumGray.isDark)
     }
 
     func testNewThemeCasesExist() {
@@ -122,5 +116,80 @@ extension ReaderTypographyTests {
         for font in ReaderFont.allCases {
             XCTAssertFalse(font.group.title.isEmpty)
         }
+    }
+}
+
+extension ReaderTypographyTests {
+    func testReaderAppearanceRawFallback() {
+        let s = AppSettings()
+        s.readerAppearanceRaw = "bogus"
+        XCTAssertEqual(s.readerAppearance, .system)
+    }
+
+    func testPaletteMembership() {
+        XCTAssertEqual(ReaderTheme.lightCases, [.light, .sepia, .paper, .mediumGray])
+        XCTAssertEqual(ReaderTheme.darkCases, [.dark, .darkGray, .slate, .forest])
+        for t in ReaderTheme.lightCases { XCTAssertFalse(t.isDark, "\(t) should be light") }
+        for t in ReaderTheme.darkCases { XCTAssertTrue(t.isDark, "\(t) should be dark") }
+    }
+
+    func testPaletteAccessorsRejectWrongSide() {
+        let s = AppSettings()
+        s.readerLightThemeRaw = ReaderTheme.slate.rawValue   // dark palette in light slot
+        XCTAssertEqual(s.readerLightTheme, .light)
+        s.readerDarkThemeRaw = ReaderTheme.sepia.rawValue    // light palette in dark slot
+        XCTAssertEqual(s.readerDarkTheme, .dark)
+    }
+
+    func testResolutionTruthTable() {
+        let s = AppSettings()
+        s.readerLightTheme = .paper
+        s.readerDarkTheme = .slate
+
+        s.readerAppearance = .light
+        XCTAssertEqual(s.resolvedReaderTheme(systemIsDark: false), .paper)
+        XCTAssertEqual(s.resolvedReaderTheme(systemIsDark: true), .paper)
+
+        s.readerAppearance = .dark
+        XCTAssertEqual(s.resolvedReaderTheme(systemIsDark: false), .slate)
+        XCTAssertEqual(s.resolvedReaderTheme(systemIsDark: true), .slate)
+
+        s.readerAppearance = .system
+        XCTAssertEqual(s.resolvedReaderTheme(systemIsDark: false), .paper)
+        XCTAssertEqual(s.resolvedReaderTheme(systemIsDark: true), .slate)
+    }
+
+    func testMigrationFromLegacyTheme() {
+        // Light palette → light appearance carrying that palette.
+        let a = AppSettings()
+        a.readerThemeRaw = "sepia"
+        a.migrateLegacyThemeIfNeeded()
+        XCTAssertEqual(a.readerAppearance, .light)
+        XCTAssertEqual(a.readerLightTheme, .sepia)
+        XCTAssertEqual(a.readerDarkTheme, .dark)
+
+        // Dark palette → dark appearance carrying that palette.
+        let b = AppSettings()
+        b.readerThemeRaw = "slate"
+        b.migrateLegacyThemeIfNeeded()
+        XCTAssertEqual(b.readerAppearance, .dark)
+        XCTAssertEqual(b.readerDarkTheme, .slate)
+        XCTAssertEqual(b.readerLightTheme, .light)
+
+        // "system" and unknown → system + defaults.
+        let c = AppSettings()
+        c.readerThemeRaw = "system"
+        c.migrateLegacyThemeIfNeeded()
+        XCTAssertEqual(c.readerAppearance, .system)
+
+        let d = AppSettings()
+        d.readerThemeRaw = "bogus"
+        d.migrateLegacyThemeIfNeeded()
+        XCTAssertEqual(d.readerAppearance, .system)
+
+        // Idempotent: second run doesn't clobber a user change.
+        a.readerLightTheme = .paper
+        a.migrateLegacyThemeIfNeeded()
+        XCTAssertEqual(a.readerLightTheme, .paper)
     }
 }

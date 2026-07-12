@@ -45,8 +45,16 @@ struct RootView: View {
         var descriptor = FetchDescriptor<AppSettings>()
         descriptor.fetchLimit = 1
         let existing = (try? context.fetch(descriptor)) ?? []
-        if existing.isEmpty {
-            context.insert(AppSettings())
+        if let settings = existing.first {
+            // One-time split of the legacy single theme into appearance + palettes.
+            if settings.readerAppearanceRaw.isEmpty {
+                settings.migrateLegacyThemeIfNeeded()
+                try? context.save()
+            }
+        } else {
+            let settings = AppSettings()
+            settings.migrateLegacyThemeIfNeeded()
+            context.insert(settings)
             try? context.save()
         }
     }

@@ -14,15 +14,27 @@ struct TypographyControls: View {
         NavigationStack {
             Form {
                 Section("Theme") {
-                    LazyVGrid(columns: swatchColumns, spacing: 12) {
-                        ForEach(ReaderTheme.allCases) { theme in
-                            ThemeSwatch(
-                                theme: theme,
-                                selected: settings.readerTheme == theme
-                            ) { settings.readerTheme = theme }
+                    Picker("Appearance", selection: .init(
+                        get: { settings.readerAppearance },
+                        set: { settings.readerAppearance = $0 }
+                    )) {
+                        ForEach(ReaderAppearance.allCases) { a in
+                            Text(a.displayName).tag(a)
                         }
                     }
-                    .padding(.vertical, 4)
+                    .pickerStyle(.segmented)
+
+                    switch settings.readerAppearance {
+                    case .light:
+                        swatchGrid(ReaderTheme.lightCases, selection: lightThemeBinding)
+                    case .dark:
+                        swatchGrid(ReaderTheme.darkCases, selection: darkThemeBinding)
+                    case .system:
+                        paletteLabel("Light theme")
+                        swatchGrid(ReaderTheme.lightCases, selection: lightThemeBinding)
+                        paletteLabel("Dark theme")
+                        swatchGrid(ReaderTheme.darkCases, selection: darkThemeBinding)
+                    }
                 }
 
                 Section("Font") {
@@ -129,6 +141,38 @@ struct TypographyControls: View {
                 controller?.setVoice(newVoice)
             }
         )
+    }
+
+    private var lightThemeBinding: Binding<ReaderTheme> {
+        Binding(
+            get: { settings.readerLightTheme },
+            set: { settings.readerLightTheme = $0 }
+        )
+    }
+
+    private var darkThemeBinding: Binding<ReaderTheme> {
+        Binding(
+            get: { settings.readerDarkTheme },
+            set: { settings.readerDarkTheme = $0 }
+        )
+    }
+
+    private func paletteLabel(_ title: String) -> some View {
+        Text(title)
+            .font(.caption.weight(.semibold))
+            .foregroundStyle(.secondary)
+    }
+
+    private func swatchGrid(_ themes: [ReaderTheme], selection: Binding<ReaderTheme>) -> some View {
+        LazyVGrid(columns: swatchColumns, spacing: 12) {
+            ForEach(themes) { theme in
+                ThemeSwatch(
+                    theme: theme,
+                    selected: selection.wrappedValue == theme
+                ) { selection.wrappedValue = theme }
+            }
+        }
+        .padding(.vertical, 4)
     }
 }
 
