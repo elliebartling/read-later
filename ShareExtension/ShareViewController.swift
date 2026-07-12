@@ -123,18 +123,31 @@ final class ShareViewController: UIViewController {
     }
 
     /// Open attempt, only ever invoked from the button tap. Tries the
-    /// sanctioned API first, then the legacy responder-chain walk. Neither
-    /// call is awaited, so nothing can stall the sheet if the system ignores
-    /// the request.
+    /// sanctioned API first, then a responder-chain walk to the application
+    /// object. Neither call is awaited, so nothing can stall the sheet if the
+    /// system ignores the request.
+    ///
+    /// The walk must invoke the modern open(_:options:completionHandler:) —
+    /// iOS 26 force-fails the legacy openURL: selector ("BUG IN CLIENT OF
+    /// UIKIT", returns NO without opening). That method takes three arguments,
+    /// beyond what perform(_:with:with:) supports, hence the direct IMP call.
     private func attemptOpen() {
         guard let deepLink = pendingDeepLink else { return }
         extensionContext?.open(deepLink, completionHandler: nil)
 
-        let selector = NSSelectorFromString("openURL:")
+        typealias OpenURLMethod = @convention(c) (
+            AnyObject, Selector, URL, [AnyHashable: Any], (@convention(block) (Bool) -> Void)?
+        ) -> Void
+        let selector = NSSelectorFromString("openURL:options:completionHandler:")
+        // The chain must be walked to the application object specifically:
+        // UIScene sits earlier in it and also answers this selector, but its
+        // implementation won't launch the containing app from an extension.
+        guard let applicationClass = NSClassFromString("UIApplication") else { return }
         var responder: UIResponder? = self as UIResponder
         while let r = responder {
-            if r.responds(to: selector) {
-                _ = r.perform(selector, with: deepLink)
+            if r.isKind(of: applicationClass), r.responds(to: selector) {
+                let open = unsafeBitCast(r.method(for: selector), to: OpenURLMethod.self)
+                open(r, selector, deepLink, [:], nil)
                 break
             }
             responder = r.next
