@@ -27,7 +27,9 @@ concurrency:
 
 jobs:
   ship:
-    runs-on: macos-15
+    # macos-26 ships Xcode 26 (iOS 26 SDK). App Store Connect rejects uploads
+    # built with an older SDK — see the "Select Xcode" step for the guard.
+    runs-on: macos-26
     timeout-minutes: 60
     defaults:
       run:
@@ -57,8 +59,25 @@ jobs:
 
       - name: Select Xcode
         run: |
+          # App Store Connect requires the iOS 26 SDK (Xcode 26+). If the
+          # default Xcode is older, pick the newest Xcode 26.x on the runner.
+          IOS_SDK=$(xcodebuild -showsdks 2>/dev/null | sed -nE 's/.*iphoneos([0-9]+).*/\1/p' | sort -n | tail -1)
+          if [ -z "$IOS_SDK" ] || [ "$IOS_SDK" -lt 26 ]; then
+            NEWER=$(ls -d /Applications/Xcode_26*.app 2>/dev/null | sort -V | tail -1)
+            if [ -n "$NEWER" ]; then
+              echo "Default Xcode has iOS SDK '$IOS_SDK'; switching to $NEWER"
+              export DEVELOPER_DIR="$NEWER/Contents/Developer"
+              echo "DEVELOPER_DIR=$DEVELOPER_DIR" >> "$GITHUB_ENV"
+            fi
+          fi
           sudo xcode-select -s "$DEVELOPER_DIR"
           xcodebuild -version
+          IOS_SDK=$(xcodebuild -showsdks 2>/dev/null | sed -nE 's/.*iphoneos([0-9]+).*/\1/p' | sort -n | tail -1)
+          echo "Selected iOS SDK: ${IOS_SDK:-unknown}"
+          if [ -z "$IOS_SDK" ] || [ "$IOS_SDK" -lt 26 ]; then
+            echo "::error::iOS SDK $IOS_SDK is too old. App Store Connect requires the iOS 26 SDK (Xcode 26+). No suitable Xcode found on this runner."
+            exit 1
+          fi
 
       - name: Set build number
         id: version
