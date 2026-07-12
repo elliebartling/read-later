@@ -1,0 +1,121 @@
+name: Ship TestFlight
+
+# Ships a signed build to App Store Connect / TestFlight.
+# Triggers: merge/push to main (app code only), or manual "Run workflow".
+#
+# Required repo secrets:
+#   APP_STORE_CONNECT_API_KEY_ID    — Key ID (e.g. GM7RX2Y3B8)
+#   APP_STORE_CONNECT_ISSUER_ID     — Issuer UUID
+#   APP_STORE_CONNECT_API_KEY_P8    — full .p8 private key contents
+
+on:
+  push:
+    branches: [main]
+    paths:
+      - "ReadLater/**"
+      - "Shared/**"
+      - "ShareExtension/**"
+      - "SafariWebExtension/**"
+      - "project.yml"
+      - "ci/ExportOptions.plist"
+      - ".github/workflows/ship-testflight.yml"
+  workflow_dispatch:
+
+concurrency:
+  group: ship-testflight
+  cancel-in-progress: false
+
+jobs:
+  ship:
+    runs-on: macos-15
+    timeout-minutes: 60
+    defaults:
+      run:
+        shell: bash
+
+    env:
+      DEVELOPER_DIR: /Applications/Xcode.app/Contents/Developer
+      # Last manually uploaded build was 3. First Actions ship → 4.
+      BUILD_NUMBER_OFFSET: 3
+      ASC_KEY_ID: ${{ secrets.APP_STORE_CONNECT_API_KEY_ID }}
+      ASC_ISSUER_ID: ${{ secrets.APP_STORE_CONNECT_ISSUER_ID }}
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check App Store Connect secrets
+        env:
+          ASC_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+        run: |
+          if [ -z "$ASC_KEY_ID" ] || [ -z "$ASC_ISSUER_ID" ] || [ -z "$ASC_API_KEY_P8" ]; then
+            echo "::error::Missing App Store Connect secrets. Set APP_STORE_CONNECT_API_KEY_ID, APP_STORE_CONNECT_ISSUER_ID, and APP_STORE_CONNECT_API_KEY_P8 on this repo."
+            exit 1
+          fi
+
+      - name: Install XcodeGen
+        run: brew install xcodegen
+
+      - name: Select Xcode
+        run: |
+          sudo xcode-select -s "$DEVELOPER_DIR"
+          xcodebuild -version
+
+      - name: Set build number
+        id: version
+        run: |
+          BUILD=$(( ${{ github.run_number }} + BUILD_NUMBER_OFFSET ))
+          MARKETING=$(grep -E '^\s*MARKETING_VERSION:' project.yml | head -1 | sed -E 's/.*"([^"]+)".*/\1/')
+          sed -i '' -E "s/CURRENT_PROJECT_VERSION: \"[^\"]+\"/CURRENT_PROJECT_VERSION: \"${BUILD}\"/" project.yml
+          echo "build=${BUILD}" >> "$GITHUB_OUTPUT"
+          echo "marketing=${MARKETING}" >> "$GITHUB_OUTPUT"
+          echo "Shipping ${MARKETING} (${BUILD})"
+
+      - name: Generate project
+        run: xcodegen generate
+
+      - name: Install App Store Connect API key
+        env:
+          ASC_API_KEY_P8: ${{ secrets.APP_STORE_CONNECT_API_KEY_P8 }}
+        run: |
+          KEY_DIR="$HOME/.appstoreconnect/private_keys"
+          mkdir -p "$KEY_DIR"
+          KEY_PATH="$KEY_DIR/AuthKey_${ASC_KEY_ID}.p8"
+          printf '%s\n' "$ASC_API_KEY_P8" > "$KEY_PATH"
+          chmod 600 "$KEY_PATH"
+
+      - name: Archive (unsigned)
+        run: |
+          rm -rf build/ReadLater.xcarchive build/export build/DerivedData
+          set -o pipefail
+          xcodebuild archive \
+            -project ReadLater.xcodeproj \
+            -scheme ReadLater \
+            -configuration Release \
+            -destination 'generic/platform=iOS' \
+            -archivePath build/ReadLater.xcarchive \
+            -derivedDataPath build/DerivedData \
+            CODE_SIGNING_ALLOWED=NO \
+            | tail -80
+
+      - name: Export signed IPA
+        run: |
+          set -o pipefail
+          xcodebuild -exportArchive \
+            -archivePath build/ReadLater.xcarchive \
+            -exportPath build/export \
+            -exportOptionsPlist ci/ExportOptions.plist \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
+            | tee /tmp/export.log | tail -40
+          test -f build/export/ReadLater.ipa
+
+      - name: Upload to TestFlight
+        run: |
+          xcrun altool --upload-app \
+            -f build/export/ReadLater.ipa \
+            -t ios \
+            --apiKey "$ASC_KEY_ID" \
+            --apiIssuer "$ASC_ISSUER_ID"
+          echo "Uploaded ${{ steps.version.outputs.marketing }} (${{ steps.version.outputs.build }}) — processing usually takes 5–15 minutes."
