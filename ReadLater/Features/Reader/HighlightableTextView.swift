@@ -61,6 +61,9 @@ struct HighlightableTextView: UIViewRepresentable {
     /// A single tap landed on an existing highlight.
     let onTapHighlight: (UUID) -> Void
     var onScrollProgress: ((Double) -> Void)? = nil
+    /// Saved reading position (0...1 scroll fraction) to restore on first
+    /// layout. Zero means start at the top. Applied exactly once per view.
+    var initialProgress: Double = 0
     /// Fired on a plain single tap in the body (not a selection, link, or
     /// highlight tap), so the reader can toggle its chrome the way Books/Reader do.
     var onTap: (() -> Void)? = nil
@@ -82,6 +85,12 @@ struct HighlightableTextView: UIViewRepresentable {
         tv.delegate = context.coordinator
         context.coordinator.textView = tv
         context.coordinator.parent = self
+        // Restore the saved reading position once the text has laid out and a
+        // real content height exists. layoutSubviews fires repeatedly; the
+        // coordinator applies the restore exactly once, then reports progress.
+        tv.onLayout = { [weak coordinator = context.coordinator] in
+            coordinator?.restoreScrollIfNeeded()
+        }
 
         // Single-tap toggles the reader chrome. cancelsTouchesInView = false and
         // simultaneous recognition keep the text view's own gestures (link taps,
@@ -248,6 +257,11 @@ struct HighlightableTextView: UIViewRepresentable {
         /// re-selecting on every SwiftUI tick while the sheet is open.
         private var appliedEditingHighlightID: UUID?
 
+        /// Whether the saved reading position has been applied yet. Progress is
+        /// not reported until this is true, so the initial top-of-document
+        /// scroll can't overwrite the saved spot before we restore it.
+        private var didRestoreScroll = false
+
         /// True while the user's finger is driving the scroll view (drag or the
         /// momentum that follows). Used to reject taps that are really the tail
         /// end of a scroll so the chrome doesn't toggle while reading.
@@ -257,6 +271,55 @@ struct HighlightableTextView: UIViewRepresentable {
         private var lastScrollTime: CFTimeInterval = 0
         /// How long after a scroll a tap is still considered "part of scrolling".
         private let scrollTapCooldown: CFTimeInterval = 0.25
+
+        /// Restores the saved reading position on first layout, then unblocks
+        /// progress reporting. Runs once: either it applies the saved fraction
+        /// (once content is tall enough to scroll) or, when there's nothing to
+        /// restore, it simply marks restoration done so live progress can flow.
+        func restoreScrollIfNeeded() {
+            guard !didRestoreScroll, let tv = textView, let parent = parent else { return }
+
+            let fraction = parent.initialProgress
+            // Nothing meaningful saved — start at the top and report immediately.
+            guard fraction > 0.0001 else {
+                didRestoreScroll = true
+                return
+            }
+
+            // Wait for a real layout: a valid viewport and content taller than it.
+            let content = tv.contentSize.height
+            let viewport = tv.bounds.height
+            guard viewport > 0, content > 0 else { return }
+
+            let offset = Self.restoreOffset(
+                fraction: fraction,
+                contentHeight: content,
+                viewportHeight: viewport,
+                topInset: tv.adjustedContentInset.top,
+                bottomInset: tv.adjustedContentInset.bottom
+            )
+            didRestoreScroll = true
+            tv.setContentOffset(CGPoint(x: 0, y: offset), animated: false)
+        }
+
+        /// Content offset that puts the saved reading position back on screen.
+        ///
+        /// `fraction` is visibleBottom / contentHeight (matching the metric
+        /// reported by `scrollViewDidScroll`), so the matching top offset is
+        /// `fraction * contentHeight - viewportHeight`, clamped to the scroll
+        /// view's valid range. Pure so it can be unit-tested without UIKit.
+        static func restoreOffset(
+            fraction: Double,
+            contentHeight: CGFloat,
+            viewportHeight: CGFloat,
+            topInset: CGFloat,
+            bottomInset: CGFloat
+        ) -> CGFloat {
+            let target = CGFloat(fraction) * contentHeight - viewportHeight
+            let minY = -topInset
+            let maxY = max(minY, contentHeight - viewportHeight + bottomInset)
+            return min(max(target, minY), maxY)
+        }
 
         /// Scrolls so the spoken paragraph stays visible while TTS advances,
         /// without hijacking the view when the user is reading elsewhere.
@@ -493,6 +556,9 @@ struct HighlightableTextView: UIViewRepresentable {
             if scrollView.isDragging || scrollView.isDecelerating {
                 lastScrollTime = CACurrentMediaTime()
             }
+            // Hold off until the saved position is restored so the initial
+            // top-of-document offset can't be reported (and saved) as progress.
+            guard didRestoreScroll else { return }
             guard let onProgress = parent?.onScrollProgress else { return }
             let visibleBottom = scrollView.contentOffset.y + scrollView.bounds.height
             let total = scrollView.contentSize.height
@@ -535,6 +601,15 @@ final class ReaderTextView: UITextView {
     /// The top safe-area inset while the chrome is hidden. Frozen at its minimum
     /// so revealing the nav bar (which enlarges the safe area) can't move the text.
     private var immersiveTopInset: CGFloat?
+
+    /// Called after every layout pass, once the content size is up to date. The
+    /// coordinator uses it to restore the saved reading position on first paint.
+    var onLayout: (() -> Void)?
+
+    override func layoutSubviews() {
+        super.layoutSubviews()
+        onLayout?()
+    }
 
     override func safeAreaInsetsDidChange() {
         super.safeAreaInsetsDidChange()

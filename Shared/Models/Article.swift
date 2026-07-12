@@ -21,6 +21,12 @@ final class Article {
     var extractedHTML: String?
     var heroImageURL: URL?
     var estimatedReadingMinutes: Int = 0
+    /// Last reading position as a 0...1 scroll fraction (the visible bottom edge
+    /// over total content height — same metric that drives read-tracking). Lets
+    /// the reader restore the user's spot instead of jumping back to the top.
+    /// Font/width changes don't invalidate it because it's a fraction, not an
+    /// absolute offset.
+    var readingProgress: Double = 0
     private var parseStatusRaw: Int = ParseStatus.pending.rawValue
 
     var parseStatus: ParseStatus {

@@ -21,6 +21,9 @@ struct ReaderView: View {
     /// Scroll position as a 0...1 fraction, kept minute-granular via
     /// `readingMinutesLeft` so scrolling doesn't spam view updates.
     @State private var readingMinutesLeft: Int?
+    /// Latest scroll fraction seen while reading. Written back to the article on
+    /// disappear so reopening restores the spot instead of jumping to the top.
+    @State private var latestProgress: Double?
 
     /// Color for instantly-created highlights; updated whenever the user picks
     /// a color, so new highlights reuse the last choice.
@@ -106,7 +109,10 @@ struct ReaderView: View {
                 .accessibilityLabel("Typography")
             }
         }
-        .onDisappear { tts.stop() }
+        .onDisappear {
+            tts.stop()
+            saveReadingProgress()
+        }
         .sheet(isPresented: $showingTypographyControls) {
             TypographyControls(settings: settings, controller: tts)
         }
@@ -198,6 +204,7 @@ struct ReaderView: View {
                     editingHighlight = findHighlight(id)
                 },
                 onScrollProgress: handleScrollProgress,
+                initialProgress: article.readingProgress,
                 onTap: {
                     // Drive the chrome from a single explicit animation so both
                     // directions match. A redundant implicit `.animation(value:)`
@@ -257,6 +264,9 @@ struct ReaderView: View {
     /// actually reaches (nearly) the end, not when they merely open it.
     /// Also feeds the "X min left" subtitle.
     private func handleScrollProgress(_ progress: Double) {
+        // Remember the spot; persisted on disappear so leaving and re-entering
+        // the article resumes where the reader left off.
+        latestProgress = progress
         let total = article.estimatedReadingMinutes
         if total > 0 {
             let left = Int((Double(total) * (1 - progress)).rounded())
@@ -266,6 +276,14 @@ struct ReaderView: View {
         }
         guard progress >= 0.9, article.readAt == nil else { return }
         article.readAt = .now
+        try? context.save()
+    }
+
+    /// Persists the last scroll fraction when leaving the reader. Written once
+    /// on disappear rather than on every scroll tick to avoid save churn.
+    private func saveReadingProgress() {
+        guard let progress = latestProgress, progress != article.readingProgress else { return }
+        article.readingProgress = progress
         try? context.save()
     }
 
