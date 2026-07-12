@@ -84,6 +84,9 @@ enum PendingSaveIngest {
             article.author = parsed.author
             article.siteName = parsed.siteName
             article.plainText = parsed.plainText
+            if !parsed.blocks.isEmpty {
+                try? article.setBlocks(parsed.blocks)
+            }
             article.extractedHTML = parsed.extractedHTML
             article.heroImageURL = parsed.heroImageURL
             article.estimatedReadingMinutes = parsed.estimatedReadingMinutes
