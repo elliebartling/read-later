@@ -32,20 +32,18 @@ struct FeedsView: View {
                         }
                         .padding(.vertical, 4)
                     }
-                }
-                Section {
-                    ForEach(feeds) { feed in
-                        NavigationLink(value: feed) {
-                            FeedRow(feed: feed, unreadCount: unreadCount(for: feed))
-                        }
-                        .swipeActions(edge: .trailing) {
-                            Button(role: .destructive) { delete(feed) } label: {
-                                Label("Unsubscribe", systemImage: "trash")
+                    Section("Subscriptions") {
+                        ForEach(feeds) { feed in
+                            NavigationLink(value: feed) {
+                                FeedRow(feed: feed, unreadCount: unreadCount(for: feed))
+                            }
+                            .swipeActions(edge: .trailing) {
+                                Button(role: .destructive) { delete(feed) } label: {
+                                    Label("Unsubscribe", systemImage: "trash")
+                                }
                             }
                         }
                     }
-                } header: {
-                    if !feeds.isEmpty { Text("Subscriptions") }
                 }
             }
             .listStyle(.plain)

@@ -120,6 +120,34 @@ final class FeedRefresherTests: XCTestCase {
         XCTAssertTrue(survivingGuids.contains("item-\(FeedRefresher.maxEntriesPerFeed + 19)"))
     }
 
+    /// Exercises the exact predicate shape FeedEntriesView's per-feed @Query
+    /// uses — optional-chained relationship traversal is the most fragile
+    /// SwiftData predicate form, so lock it down against a real store.
+    func testScopedFetchByFeedIDReturnsOnlyThatFeedsEntries() throws {
+        let feedA = makeFeed()
+        let feedB = Feed(feedURL: URL(string: "https://other.com/feed.xml")!)
+        context.insert(feedB)
+
+        var parsedA = ParsedFeed()
+        parsedA.items = [makeItem(guid: "a1"), makeItem(guid: "a2")]
+        FeedRefresher.merge(parsed: parsedA, into: feedA, context: context)
+        var parsedB = ParsedFeed()
+        parsedB.items = [makeItem(guid: "b1")]
+        FeedRefresher.merge(parsed: parsedB, into: feedB, context: context)
+        try context.save()
+
+        let feedID = feedA.id
+        let descriptor = FetchDescriptor<FeedEntry>(
+            predicate: #Predicate { $0.feed?.id == feedID },
+            sortBy: [
+                SortDescriptor(\.publishedAt, order: .reverse),
+                SortDescriptor(\.fetchedAt, order: .reverse),
+            ]
+        )
+        let scoped = try context.fetch(descriptor)
+        XCTAssertEqual(Set(scoped.map(\.guid)), ["a1", "a2"])
+    }
+
     func testDeletingFeedCascadesToEntries() throws {
         let feed = makeFeed()
         var parsed = ParsedFeed()

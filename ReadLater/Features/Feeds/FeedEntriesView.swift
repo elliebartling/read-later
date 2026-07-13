@@ -101,7 +101,7 @@ struct FeedEntriesView: View {
     private func refresh() async {
         isRefreshing = true
         if let feed {
-            refreshFailed = await !FeedRefresher.refresh(feed: feed, context: context)
+            refreshFailed = !(await FeedRefresher.refresh(feed: feed, context: context))
         } else {
             await FeedRefresher.refreshAll(context: context)
             refreshFailed = false
