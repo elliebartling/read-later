@@ -346,6 +346,10 @@ struct HighlightableTextView: UIViewRepresentable {
             let target = caretMinY - topInset
             let minY = -topInset
             let maxY = max(minY, contentHeight - viewportHeight + bottomInset)
+            // A caret within the first `topInset` of content means the reader
+            // was at the very start — snap to the true top rather than hiding
+            // a sliver of the article above the caret.
+            guard target >= 0 else { return minY }
             return min(max(target, minY), maxY)
         }
 

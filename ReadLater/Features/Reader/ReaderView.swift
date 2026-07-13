@@ -363,43 +363,12 @@ struct ReaderView: View {
 }
 
 extension View {
-    /// Inline title + "minutes left" subtitle. Native `navigationSubtitle` on
-    /// iOS 26; a principal-item VStack on earlier OSes/SDKs.
-    @ViewBuilder
+    /// Inline title + "minutes left" subtitle.
     func readerTitleBar(title: String, subtitle: String) -> some View {
-        #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
-            self
-                .navigationTitle(title)
-                .navigationSubtitle(subtitle)
-                .navigationBarTitleDisplayMode(.inline)
-        } else {
-            legacyReaderTitleBar(title: title, subtitle: subtitle)
-        }
-        #else
-        legacyReaderTitleBar(title: title, subtitle: subtitle)
-        #endif
-    }
-
-    private func legacyReaderTitleBar(title: String, subtitle: String) -> some View {
         self
             .navigationTitle(title)
+            .navigationSubtitle(subtitle)
             .navigationBarTitleDisplayMode(.inline)
-            .toolbar {
-                ToolbarItem(placement: .principal) {
-                    VStack(spacing: 1) {
-                        Text(title)
-                            .font(.headline)
-                            .lineLimit(1)
-                        if !subtitle.isEmpty {
-                            Text(subtitle)
-                                .font(.caption)
-                                .foregroundStyle(.secondary)
-                                .lineLimit(1)
-                        }
-                    }
-                }
-            }
     }
 }
 

@@ -320,23 +320,8 @@ extension Color {
 }
 
 extension View {
-    /// Prominent pink capsule for the audio / idle player. Liquid glass with a
-    /// pink tint on iOS 26; a solid pink capsule with a soft pink shadow on
-    /// earlier OSes / SDKs.
-    @ViewBuilder
+    /// Prominent pink liquid-glass capsule for the audio / idle player.
     func playerGlassCapsule() -> some View {
-        #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
-            self.glassEffect(.regular.tint(.playerPink).interactive(), in: .capsule)
-        } else {
-            self
-                .background(Color.playerPink, in: .capsule)
-                .shadow(color: Color.playerPink.opacity(0.4), radius: 10, y: 4)
-        }
-        #else
-        self
-            .background(Color.playerPink, in: .capsule)
-            .shadow(color: Color.playerPink.opacity(0.4), radius: 10, y: 4)
-        #endif
+        self.glassEffect(.regular.tint(.playerPink).interactive(), in: .capsule)
     }
 }
