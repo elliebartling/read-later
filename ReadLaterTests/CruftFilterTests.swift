@@ -227,6 +227,89 @@ final class CruftFilterTests: XCTestCase {
         XCTAssertEqual(ArticleBlocks.derivePlainText(kept), "Title\n\nOne.\n\nTwo.")
     }
 
+    // MARK: - Quality-gate composition (ArticleParser.gateAndFilter)
+
+    @MainActor
+    func testGateAndFilterRemovesCruftFromLongArticle() {
+        // 80 words of prose plus a nag: filter fires, gate still passes.
+        let prose = (0 ..< 8).map { i in
+            p("Paragraph number \(i) carries eight genuine words of article prose.")
+        }
+        let blocks = prose + [p("Join Medium for free to get updates from this writer.")]
+        let result = ArticleParser.gateAndFilter(mapped: blocks, legacyText: "", linkDensity: 0.05)
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.removed.count, 1)
+        XCTAssertEqual(result?.blocks.count, 8)
+        XCTAssertFalse(result?.plainText.contains("Join Medium") ?? true)
+    }
+
+    @MainActor
+    func testGateAndFilterBacksOffWhenFilteringWouldFailALegitShortArticle() {
+        // 6 x 8 = 48 words of prose + a 3-word auth CTA = 51 words total.
+        // Post-filter the article drops to 48 words — below the gate's
+        // 50-word minimum — but unfiltered it passes. The filter must back
+        // off (keep the cruft) rather than reject a real article.
+        let prose = (0 ..< 6).map { i in
+            p("Legit paragraph \(i) holding exactly eight words total.")
+        }
+        let blocks = prose + [p("Continue with Google")]
+        let result = ArticleParser.gateAndFilter(mapped: blocks, legacyText: "", linkDensity: 0.0)
+        XCTAssertNotNil(result)
+        XCTAssertEqual(result?.blocks.count, 7, "filter should back off, keeping all blocks")
+        XCTAssertEqual(result?.removed, [])
+        XCTAssertTrue(result?.plainText.contains("Continue with Google") ?? false)
+    }
+
+    @MainActor
+    func testGateAndFilterStillRejectsNavShells() {
+        // A nav shell — a handful of short link-like lines — fails the gate
+        // both filtered and unfiltered: gateAndFilter returns nil and the
+        // parser's retry loop / .lowQuality path takes over.
+        let blocks = [p("Sitemap"), p("About"), p("Careers"), p("Contact us"), p("Press")]
+        XCTAssertNil(ArticleParser.gateAndFilter(mapped: blocks, legacyText: "", linkDensity: 0.9))
+    }
+
+    @MainActor
+    func testGateAndFilterEmptyBlocksUsesLegacyTextUnfiltered() {
+        // Legacy fallback path (no typed blocks): text passes through
+        // unfiltered by design — deferred per the design doc.
+        let legacy = Array(repeating: "word", count: 60).joined(separator: " ")
+        let result = ArticleParser.gateAndFilter(mapped: [], legacyText: legacy, linkDensity: 0.0)
+        XCTAssertEqual(result?.plainText, legacy)
+        XCTAssertEqual(result?.blocks, [])
+        XCTAssertEqual(result?.removed, [])
+    }
+
+    // MARK: - Debug persistence on Article
+
+    @MainActor
+    func testApplyRecordsRemovedCruftForDebugging() throws {
+        let article = Article(url: URL(string: "https://example.com/a")!, title: "t")
+        let kept = [p("Prose that stays.")]
+        let removed = [p("Join Medium for free to get updates from this writer.")]
+        let parsed = ArticleParser.Parsed(
+            title: "t", author: nil, siteName: nil,
+            plainText: "Prose that stays.", extractedHTML: "",
+            heroImageURL: nil, estimatedReadingMinutes: 1,
+            blocks: kept, removedBlocks: removed
+        )
+        article.apply(parsed, updateTitle: false)
+        XCTAssertTrue(article.wasCruftFiltered)
+        XCTAssertEqual(article.removedCruftBlocks, removed)
+
+        // A later parse that removes nothing clears both debug fields so they
+        // always describe the current text.
+        let clean = ArticleParser.Parsed(
+            title: "t", author: nil, siteName: nil,
+            plainText: "Prose that stays.", extractedHTML: "",
+            heroImageURL: nil, estimatedReadingMinutes: 1,
+            blocks: kept, removedBlocks: []
+        )
+        article.apply(clean, updateTitle: false)
+        XCTAssertFalse(article.wasCruftFiltered)
+        XCTAssertNil(article.removedCruftBlocks)
+    }
+
     // MARK: - Normalization
 
     func testNormalizeStripsEdgePunctuationAndCase() {

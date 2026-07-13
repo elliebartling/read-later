@@ -378,7 +378,75 @@ struct ReaderView: View {
         article.allHighlights.first { $0.id == id }
     }
 
+    /// Snapshots the article's highlights for the pure merge planner,
+    /// optionally excluding one (the session highlight being updated).
+    private func mergeSnapshots(excluding excludedID: UUID? = nil) -> [HighlightMerge.Existing] {
+        article.allHighlights
+            .filter { $0.id != excludedID }
+            .map {
+                HighlightMerge.Existing(
+                    id: $0.id,
+                    startOffset: $0.startOffset,
+                    endOffset: $0.endOffset,
+                    note: $0.note,
+                    createdAt: $0.createdAt
+                )
+            }
+    }
+
+    /// Re-derives the anchoring context for `h` after its range changed.
+    private func refreshAnchorContext(_ h: Highlight) {
+        let (prefix, suffix) = HighlightAnchor.contextAround(
+            range: NSRange(location: h.startOffset, length: h.endOffset - h.startOffset),
+            in: article.plainText
+        )
+        h.prefixContext = prefix
+        h.suffixContext = suffix
+    }
+
+    /// Deletes the absorbed highlights named by `plan`, sparing `survivorID`.
+    /// SwiftData deletes propagate through the CloudKit-synced store.
+    private func deleteAbsorbed(_ plan: HighlightMerge.Plan, survivorID: UUID) {
+        for id in plan.absorbed where id != survivorID {
+            if let victim = findHighlight(id) {
+                context.delete(victim)
+            }
+        }
+    }
+
+    /// Creates a highlight from a fresh selection — or, when the selection
+    /// overlaps (or sits flush against) existing highlights, merges them all
+    /// into one highlight spanning the union instead of stacking duplicates.
+    /// The earliest-created overlapped highlight survives (keeping its
+    /// `createdAt`, color, and Obsidian identity); the others are absorbed,
+    /// with their notes folded into the survivor so nothing is lost. Returns
+    /// the surviving highlight's ID so the selection session keeps updating it.
     private func createHighlight(_ intent: HighlightableTextView.HighlightIntent) -> UUID? {
+        let plan = HighlightMerge.plan(
+            newStart: intent.startOffset,
+            newEnd: intent.endOffset,
+            existing: mergeSnapshots(),
+            plainText: article.plainText
+        )
+
+        if plan.didMerge,
+           let survivorID = plan.absorbed.min(by: { lhs, rhs in
+               let l = findHighlight(lhs)?.createdAt ?? .distantFuture
+               let r = findHighlight(rhs)?.createdAt ?? .distantFuture
+               return l < r
+           }),
+           let survivor = findHighlight(survivorID) {
+            survivor.startOffset = plan.unionStart
+            survivor.endOffset = plan.unionEnd
+            survivor.quotedText = plan.quotedText
+            survivor.note = plan.absorbedNote // all absorbed notes, incl. survivor's
+            refreshAnchorContext(survivor)
+            deleteAbsorbed(plan, survivorID: survivorID)
+            try? context.save()
+            Task { exportToObsidian(silent: true) }
+            return survivor.id
+        }
+
         let h = Highlight(
             article: article,
             startOffset: intent.startOffset,
@@ -386,12 +454,7 @@ struct ReaderView: View {
             quotedText: intent.quotedText,
             color: intent.color
         )
-        let (prefix, suffix) = HighlightAnchor.contextAround(
-            range: NSRange(location: intent.startOffset, length: intent.endOffset - intent.startOffset),
-            in: article.plainText
-        )
-        h.prefixContext = prefix
-        h.suffixContext = suffix
+        refreshAnchorContext(h)
         context.insert(h)
         try? context.save()
         Task { exportToObsidian(silent: true) }
@@ -399,14 +462,36 @@ struct ReaderView: View {
     }
 
     /// Selection handles were dragged after the instant highlight was created:
-    /// move the existing highlight instead of stacking a duplicate. Obsidian
-    /// export is deferred to sheet dismiss / create / recolor / delete so
-    /// handle drags don't thrash the filesystem.
+    /// move the existing highlight instead of stacking a duplicate. If the
+    /// settled drag now overlaps (or touches) other highlights, they are
+    /// absorbed into this one — union range, notes folded in, earliest
+    /// `createdAt` kept. This runs only when the selection settles
+    /// (editMenuForTextIn), never per pixel of drag, so merges don't churn.
+    /// Obsidian export is deferred to sheet dismiss / create / recolor /
+    /// delete so handle drags don't thrash the filesystem.
     private func updateHighlight(id: UUID, range: NSRange, quotedText: String) {
         guard let h = findHighlight(id) else { return }
-        h.startOffset = range.location
-        h.endOffset = range.location + range.length
-        h.quotedText = quotedText
+        let plan = HighlightMerge.plan(
+            newStart: range.location,
+            newEnd: range.location + range.length,
+            existing: mergeSnapshots(excluding: id),
+            plainText: article.plainText
+        )
+        if plan.didMerge {
+            h.startOffset = plan.unionStart
+            h.endOffset = plan.unionEnd
+            h.quotedText = plan.quotedText
+            h.note = HighlightMerge.combineNotes(h.note, plan.absorbedNote)
+            if let earliest = plan.earliestCreatedAt, earliest < h.createdAt {
+                h.createdAt = earliest
+            }
+            refreshAnchorContext(h)
+            deleteAbsorbed(plan, survivorID: id)
+        } else {
+            h.startOffset = range.location
+            h.endOffset = range.location + range.length
+            h.quotedText = quotedText
+        }
         try? context.save()
     }
 

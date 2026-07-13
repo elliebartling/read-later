@@ -26,6 +26,15 @@ final class Article {
     var blocksJSON: Data?
     /// ArticleBlocks.currentVersion at encode time; 0 = no blocks.
     var blocksVersion: Int = 0
+    /// True when the cruft filter removed anything on the most recent parse
+    /// (docs/parser-cruft-design.md). Debug signal for now — inline default
+    /// keeps the CloudKit invariant.
+    var wasCruftFiltered: Bool = false
+    /// JSON-encoded [ArticleBlock] the cruft filter removed on the most recent
+    /// parse; nil when nothing was removed. Debug-inspection only today (a
+    /// future "Show removed content" escape hatch can render these).
+    /// CloudKit-safe optional blob.
+    var removedCruftJSON: Data?
     /// Last reading position as a UTF-16 character index into `plainText` — the
     /// first character visible at the top of the viewport when the reader was
     /// last closed. Lets the reader resume at the same *word* rather than the
@@ -43,6 +52,13 @@ final class Article {
     var blocks: [ArticleBlock]? {
         guard let blocksJSON else { return nil }
         return ArticleBlocks.decode(blocksJSON)
+    }
+
+    /// Decoded view of `removedCruftJSON` for debugging; nil when the last
+    /// parse removed nothing.
+    var removedCruftBlocks: [ArticleBlock]? {
+        guard let removedCruftJSON else { return nil }
+        return ArticleBlocks.decode(removedCruftJSON)
     }
 
     func setBlocks(_ blocks: [ArticleBlock]) throws {

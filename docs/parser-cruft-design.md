@@ -1,6 +1,7 @@
 # Parser cruft removal — design
 
-Status: **draft for review** (Ellen to approve the approach before merge).
+Status: **approved by Ellen (2026-07-13)** — her four review decisions are
+recorded under "Review decisions" below and implemented on this branch.
 Owner file set: `ReadLater/Services/ArticleParser.swift`, its JS wrapper, and the
 new `ReadLater/Services/Parsing/` sources. Does **not** touch any Blocks/ view.
 
@@ -100,12 +101,24 @@ cautiously and paired with fixtures.
 
 ### Layer B — block-level post-filter (the workhorse, pure + tested)
 
-After `ArticleParser.blocks(fromJS:)` produces typed `[ArticleBlock]`, run
-`CruftFilter.filter(_:)` — a **pure, nonisolated** function driven by rule
-tables in `CruftRules.swift`. Because it operates on already-normalized block
-text, it is trivially unit-testable with block-array fixtures (no WKWebView).
-`plainText` is then derived from the filtered blocks (existing code path), so
-text and blocks stay byte-consistent.
+After `ArticleParser.blocks(fromJS:)` produces typed `[ArticleBlock]` (post
+preformatted-coalescing), run `CruftFilter.filter(_:)` — a **pure, nonisolated**
+function driven by rule tables in `CruftRules.swift`. Because it operates on
+already-normalized block text, it is trivially unit-testable with block-array
+fixtures (no WKWebView). `plainText` is then derived from the filtered blocks
+(existing code path), so text and blocks stay byte-consistent.
+
+### Composition with the quality gate (`gateAndFilter`)
+
+The parser's retry loop (render pump → extract → `QualityGate`) evaluates the
+gate against the **post-filter** article, so cruft removal and the nav-shell
+gate compose: a page that is mostly chrome still fails the gate after the
+chrome is stripped. One interaction is handled explicitly in
+`ArticleParser.gateAndFilter` (pure, unit-tested): if the *filtered* result
+fails the gate but the *unfiltered* one would pass — i.e. cruft removal alone
+pushed a borderline-short legit article below the gate's 50-word floor — the
+filter backs off entirely and the article is kept with its cruft. Keeping a nag
+on screen beats rejecting a real article as `.lowQuality`.
 
 Conservative guards baked into Layer B:
 
@@ -123,21 +136,37 @@ Conservative guards baked into Layer B:
 the app reparses on a version mismatch, so bumping it would neither trigger
 re-filtering nor change behavior — it would only muddy the schema-version
 meaning and break a test asserting `== 1`. Offset safety already comes from
-"filter only at parse time," not from a version gate. If we later want a
-"this article was cruft-filtered" signal (e.g. to offer a one-tap re-extract of
-the whole library), that should be a **separate** field, not an overload of
-`blocksVersion`. Flagged as an open question.
+"filter only at parse time," not from a version gate. The "was filtered" signal
+Ellen asked for is the **separate** `wasCruftFiltered` field (below), not an
+overload of `blocksVersion`.
+
+## Review decisions (Ellen, 2026-07-13)
+
+1. **Removed-content persistence — debugging, not UX (yet).** Re-extract is an
+   acceptable recovery path while the app isn't live, but what the filter
+   removed must stay inspectable. Implemented as two CloudKit-safe fields on
+   `Article`: `removedCruftJSON: Data?` (the removed `[ArticleBlock]`, encoded;
+   nil when nothing was removed; decoded via `removedCruftBlocks`) and the flag
+   below. Both are overwritten on every parse so they always describe the
+   *current* `plainText`/blocks.
+2. **"Was cruft-filtered" field — yes.** `wasCruftFiltered: Bool = false`
+   (inline default, CloudKit-safe). Debug signal short-term.
+3. **Rule aggressiveness — keep conservative.** The current tables stand; no
+   expansion until real-world misses drive specific additions.
+4. **Legacy fallback text pass — skipped.** Articles whose parse yields no
+   typed blocks keep unfiltered legacy text (see Deferred).
 
 ## Deferred / future work
 
-- **"Show removed content" escape hatch**: keep removed blocks in a side channel
-  (not in `plainText`) so the reader can reveal them per-article. Requires a
-  view change (owned by another agent) + a storage field, so it is out of scope
-  for this first cut. The filter is already structured to return the removed
-  blocks for when we want them.
+- **"Show removed content" escape hatch (UI)**: the storage side now exists
+  (`removedCruftJSON`); the reader-side reveal is a view change owned by
+  another agent and stays out of scope for this cut.
 - Substack/Medium DOM selector expansion (Layer A growth) with fixtures.
 - Locale/i18n: rule tables are English-only today.
 - A library-wide "re-extract all" migration once the escape hatch exists.
+- **Text-level filtering for the no-blocks legacy fallback path** — explicitly
+  skipped per review decision 4; that path passes `legacyText` through
+  `gateAndFilter` unfiltered.
 
 ## Test strategy
 
@@ -149,3 +178,9 @@ Fixture-driven, pure, fast (no WKWebView):
   tutorial "Sign in" heading, isolated social word — all proving survival.
 - **Offset-parity**: `derivePlainText` over filtered blocks equals the expected
   post-filter join, confirming the offset space is what the reader sees.
+- **Gate composition**: `gateAndFilter` fixtures — long article with a nag
+  (filter fires, gate passes), borderline 51-word article whose nag removal
+  would fail the 50-word floor (filter backs off), nav shell (still rejected),
+  and the empty-blocks legacy path (text passes through unfiltered).
+- **Debug persistence**: `Article.apply` records `wasCruftFiltered` +
+  `removedCruftJSON` and clears them on a later clean parse.
