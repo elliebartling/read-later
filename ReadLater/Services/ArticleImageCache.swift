@@ -48,7 +48,25 @@ final class ArticleImageCache {
             return cached
         }
 
-        let task = existingOrNewTask(for: key, url: url, targetWidth: targetWidth)
+        let maxPixel = Self.maxPixelSize(
+            targetWidth: targetWidth,
+            scale: Self.displayScale
+        )
+        let task = existingOrNewTask(for: key, url: url, maxPixelSize: maxPixel)
+        return await task.value
+    }
+
+    /// Returns a near-full-resolution decode for the full-screen zoom viewer,
+    /// capped at `fullImageMaxPixel` on the longest edge (crisp under pinch-zoom
+    /// while keeping memory bounded). Shares the same disk/URL cache and
+    /// in-flight coalescing as thumbnail loads, under its own decoded-cache key.
+    func fullImage(for url: URL) async -> UIImage? {
+        let key = "\(url.absoluteString)#full"
+        if let cached = decodedCache.object(forKey: key as NSString) {
+            return cached
+        }
+
+        let task = existingOrNewTask(for: key, url: url, maxPixelSize: Self.fullImageMaxPixel)
         return await task.value
     }
 
@@ -56,7 +74,7 @@ final class ArticleImageCache {
     private func existingOrNewTask(
         for key: String,
         url: URL,
-        targetWidth: CGFloat
+        maxPixelSize maxPixel: Int
     ) -> Task<UIImage?, Never> {
         lock.lock()
         defer { lock.unlock() }
@@ -65,10 +83,6 @@ final class ArticleImageCache {
             return existing
         }
 
-        let maxPixel = Self.maxPixelSize(
-            targetWidth: targetWidth,
-            scale: Self.displayScale
-        )
         let task = Task<UIImage?, Never> { [weak self] in
             guard let self else { return nil }
             let image = await self.load(url: url, maxPixelSize: maxPixel)
@@ -104,6 +118,10 @@ final class ArticleImageCache {
     }
 
     // MARK: - Pure helpers (unit-tested)
+
+    /// Longest-edge pixel cap for `fullImage` decodes. 4096 px keeps zoomed
+    /// article images crisp without holding an unbounded full-res bitmap.
+    static let fullImageMaxPixel = 4096
 
     /// Cache key uniquely identifying a decode of `url` at a given point width.
     /// Truncates width to an Int so near-identical layout widths still hit.
