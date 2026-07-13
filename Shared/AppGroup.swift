@@ -7,6 +7,16 @@ enum AppGroup {
     static let saveDeepLinkHost = "save"
     static let openDeepLinkHost = "open"
 
+    /// True when the App Group container is actually available to this process.
+    /// When false (missing or misprovisioned entitlement) the Share Extension
+    /// and the main app resolve `containerURL` to *different* per-process
+    /// fallback directories, so the PendingSave handoff silently breaks and
+    /// nothing ever appears in the app. Callers should surface this rather than
+    /// fail quietly.
+    static var hasSharedContainer: Bool {
+        FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier) != nil
+    }
+
     static var containerURL: URL {
         if let url = FileManager.default.containerURL(forSecurityApplicationGroupIdentifier: identifier) {
             return url
