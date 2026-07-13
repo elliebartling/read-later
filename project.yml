@@ -88,6 +88,13 @@ targets:
         INFOPLIST_KEY_UISupportsDocumentBrowser: NO
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
       configs:
+        Debug:
+          # Debug signs with ReadLater.entitlements, which carries the CloudKit
+          # entitlement. This condition lets the CloudKit-mirrored store path
+          # compile in ONLY for that config; Release (app-group-only
+          # entitlements) never defines it, so TestFlight builds stay local-only
+          # and never attempt .private(...). See SharedModelContainer.
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) CLOUDKIT_SYNC"
         Release:
           # TestFlight/App Store signing: manual with the human-created
           # Apple Distribution cert + named profiles (cloud/automatic signing
