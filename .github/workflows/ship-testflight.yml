@@ -153,6 +153,24 @@ jobs:
             | tee /tmp/export.log | tail -40
           test -f build/export/ReadLater.ipa
 
+      # On failure, capture Xcode's real distribution errors (the console
+      # summary hides the underlying Apple service responses).
+      - name: Collect signing diagnostics
+        if: failure()
+        run: |
+          mkdir -p build/diagnostics
+          cp /tmp/export.log build/diagnostics/ 2>/dev/null || true
+          find /var/folders -type d -name "*.xcdistributionlogs" -exec cp -R {} build/diagnostics/ \; 2>/dev/null || true
+          ls -R build/diagnostics | head -40
+
+      - name: Upload signing diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: signing-diagnostics
+          path: build/diagnostics
+          if-no-files-found: warn
+
       # Tripwire: a build without the App Group entitlement is broken on
       # device even though it uploads and installs fine. Fail the run instead
       # of shipping it.
