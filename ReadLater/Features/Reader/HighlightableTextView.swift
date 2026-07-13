@@ -566,6 +566,11 @@ struct HighlightableTextView: UIViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
+            // The instantly-created highlight already shows the selected range;
+            // keep the system's blue selection wash from painting over it.
+            // (Re-applied on every change because UIKit re-shows the view when
+            // the selection re-activates.)
+            (textView as? ReaderTextView)?.hideSelectionHighlight()
             guard !suppressSelectionChange else { return }
             // Selection collapsed: end the session unless sheet-edit mode is
             // holding the highlight open (we'll re-select on the next update).
@@ -654,8 +659,41 @@ final class ReaderTextView: UITextView {
 
     override func layoutSubviews() {
         super.layoutSubviews()
+        hideSelectionHighlight()
         onLayout?()
     }
+
+    /// Suppresses the system's blue selection wash while keeping the drag
+    /// handles and magnifier. Selecting text creates a highlight instantly, so
+    /// the yellow highlight already marks the range — the blue tint on top of
+    /// it just muddies the color. The wash is drawn by the text view's
+    /// `UITextSelectionDisplayInteraction.highlightView` (iOS 17+); UIKit
+    /// re-shows it whenever the selection activates, so this is re-applied from
+    /// `layoutSubviews` and every selection change.
+    func hideSelectionHighlight() {
+        if selectionDisplayInteraction == nil {
+            selectionDisplayInteraction = Self.findSelectionDisplayInteraction(in: self)
+        }
+        selectionDisplayInteraction?.highlightView.isHidden = true
+    }
+
+    /// UIKit attaches the interaction to an internal subview, not necessarily
+    /// the text view itself, so search the whole subtree (it's shallow).
+    private static func findSelectionDisplayInteraction(in root: UIView) -> UITextSelectionDisplayInteraction? {
+        var queue: [UIView] = [root]
+        while !queue.isEmpty {
+            let view = queue.removeLast()
+            for interaction in view.interactions {
+                if let selection = interaction as? UITextSelectionDisplayInteraction {
+                    return selection
+                }
+            }
+            queue.append(contentsOf: view.subviews)
+        }
+        return nil
+    }
+
+    private weak var selectionDisplayInteraction: UITextSelectionDisplayInteraction?
 
     override func safeAreaInsetsDidChange() {
         super.safeAreaInsetsDidChange()
