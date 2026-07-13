@@ -21,6 +21,13 @@ final class Article {
     var extractedHTML: String?
     var heroImageURL: URL?
     var estimatedReadingMinutes: Int = 0
+    /// Last reading position as a UTF-16 character index into `plainText` — the
+    /// first character visible at the top of the viewport when the reader was
+    /// last closed. Lets the reader resume at the same *word* rather than the
+    /// same scroll percentage, so it survives font-size and column-width changes
+    /// (the character doesn't move even though its pixel offset does). Uses the
+    /// same offset space as highlight anchors.
+    var readingCharacterOffset: Int = 0
     private var parseStatusRaw: Int = ParseStatus.pending.rawValue
 
     var parseStatus: ParseStatus {

@@ -28,7 +28,7 @@ make lint     # swiftformat --lint
 make format   # swiftformat
 ```
 
-CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) mirrors this: xcodegen → unsigned simulator build → unit tests.
+CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) mirrors this: xcodegen → one unsigned `xcodebuild test` pass (builds app + embedded extensions, runs unit tests). To conserve macOS runner minutes it runs only on PRs and pushes to `main` and skips doc-only changes — don't widen the triggers back to `push: ["**"]`.
 
 ## Architecture map
 

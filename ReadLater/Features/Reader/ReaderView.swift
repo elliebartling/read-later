@@ -21,6 +21,10 @@ struct ReaderView: View {
     /// Scroll position as a 0...1 fraction, kept minute-granular via
     /// `readingMinutesLeft` so scrolling doesn't spam view updates.
     @State private var readingMinutesLeft: Int?
+    /// UTF-16 index of the character at the top of the viewport, updated while
+    /// reading and written back to the article on disappear so reopening resumes
+    /// at the same word instead of jumping to the top.
+    @State private var latestTopOffset: Int?
 
     /// Color for instantly-created highlights; updated whenever the user picks
     /// a color, so new highlights reuse the last choice.
@@ -106,7 +110,10 @@ struct ReaderView: View {
                 .accessibilityLabel("Typography")
             }
         }
-        .onDisappear { tts.stop() }
+        .onDisappear {
+            tts.stop()
+            saveReadingProgress()
+        }
         .sheet(isPresented: $showingTypographyControls) {
             TypographyControls(settings: settings, controller: tts)
         }
@@ -198,6 +205,8 @@ struct ReaderView: View {
                     editingHighlight = findHighlight(id)
                 },
                 onScrollProgress: handleScrollProgress,
+                onTopCharacterOffset: { latestTopOffset = $0 },
+                initialCharacterOffset: article.readingCharacterOffset,
                 onTap: {
                     // Drive the chrome from a single explicit animation so both
                     // directions match. A redundant implicit `.animation(value:)`
@@ -266,6 +275,14 @@ struct ReaderView: View {
         }
         guard progress >= 0.9, article.readAt == nil else { return }
         article.readAt = .now
+        try? context.save()
+    }
+
+    /// Persists the top-of-viewport character offset when leaving the reader.
+    /// Written once on disappear rather than on every scroll tick to avoid churn.
+    private func saveReadingProgress() {
+        guard let offset = latestTopOffset, offset != article.readingCharacterOffset else { return }
+        article.readingCharacterOffset = offset
         try? context.save()
     }
 
