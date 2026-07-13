@@ -85,6 +85,20 @@ final class ArticleParser: NSObject {
                 try {
                     \(readabilityJS)
                     var docClone = document.cloneNode(true);
+                    // Cruft Layer A (docs/parser-cruft-design.md): drop overlay
+                    // chrome — sign-in / subscribe modals — from the clone
+                    // before Readability sees it. Deliberately tiny and
+                    // structural (ARIA dialog semantics only); phrase-level
+                    // cruft is handled post-parse in Swift where it is
+                    // unit-testable.
+                    try {
+                        var overlays = docClone.querySelectorAll(
+                            '[role="dialog"], [role="alertdialog"], [aria-modal="true"]');
+                        for (var oi = 0; oi < overlays.length; oi++) {
+                            var ov = overlays[oi];
+                            if (ov.parentNode) { ov.parentNode.removeChild(ov); }
+                        }
+                    } catch (cleanupErr) { /* never fail the parse over cleanup */ }
                     var reader = new Readability(docClone);
                     var article = reader.parse();
                     if (!article) { return null; }
@@ -266,22 +280,33 @@ final class ArticleParser: NSObject {
         let hero = (dict["heroImage"] as? String).flatMap { URL(string: $0) }
 
         let rawBlocks = (dict["blocks"] as? [[String: Any]]) ?? []
-        let blocks = Self.blocks(fromJS: rawBlocks, baseURL: url)
+        let mapped = Self.blocks(fromJS: rawBlocks, baseURL: url)
+
+        // Cruft Layer B (docs/parser-cruft-design.md): rule-driven removal of
+        // subscribe/sign-in nags, social CTA clusters, and "N min read"
+        // metadata. Runs ONLY here, at parse time (first ingest / explicit
+        // Re-extract) — never against stored blocks, because plainText derived
+        // below is the highlight offset space and re-filtering saved text
+        // would shift existing highlight anchors.
+        let filtered = CruftFilter.filter(mapped)
+        let blocks = filtered.kept
+        #if DEBUG
+        if !filtered.removed.isEmpty {
+            NSLog("ArticleParser: cruft filter removed %d of %d blocks for %@",
+                  filtered.removed.count, mapped.count, url.absoluteString)
+        }
+        #endif
 
         // When the typed walk produced text-bearing blocks, plainText is derived
         // from them so it stays byte-identical to the block reader's own view of
         // the text (the highlight offset space). Otherwise keep the legacy join.
+        // (After cruft filtering the derived text intentionally differs from the
+        // legacy join by exactly the removed blocks.)
         let text: String
         if blocks.isEmpty {
             text = legacyText
         } else {
             let derived = ArticleBlocks.derivePlainText(blocks)
-            #if DEBUG
-            if derived != legacyText {
-                NSLog("ArticleParser: derived plainText differs from legacy join (derived=%d chars, legacy=%d chars) for %@",
-                      derived.count, legacyText.count, url.absoluteString)
-            }
-            #endif
             text = derived.isEmpty ? legacyText : derived
         }
 
