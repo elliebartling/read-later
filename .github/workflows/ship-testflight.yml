@@ -93,16 +93,33 @@ jobs:
           printf '%s\n' "$ASC_API_KEY_P8" > "$KEY_PATH"
           chmod 600 "$KEY_PATH"
 
-      # Archive unsigned, then EMBED ENTITLEMENTS via ad-hoc signatures below.
-      # Why: entitlements are normally baked in by build-time codesign, which
-      # an unsigned archive skips — and export-time re-signing only PRESERVES
-      # entitlements it finds already embedded in each binary's signature.
-      # Archive-time real signing is not possible here: automatic signing
-      # archives via the Development flow (ASC API keys cannot create dev
-      # certs → bearer-token auth failure), and forcing Apple Distribution
-      # conflicts with automatic signing (both verified 2026-07-12). Ad-hoc
-      # signatures need no certificate, so this stays secret-free.
-      - name: Archive (unsigned)
+      - name: Import distribution certificate
+        env:
+          DIST_CERT_P12_BASE64: ${{ secrets.DIST_CERT_P12_BASE64 }}
+          DIST_CERT_PASSWORD: ${{ secrets.DIST_CERT_PASSWORD }}
+        run: |
+          if [ -z "$DIST_CERT_P12_BASE64" ] || [ -z "$DIST_CERT_PASSWORD" ]; then
+            echo "::error::Missing DIST_CERT_P12_BASE64 / DIST_CERT_PASSWORD secrets."
+            exit 1
+          fi
+          KEYCHAIN="$RUNNER_TEMP/ship.keychain-db"
+          KEYCHAIN_PASS=$(uuidgen)
+          security create-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN"
+          printf '%s' "$DIST_CERT_P12_BASE64" | base64 -d > "$RUNNER_TEMP/dist.p12"
+          security import "$RUNNER_TEMP/dist.p12" -k "$KEYCHAIN" -P "$DIST_CERT_PASSWORD" -A -f pkcs12 -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/dist.p12"
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASS" "$KEYCHAIN" > /dev/null
+          security find-identity -v -p codesigning "$KEYCHAIN"
+
+      # Archive SIGNED with the imported Apple Distribution cert and the
+      # named App Store profiles (project.yml pins them per target for
+      # Release). -allowProvisioningUpdates lets xcodebuild download the
+      # named profiles via the ASC API key. Entitlements bake in natively at
+      # build-time codesign — the tripwire below verifies they survived.
+      - name: Archive (signed, manual)
         run: |
           rm -rf build/ReadLater.xcarchive build/export build/DerivedData
           set -o pipefail
@@ -113,31 +130,11 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath build/ReadLater.xcarchive \
             -derivedDataPath build/DerivedData \
-            CODE_SIGNING_ALLOWED=NO \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             | tail -80
-
-      # Ad-hoc sign each product WITH its entitlements (variables expanded)
-      # so the export re-sign finds and preserves them. Nested bundles first,
-      # the app last (the app seal covers its PlugIns).
-      - name: Embed entitlements (ad-hoc)
-        run: |
-          APP="build/ReadLater.xcarchive/Products/Applications/ReadLater.app"
-          TEAM="RLQ5M29933"
-          expand() { sed "s/\$(TeamIdentifierPrefix)/${TEAM}./g" "$1" > "$2"; }
-          expand ShareExtension/ShareExtension.entitlements /tmp/share.ent
-          expand SafariWebExtension/SafariWebExtension.entitlements /tmp/safari.ent
-          # App: APP-GROUP ONLY for now. CloudKit is code-gated off
-          # (SharedModelContainer.cloudKitSyncEnabled = false) and the iCloud
-          # container isn't deployed to Production; requesting iCloud-capable
-          # profiles is the suspected cause of export-time provisioning
-          # failures (run 29210746725). Restore the full
-          # ReadLater/ReadLater.entitlements here when CloudKit ships.
-          expand ShareExtension/ShareExtension.entitlements /tmp/app.ent
-          /usr/bin/codesign --force -s - --entitlements /tmp/share.ent  "$APP/PlugIns/ShareExtension.appex"
-          /usr/bin/codesign --force -s - --entitlements /tmp/safari.ent "$APP/PlugIns/SafariWebExtension.appex"
-          /usr/bin/codesign --force -s - --entitlements /tmp/app.ent    "$APP"
-          echo "=== embedded app entitlements ==="
-          codesign -d --entitlements :- "$APP" 2>/dev/null | head -30
 
       - name: Export signed IPA
         run: |

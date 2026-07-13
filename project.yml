@@ -87,6 +87,15 @@ targets:
         INFOPLIST_KEY_UIApplicationSceneManifest_Generation: YES
         INFOPLIST_KEY_UISupportsDocumentBrowser: NO
         INFOPLIST_KEY_UILaunchScreen_Generation: YES
+      configs:
+        Release:
+          # TestFlight/App Store signing: manual with the human-created
+          # Apple Distribution cert + named profiles (cloud/automatic signing
+          # cannot manage App Group capabilities with API-key auth — see
+          # ship-testflight.yml). Debug/simulator builds are unaffected.
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: ReadLater App Store
 
   ShareExtension:
     type: app-extension
@@ -113,6 +122,11 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ellenbartling.readlater.ShareExtension
         CODE_SIGN_ENTITLEMENTS: ShareExtension/ShareExtension.entitlements
+      configs:
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: ReadLater ShareExt App Store
 
   SafariWebExtension:
     type: app-extension
@@ -135,6 +149,11 @@ targets:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ellenbartling.readlater.SafariWebExtension
         CODE_SIGN_ENTITLEMENTS: SafariWebExtension/SafariWebExtension.entitlements
+      configs:
+        Release:
+          CODE_SIGN_STYLE: Manual
+          CODE_SIGN_IDENTITY: Apple Distribution
+          PROVISIONING_PROFILE_SPECIFIER: ReadLater SafariExt App Store
 
   # NOTE: no `Shared` in test sources — those files compile into the app
   # module and arrive via `@testable import ReadLater`. Adding them here too
