@@ -73,10 +73,13 @@ final class ShareViewController: UIViewController {
 
         var capturedURL: URL?
         var capturedTitle: String?
+        var capturedText: String?
 
-        // Activation rule is WebURL-only, so a plain URL attachment is all we
-        // get here. HTML capture comes via the Safari Web Extension path;
-        // otherwise ArticleParser refetches the page itself.
+        // The activation rule accepts a typed WebURL *or* a plain-text share.
+        // A typed `public.url` attachment is the clean case; some apps (Medium)
+        // instead hand us the link buried in a plain-text item, so we also grab
+        // any text and recover the URL from it below. HTML capture comes via the
+        // Safari Web Extension path; otherwise ArticleParser refetches the page.
         for item in items {
             if let title = item.attributedTitle?.string, capturedTitle == nil {
                 capturedTitle = title
@@ -87,8 +90,17 @@ final class ShareViewController: UIViewController {
                        let url = obj as? URL {
                         capturedURL = url
                     }
+                } else if provider.hasItemConformingToTypeIdentifier(UTType.text.identifier), capturedText == nil {
+                    if let obj = try? await provider.loadItem(forTypeIdentifier: UTType.text.identifier) {
+                        capturedText = Self.text(from: obj)
+                    }
                 }
             }
+        }
+
+        // No typed URL — try to pull one out of a plain-text share (e.g. Medium).
+        if capturedURL == nil, let text = capturedText {
+            capturedURL = SharedTextURLExtractor.firstURL(in: text)
         }
 
         guard let url = capturedURL else {
@@ -112,6 +124,22 @@ final class ShareViewController: UIViewController {
         // at this article; if untapped, the sheet dismisses on its own.
         pendingDeepLink = openDeepLink(articleID: pending.id)
         finish(message: "Saved to Read Later", showOpen: true, delay: 5.0)
+    }
+
+    /// Normalises whatever a text `NSItemProvider` hands back into a `String`.
+    /// Providers load text as `NSString`, raw `Data`, or an `NSAttributedString`
+    /// depending on how the sharing app registered it, so cover all three.
+    private static func text(from item: NSSecureCoding) -> String? {
+        if let string = item as? String {
+            return string
+        }
+        if let attributed = item as? NSAttributedString {
+            return attributed.string
+        }
+        if let data = item as? Data {
+            return String(data: data, encoding: .utf8)
+        }
+        return nil
     }
 
     private func openDeepLink(articleID: UUID) -> URL? {

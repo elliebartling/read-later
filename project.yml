@@ -117,11 +117,17 @@ targets:
           NSExtensionPointIdentifier: com.apple.share-services
           NSExtensionPrincipalClass: $(PRODUCT_MODULE_NAME).ShareViewController
           NSExtensionAttributes:
-            # WebURL only. Do NOT add SupportsWebPageWithMaxCount without also
-            # bundling an NSExtensionJavaScriptPreprocessingFile — declaring it
-            # bare makes Safari hand us a property-list item we can't read.
+            # Accept a typed WebURL *or* a plain-text share. Apps like Medium
+            # hand the Share Sheet the link inside a plain-text item instead of
+            # a public.url attachment, so a WebURL-only rule never activates for
+            # them; SupportsText covers that (ShareViewController pulls the URL
+            # back out with NSDataDetector). Do NOT add SupportsWebPageWithMaxCount
+            # without also bundling an NSExtensionJavaScriptPreprocessingFile —
+            # declaring it bare makes Safari hand us a property-list item we
+            # can't read.
             NSExtensionActivationRule:
               NSExtensionActivationSupportsWebURLWithMaxCount: 1
+              NSExtensionActivationSupportsText: true
     settings:
       base:
         PRODUCT_BUNDLE_IDENTIFIER: com.ellenbartling.readlater.ShareExtension
