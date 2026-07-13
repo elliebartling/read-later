@@ -118,6 +118,19 @@ final class ArticleParser: NSObject {
                             }
                             return false;
                         }
+                        // A <p> whose entire content is a single <code> element.
+                        // Medium marks each line of a multi-line code block this
+                        // way (or as per-line <pre> siblings); classifying these
+                        // as preformatted lets the Swift side coalesce the run
+                        // into one code block instead of inline body text.
+                        function isCodeOnly(el) {
+                            if (el.tagName !== "P") { return false; }
+                            if (el.children.length !== 1) { return false; }
+                            if (el.children[0].tagName !== "CODE") { return false; }
+                            var codeText = normalize(el.children[0].textContent);
+                            return codeText.length > 0 &&
+                                   normalize(el.textContent) === codeText;
+                        }
                         function nearestListStyle(el) {
                             var p = el.parentElement;
                             while (p && p !== container) {
@@ -181,14 +194,18 @@ final class ArticleParser: NSObject {
                                     continue;
                                 }
                                 if (BLOCK[tag] && !hasBlockChild(child)) {
-                                    // PRE keeps its internal whitespace; everything
-                                    // else collapses runs of whitespace to one space.
-                                    var t = tag === "PRE"
+                                    // PRE and code-only <p> keep their internal
+                                    // whitespace; everything else collapses runs
+                                    // of whitespace to a single space.
+                                    var pre = tag === "PRE" || isCodeOnly(child);
+                                    var t = pre
                                         ? (child.textContent || "").replace(/\\s+$/,"")
                                         : normalize(child.textContent);
                                     if (t) {
                                         out.push(t);
-                                        if (HEADING[tag]) {
+                                        if (pre) {
+                                            blocks.push({ type: "preformatted", text: t });
+                                        } else if (HEADING[tag]) {
                                             blocks.push({ type: "heading", text: t, level: HEADING[tag] });
                                         } else if (tag === "LI") {
                                             var lb = { type: "listItem", text: t };
@@ -197,8 +214,6 @@ final class ArticleParser: NSObject {
                                             blocks.push(lb);
                                         } else if (tag === "BLOCKQUOTE") {
                                             blocks.push({ type: "blockquote", text: t });
-                                        } else if (tag === "PRE") {
-                                            blocks.push({ type: "preformatted", text: t });
                                         } else if (tag === "FIGCAPTION") {
                                             blocks.push({ type: "caption", text: t });
                                         } else {
@@ -235,6 +250,22 @@ final class ArticleParser: NSObject {
                         heroImage: (function() {
                             var og = document.querySelector('meta[property="og:image"]');
                             return og ? og.content : null;
+                        })(),
+                        // Fraction of extracted text that lives inside anchors.
+                        // A high value on a short result is the signature of a
+                        // nav shell (Sitemap / Sign in / Write / Search) rather
+                        // than an article, and feeds the Swift quality gate.
+                        linkDensity: (function() {
+                            var c = document.createElement("div");
+                            c.innerHTML = article.content || "";
+                            var total = (c.textContent || "").replace(/\\s+/g, "").length;
+                            if (!total) { return 1; }
+                            var linkChars = 0;
+                            var as = c.querySelectorAll("a");
+                            for (var i = 0; i < as.length; i++) {
+                                linkChars += (as[i].textContent || "").replace(/\\s+/g, "").length;
+                            }
+                            return linkChars / total;
                         })()
                     };
                 } catch (e) {
@@ -245,56 +276,123 @@ final class ArticleParser: NSObject {
         })();
         """
 
-        let result = try await webView.evaluateJavaScript(wrapper)
-        guard let dict = result as? [String: Any] else {
-            return fallback(url: url, title: (result as? String) ?? url.host ?? "Untitled")
-        }
-        if let err = dict["error"] as? String {
-            throw ParseError.readabilityFailed(err)
-        }
-
-        let title = (dict["title"] as? String) ?? url.host ?? "Untitled"
-        let byline = dict["byline"] as? String
-        let siteName = dict["siteName"] as? String
-        let html = (dict["content"] as? String) ?? ""
-        // Prefer the gap-free block text; fall back to raw textContent if the
-        // HTML walk produced nothing (e.g. content without block wrappers).
-        let cleaned = (dict["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let legacyText = cleaned.isEmpty
-            ? ((dict["textContent"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
-            : cleaned
-        let hero = (dict["heroImage"] as? String).flatMap { URL(string: $0) }
-
-        let rawBlocks = (dict["blocks"] as? [[String: Any]]) ?? []
-        let blocks = Self.blocks(fromJS: rawBlocks, baseURL: url)
-
-        // When the typed walk produced text-bearing blocks, plainText is derived
-        // from them so it stays byte-identical to the block reader's own view of
-        // the text (the highlight offset space). Otherwise keep the legacy join.
-        let text: String
-        if blocks.isEmpty {
-            text = legacyText
-        } else {
-            let derived = ArticleBlocks.derivePlainText(blocks)
-            #if DEBUG
-            if derived != legacyText {
-                NSLog("ArticleParser: derived plainText differs from legacy join (derived=%d chars, legacy=%d chars) for %@",
-                      derived.count, legacyText.count, url.absoluteString)
+        // One extraction pass over the DOM as it stands right now: run the
+        // wrapper, decode it, and throw `.lowQuality` if the result reads like a
+        // nav shell rather than an article. Re-runnable because the wrapper is a
+        // constant string and reads the live DOM each time.
+        func runPass() async throws -> Parsed {
+            let result = try await webView.evaluateJavaScript(wrapper)
+            guard let dict = result as? [String: Any] else {
+                throw ParseError.readabilityFailed("non-dictionary result")
             }
-            #endif
-            text = derived.isEmpty ? legacyText : derived
+            if let err = dict["error"] as? String {
+                throw ParseError.readabilityFailed(err)
+            }
+
+            let title = (dict["title"] as? String) ?? url.host ?? "Untitled"
+            let byline = dict["byline"] as? String
+            let siteName = dict["siteName"] as? String
+            let html = (dict["content"] as? String) ?? ""
+            // Prefer the gap-free block text; fall back to raw textContent if the
+            // HTML walk produced nothing (e.g. content without block wrappers).
+            let cleaned = (dict["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
+            let legacyText = cleaned.isEmpty
+                ? ((dict["textContent"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
+                : cleaned
+            let hero = (dict["heroImage"] as? String).flatMap { URL(string: $0) }
+            let linkDensity = Self.doubleValue(dict["linkDensity"]) ?? 1
+
+            let rawBlocks = (dict["blocks"] as? [[String: Any]]) ?? []
+            let blocks = Self.blocks(fromJS: rawBlocks, baseURL: url)
+
+            // When the typed walk produced text-bearing blocks, plainText is
+            // derived from them so it stays byte-identical to the block reader's
+            // own view of the text (the highlight offset space). Otherwise keep
+            // the legacy join.
+            let text: String
+            if blocks.isEmpty {
+                text = legacyText
+            } else {
+                let derived = ArticleBlocks.derivePlainText(blocks)
+                #if DEBUG
+                // A preformatted-block divergence is expected: adjacent code
+                // lines are coalesced with "\n" whereas the legacy join used
+                // "\n\n". Only flag genuine drift.
+                if derived != legacyText, !blocks.contains(where: { $0.type == .preformatted }) {
+                    NSLog("ArticleParser: derived plainText differs from legacy join (derived=%d chars, legacy=%d chars) for %@",
+                          derived.count, legacyText.count, url.absoluteString)
+                }
+                #endif
+                text = derived.isEmpty ? legacyText : derived
+            }
+
+            guard QualityGate.passes(plainText: text, blocks: blocks, linkDensity: linkDensity) else {
+                throw ParseError.lowQuality
+            }
+
+            return Parsed(
+                title: title,
+                author: byline,
+                siteName: siteName,
+                plainText: text,
+                extractedHTML: html,
+                heroImageURL: hero,
+                estimatedReadingMinutes: max(1, text.split(separator: " ").count / 220),
+                blocks: blocks
+            )
         }
 
-        return Parsed(
-            title: title,
-            author: byline,
-            siteName: siteName,
-            plainText: text,
-            extractedHTML: html,
-            heroImageURL: hero,
-            estimatedReadingMinutes: max(1, text.split(separator: " ").count / 220),
-            blocks: blocks
-        )
+        // Wait for the DOM to settle, extract, and gate — retrying with a longer
+        // settle when a pass looks like a shell. If every attempt fails the gate
+        // we surface the error so the caller records `.failed` (user can retry /
+        // open in Safari) instead of persisting nav junk.
+        var lastError: Error = ParseError.lowQuality
+        for attempt in 0 ..< Self.maxParseAttempts {
+            await waitForDOMStable(longSettle: attempt > 0)
+            do {
+                return try await runPass()
+            } catch {
+                lastError = error
+                NSLog("ArticleParser: parse attempt %d/%d rejected for %@: %@",
+                      attempt + 1, Self.maxParseAttempts, url.absoluteString, String(describing: error))
+            }
+            if attempt + 1 < Self.maxParseAttempts {
+                try? await Task.sleep(for: .seconds(Double(attempt + 1) * 1.5))
+            }
+        }
+        throw lastError
+    }
+
+    /// Number of extract-and-gate attempts before giving up. Each attempt is
+    /// preceded by a DOM-stabilization wait; later attempts wait longer, which
+    /// (together with the inter-attempt backoff) gives a JS-rendered page time
+    /// to swap its app shell for the real article.
+    private static let maxParseAttempts = 3
+
+    /// Polls the rendered text length until it stops growing across consecutive
+    /// samples, then returns. JS-rendered pages fire `didFinish` while the body
+    /// is still the app shell; sampling `innerText.length` until it stabilizes
+    /// avoids running Readability on a half-streamed DOM. Capped so a page that
+    /// never settles (animations, live tickers) still proceeds to extraction.
+    private func waitForDOMStable(longSettle: Bool) async {
+        let cap: Duration = longSettle ? .seconds(12) : .seconds(10)
+        let pollInterval: Duration = .milliseconds(400)
+        var tracker = StabilityTracker(requiredStableSamples: 2)
+        let start = ContinuousClock.now
+        while ContinuousClock.now - start < cap {
+            let length = await currentRenderedTextLength()
+            if tracker.record(length), length > 0 {
+                return
+            }
+            try? await Task.sleep(for: pollInterval)
+        }
+    }
+
+    /// UTF-16 length of the currently-rendered body text (0 on any failure).
+    private func currentRenderedTextLength() async -> Int {
+        let js = "(document.body && document.body.innerText) ? document.body.innerText.length : 0"
+        let value = try? await webView.evaluateJavaScript(js)
+        return Self.intValue(value) ?? 0
     }
 
     /// Maps and validates the JS block dictionaries into typed `ArticleBlock`s.
@@ -342,11 +440,42 @@ final class ArticleParser: NSObject {
                 result.append(ArticleBlock(type: type, text: text))
             }
         }
-        return result
+        return coalescePreformatted(result)
+    }
+
+    /// Coalesces runs of consecutive `.preformatted` blocks into a single block
+    /// whose lines are joined by "\n". Medium emits a multi-line code block as
+    /// per-line `<pre>` / code-only `<p>` siblings; without this each line would
+    /// render as its own tiny code block (or, in the flowed reader, as wrapped
+    /// body text). A lone preformatted block is returned unchanged (same id and
+    /// text), so a single `<pre>` — including one that is already internally
+    /// multi-line — is untouched. Pure and order-preserving, so unit-testable.
+    nonisolated static func coalescePreformatted(_ blocks: [ArticleBlock]) -> [ArticleBlock] {
+        var out: [ArticleBlock] = []
+        var run: [ArticleBlock] = []
+        func flush() {
+            if run.count == 1 {
+                out.append(run[0])
+            } else if run.count > 1 {
+                let joined = run.map { $0.text ?? "" }.joined(separator: "\n")
+                out.append(ArticleBlock(type: .preformatted, text: joined))
+            }
+            run.removeAll()
+        }
+        for block in blocks {
+            if block.type == .preformatted {
+                run.append(block)
+            } else {
+                flush()
+                out.append(block)
+            }
+        }
+        flush()
+        return out
     }
 
     /// Robustly coerces a JS-bridged numeric (`NSNumber`, `Int`, `Double`) to `Int`.
-    nonisolated private static func intValue(_ any: Any?) -> Int? {
+    nonisolated static func intValue(_ any: Any?) -> Int? {
         switch any {
         case let n as NSNumber: return n.intValue
         case let i as Int: return i
@@ -355,17 +484,63 @@ final class ArticleParser: NSObject {
         }
     }
 
-    private func fallback(url: URL, title: String) -> Parsed {
-        Parsed(
-            title: title,
-            author: nil,
-            siteName: url.host,
-            plainText: "",
-            extractedHTML: "",
-            heroImageURL: nil,
-            estimatedReadingMinutes: 0,
-            blocks: []
-        )
+    /// Robustly coerces a JS-bridged numeric to `Double`.
+    nonisolated static func doubleValue(_ any: Any?) -> Double? {
+        switch any {
+        case let n as NSNumber: return n.doubleValue
+        case let d as Double: return d
+        case let i as Int: return Double(i)
+        default: return nil
+        }
+    }
+
+    /// Pure content-quality gate. Rejects near-empty extractions and nav shells
+    /// (e.g. "Sitemap Sign in Write Search") so the parse loop retries or fails
+    /// instead of persisting junk. No WKWebView / main-actor state — testable.
+    enum QualityGate {
+        /// Below this word count a result is treated as a shell, not an article.
+        static let minimumWords = 50
+
+        static func passes(plainText: String, blocks: [ArticleBlock], linkDensity: Double) -> Bool {
+            let words = plainText.split(whereSeparator: { $0.isWhitespace }).count
+            if words < minimumWords { return false }
+            // Mostly anchors with little prose: site chrome, not a body.
+            if linkDensity > 0.5, words < 400 { return false }
+            // A handful of short, link-like lines: a nav list, not an article.
+            let textBlocks = blocks.filter { $0.type.isTextBearing && !($0.text?.isEmpty ?? true) }
+            if !textBlocks.isEmpty, textBlocks.count < 8 {
+                let shortish = textBlocks.filter {
+                    ($0.text ?? "").split(whereSeparator: { $0.isWhitespace }).count <= 3
+                }.count
+                if Double(shortish) / Double(textBlocks.count) > 0.6 { return false }
+            }
+            return true
+        }
+    }
+
+    /// Pure sampling helper for DOM-stabilization: reports stability once it has
+    /// seen `requiredStableSamples` consecutive equal samples. Extracted from the
+    /// polling loop so the settle decision is unit-testable without a WKWebView.
+    struct StabilityTracker {
+        let requiredStableSamples: Int
+        private var last: Int?
+        private var stableCount = 0
+
+        init(requiredStableSamples: Int) {
+            self.requiredStableSamples = max(1, requiredStableSamples)
+        }
+
+        /// Feeds one sample; returns true when the current run of equal samples
+        /// has reached `requiredStableSamples`.
+        mutating func record(_ sample: Int) -> Bool {
+            if last == sample {
+                stableCount += 1
+            } else {
+                stableCount = 1
+            }
+            last = sample
+            return stableCount >= requiredStableSamples
+        }
     }
 
     private static func loadReadabilityScript() -> String {
@@ -393,11 +568,29 @@ final class ArticleParser: NSObject {
         """
     }
 
-    enum ParseError: Error {
+    enum ParseError: LocalizedError {
         case readabilityFailed(String)
         case loadFailed(Error)
         case timedOut
         case busy
+        /// Every extract attempt produced a nav shell / near-empty result that
+        /// failed the quality gate. Surfaced so the caller records `.failed`.
+        case lowQuality
+
+        var errorDescription: String? {
+            switch self {
+            case .readabilityFailed:
+                return "The extractor couldn't find readable content on this page."
+            case .loadFailed:
+                return "The page failed to load."
+            case .timedOut:
+                return "The page took too long to load."
+            case .busy:
+                return "Another article is still being parsed. Try again in a moment."
+            case .lowQuality:
+                return "This page didn't finish loading its article content. Try again."
+            }
+        }
     }
 
     private func finishLoad(_ result: Result<Void, Error>) {
