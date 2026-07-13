@@ -230,6 +230,35 @@ final class ArticleBlockTests: XCTestCase {
         XCTAssertEqual(ArticleBlocks.derivePlainText(blocks), "One\n\nTwo\n\nHead")
     }
 
+    func testPreformattedCodeBlockPreservesWhitespaceAndOffsetSpace() {
+        // A multi-line, indented shell command like the one in Ellen's
+        // TestFlight screenshot. The code-block redesign is view-only, so the
+        // block's contribution to the highlight offset space (plainText +
+        // UTF-16 ranges) must be byte-identical to any other text-bearing block.
+        let code = "brew install foo \\\n  --with-bar \\\n  --prefix=/usr/local"
+        let raw: [[String: Any]] = [
+            ["type": "paragraph", "text": "Intro"],
+            ["type": "preformatted", "text": code],
+            ["type": "paragraph", "text": "Outro"],
+        ]
+        let blocks = ArticleParser.blocks(fromJS: raw, baseURL: base)
+        XCTAssertEqual(blocks[1].type, .preformatted)
+        // Internal whitespace/newlines are preserved verbatim.
+        XCTAssertEqual(blocks[1].text, code)
+        XCTAssertTrue(blocks[1].type.isTextBearing)
+
+        // The code block joins into plainText exactly like a paragraph.
+        let plainText = ArticleBlocks.derivePlainText(blocks)
+        XCTAssertEqual(plainText, "Intro\n\n\(code)\n\nOutro")
+
+        // Its UTF-16 range within plainText is correct (base after "Intro\n\n").
+        let ranges = ArticleBlocks.textBlockRangesByIndex(blocks)
+        let codeLen = (code as NSString).length
+        XCTAssertEqual(ranges[1], NSRange(location: 7, length: codeLen))
+        // The following block resumes right after the code + "\n\n".
+        XCTAssertEqual(ranges[2], NSRange(location: 7 + codeLen + 2, length: 5))
+    }
+
     func testClipHighlightSpansParagraphBreakIntoPartialLocalRanges() {
         // Two blocks: A = [0,5), B = [7,12) with a "\n\n" break between them.
         let a = NSRange(location: 0, length: 5)
