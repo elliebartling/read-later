@@ -43,7 +43,7 @@ Data flow: extensions never touch CloudKit. They write `PendingSave` JSON to the
 
 Article extraction: Mozilla Readability.js runs in an off-screen `WKWebView` (`ReadLater/Services/ArticleParser.swift`); extracted plain text is the offset space for highlights.
 
-RSS: `Feed` (synced model) stores subscriptions only — feed items are fetched live (`ReadLater/Services/Feeds/`, XMLParser-based, RSS 2.0/Atom/RDF) and never persisted. Opening an item writes a `PendingSave` (source `.rss`) and drains it, so it becomes a normal `Article`.
+RSS: `Feed` + `FeedEntry` (synced models) store subscriptions and their items with read state. `FeedRefresher` fetches concurrently and merges idempotently (guid-keyed, read state survives, capped at 300 entries/feed); parsing is `ReadLater/Services/Feeds/` (XMLParser-based, RSS 2.0/Atom/RDF). The Feeds tab has a unified "All Items" river plus per-feed lists with unread counts. Opening an entry writes a `PendingSave` (source `.rss`) and drains it, so it becomes a normal `Article`. Background refresh is intentionally not wired yet — when it is, it should just call `FeedRefresher.refreshAll`.
 
 ## Critical invariants
 

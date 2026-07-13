@@ -15,9 +15,11 @@ final class Feed {
     var title: String = ""
     var subscribedAt: Date = Date.now
     var lastFetchedAt: Date?
-    /// Last time the user viewed this feed's item list. Items published after
-    /// this get a "new" marker; nothing is marked on the very first visit.
-    var lastViewedAt: Date?
+
+    @Relationship(deleteRule: .cascade, inverse: \FeedEntry.feed)
+    var entries: [FeedEntry]?
+
+    var allEntries: [FeedEntry] { entries ?? [] }
 
     init(
         id: UUID = UUID(),

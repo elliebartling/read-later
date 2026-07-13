@@ -33,6 +33,7 @@ enum SharedModelContainer {
             Highlight.self,
             Tag.self,
             Feed.self,
+            FeedEntry.self,
             AppSettings.self,
         ])
 
@@ -40,7 +41,7 @@ enum SharedModelContainer {
             return makeInMemory(schema: fullSchema)
         }
 
-        let syncedSchema = Schema([Article.self, Highlight.self, Tag.self, Feed.self])
+        let syncedSchema = Schema([Article.self, Highlight.self, Tag.self, Feed.self, FeedEntry.self])
         let localSchema = Schema([AppSettings.self])
 
         func localConfig() -> ModelConfiguration {

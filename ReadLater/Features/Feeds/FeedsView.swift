@@ -1,9 +1,14 @@
 import SwiftData
 import SwiftUI
 
+/// Navigation marker for the unified "All Items" river.
+private struct AllItemsRoute: Hashable {}
+
 struct FeedsView: View {
     @Environment(\.modelContext) private var context
     @Query(sort: \Feed.title) private var feeds: [Feed]
+    @Query(filter: #Predicate<FeedEntry> { $0.isRead == false })
+    private var unreadEntries: [FeedEntry]
     @State private var showingAddSheet = false
     @State private var path = NavigationPath()
 
@@ -17,16 +22,30 @@ struct FeedsView: View {
                         description: Text("Tap + and paste a site or feed URL to subscribe.")
                     )
                     .listRowSeparator(.hidden)
-                }
-                ForEach(feeds) { feed in
-                    NavigationLink(value: feed) {
-                        FeedRow(feed: feed)
+                } else {
+                    NavigationLink(value: AllItemsRoute()) {
+                        HStack {
+                            Label("All Items", systemImage: "tray.full")
+                                .font(.headline)
+                            Spacer()
+                            UnreadBadge(count: unreadEntries.count)
+                        }
+                        .padding(.vertical, 4)
                     }
-                    .swipeActions(edge: .trailing) {
-                        Button(role: .destructive) { delete(feed) } label: {
-                            Label("Unsubscribe", systemImage: "trash")
+                }
+                Section {
+                    ForEach(feeds) { feed in
+                        NavigationLink(value: feed) {
+                            FeedRow(feed: feed, unreadCount: unreadCount(for: feed))
+                        }
+                        .swipeActions(edge: .trailing) {
+                            Button(role: .destructive) { delete(feed) } label: {
+                                Label("Unsubscribe", systemImage: "trash")
+                            }
                         }
                     }
+                } header: {
+                    if !feeds.isEmpty { Text("Subscriptions") }
                 }
             }
             .listStyle(.plain)
@@ -38,8 +57,11 @@ struct FeedsView: View {
                     }
                 }
             }
+            .navigationDestination(for: AllItemsRoute.self) { _ in
+                FeedEntriesView(feed: nil, path: $path)
+            }
             .navigationDestination(for: Feed.self) { feed in
-                FeedItemsView(feed: feed, path: $path)
+                FeedEntriesView(feed: feed, path: $path)
             }
             .navigationDestination(for: Article.self) { article in
                 ReaderView(article: article)
@@ -50,27 +72,51 @@ struct FeedsView: View {
         }
     }
 
+    private func unreadCount(for feed: Feed) -> Int {
+        unreadEntries.filter { $0.feed?.id == feed.id }.count
+    }
+
     private func delete(_ feed: Feed) {
-        context.delete(feed)
+        context.delete(feed) // cascades to its entries
         try? context.save()
     }
 }
 
 private struct FeedRow: View {
     let feed: Feed
+    let unreadCount: Int
 
     var body: some View {
-        VStack(alignment: .leading, spacing: 4) {
-            Text(feed.title.isEmpty ? (feed.feedURL?.host ?? "Feed") : feed.title)
-                .font(.headline)
-                .lineLimit(2)
-            if let host = feed.siteURL?.host ?? feed.feedURL?.host {
-                Text(host)
-                    .font(.subheadline)
-                    .foregroundStyle(.secondary)
+        HStack {
+            VStack(alignment: .leading, spacing: 4) {
+                Text(feed.title.isEmpty ? (feed.feedURL?.host ?? "Feed") : feed.title)
+                    .font(.headline)
+                    .lineLimit(2)
+                if let host = feed.siteURL?.host ?? feed.feedURL?.host {
+                    Text(host)
+                        .font(.subheadline)
+                        .foregroundStyle(.secondary)
+                }
             }
+            Spacer()
+            UnreadBadge(count: unreadCount)
         }
         .padding(.vertical, 4)
+    }
+}
+
+private struct UnreadBadge: View {
+    let count: Int
+
+    var body: some View {
+        if count > 0 {
+            Text("\(count)")
+                .font(.caption.weight(.semibold))
+                .foregroundStyle(.secondary)
+                .padding(.horizontal, 8)
+                .padding(.vertical, 3)
+                .background(.quaternary, in: Capsule())
+        }
     }
 }
 
@@ -145,8 +191,10 @@ struct AddFeedSheet: View {
                 siteURL: resolved.parsed.siteURL,
                 title: resolved.parsed.title
             )
-            feed.lastFetchedAt = .now
             context.insert(feed)
+            // Seed entries from the document we already fetched, so the feed
+            // has content the moment the sheet closes.
+            FeedRefresher.merge(parsed: resolved.parsed, into: feed, context: context)
             try? context.save()
             dismiss()
         } catch {

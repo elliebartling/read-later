@@ -12,7 +12,7 @@ Very early v0.1 scaffold. What's here:
 - Apple `AVSpeechSynthesizer` TTS + OpenAI `/v1/audio/speech` TTS (BYO API key, stored in Keychain)
 - Obsidian export to any user-picked folder in Files (security-scoped bookmark)
 - Full-text search across saved articles
-- Native RSS reader — subscribe by pasting a site or feed URL (RSS 2.0 / Atom / RDF); items save through the normal article pipeline, so highlights, TTS, and export all work
+- Native RSS reader — subscribe by pasting a site or feed URL (RSS 2.0 / Atom / RDF); unified "All Items" river + per-feed lists with unread counts; opening an item saves it through the normal article pipeline, so highlights, TTS, and export all work
 - XcodeGen-driven project (no `.xcodeproj` in the repo — regenerate with `make gen`)
 
 Not here yet: YouTube, Shortcuts, Pocket import (see the plan doc).
