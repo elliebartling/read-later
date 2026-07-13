@@ -12,6 +12,15 @@ struct LibraryView: View {
     var body: some View {
         NavigationStack(path: $path) {
             List {
+                if !AppGroup.hasSharedContainer {
+                    Label(
+                        "Sharing is unavailable: the App Group isn't active for Read Later, so links shared from Safari can't reach the app. Enable the App Groups capability (group.com.ellenbartling.readlater) on the app target.",
+                        systemImage: "exclamationmark.triangle.fill"
+                    )
+                    .font(.footnote)
+                    .foregroundStyle(.secondary)
+                    .listRowSeparator(.hidden)
+                }
                 if articles.isEmpty {
                     ContentUnavailableView(
                         "No articles yet",

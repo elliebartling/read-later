@@ -141,6 +141,9 @@ struct IdlePlayerBar: View {
     var onPlay: () -> Void
     var onExport: () -> Void
     var onToggleRead: () -> Void
+    var onReextract: () -> Void
+    /// Disables the Re-extract menu item while a parse is in flight.
+    var isReextracting: Bool
 
     var body: some View {
         HStack(spacing: 22) {
@@ -158,6 +161,12 @@ struct IdlePlayerBar: View {
                 }
                 if let url = article.url {
                     Divider()
+                    Button {
+                        onReextract()
+                    } label: {
+                        Label("Re-extract", systemImage: "arrow.clockwise")
+                    }
+                    .disabled(isReextracting)
                     Link(destination: url) {
                         Label("Open Original", systemImage: "safari")
                     }
@@ -320,23 +329,8 @@ extension Color {
 }
 
 extension View {
-    /// Prominent pink capsule for the audio / idle player. Liquid glass with a
-    /// pink tint on iOS 26; a solid pink capsule with a soft pink shadow on
-    /// earlier OSes / SDKs.
-    @ViewBuilder
+    /// Prominent pink liquid-glass capsule for the audio / idle player.
     func playerGlassCapsule() -> some View {
-        #if compiler(>=6.2)
-        if #available(iOS 26.0, *) {
-            self.glassEffect(.regular.tint(.playerPink).interactive(), in: .capsule)
-        } else {
-            self
-                .background(Color.playerPink, in: .capsule)
-                .shadow(color: Color.playerPink.opacity(0.4), radius: 10, y: 4)
-        }
-        #else
-        self
-            .background(Color.playerPink, in: .capsule)
-            .shadow(color: Color.playerPink.opacity(0.4), radius: 10, y: 4)
-        #endif
+        self.glassEffect(.regular.tint(.playerPink).interactive(), in: .capsule)
     }
 }

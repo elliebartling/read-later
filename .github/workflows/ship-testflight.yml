@@ -93,7 +93,33 @@ jobs:
           printf '%s\n' "$ASC_API_KEY_P8" > "$KEY_PATH"
           chmod 600 "$KEY_PATH"
 
-      - name: Archive (unsigned)
+      - name: Import distribution certificate
+        env:
+          DIST_CERT_P12_BASE64: ${{ secrets.DIST_CERT_P12_BASE64 }}
+          DIST_CERT_PASSWORD: ${{ secrets.DIST_CERT_PASSWORD }}
+        run: |
+          if [ -z "$DIST_CERT_P12_BASE64" ] || [ -z "$DIST_CERT_PASSWORD" ]; then
+            echo "::error::Missing DIST_CERT_P12_BASE64 / DIST_CERT_PASSWORD secrets."
+            exit 1
+          fi
+          KEYCHAIN="$RUNNER_TEMP/ship.keychain-db"
+          KEYCHAIN_PASS=$(uuidgen)
+          security create-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN"
+          security unlock-keychain -p "$KEYCHAIN_PASS" "$KEYCHAIN"
+          printf '%s' "$DIST_CERT_P12_BASE64" | base64 -d > "$RUNNER_TEMP/dist.p12"
+          security import "$RUNNER_TEMP/dist.p12" -k "$KEYCHAIN" -P "$DIST_CERT_PASSWORD" -A -f pkcs12 -T /usr/bin/codesign
+          rm "$RUNNER_TEMP/dist.p12"
+          security list-keychains -d user -s "$KEYCHAIN" login.keychain-db
+          security set-key-partition-list -S apple-tool:,apple: -s -k "$KEYCHAIN_PASS" "$KEYCHAIN" > /dev/null
+          security find-identity -v -p codesigning "$KEYCHAIN"
+
+      # Archive SIGNED with the imported Apple Distribution cert and the
+      # named App Store profiles (project.yml pins them per target for
+      # Release). -allowProvisioningUpdates lets xcodebuild download the
+      # named profiles via the ASC API key. Entitlements bake in natively at
+      # build-time codesign — the tripwire below verifies they survived.
+      - name: Archive (signed, manual)
         run: |
           rm -rf build/ReadLater.xcarchive build/export build/DerivedData
           set -o pipefail
@@ -104,7 +130,10 @@ jobs:
             -destination 'generic/platform=iOS' \
             -archivePath build/ReadLater.xcarchive \
             -derivedDataPath build/DerivedData \
-            CODE_SIGNING_ALLOWED=NO \
+            -allowProvisioningUpdates \
+            -authenticationKeyPath "$HOME/.appstoreconnect/private_keys/AuthKey_${ASC_KEY_ID}.p8" \
+            -authenticationKeyID "$ASC_KEY_ID" \
+            -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             | tail -80
 
       - name: Export signed IPA
@@ -120,6 +149,44 @@ jobs:
             -authenticationKeyIssuerID "$ASC_ISSUER_ID" \
             | tee /tmp/export.log | tail -40
           test -f build/export/ReadLater.ipa
+
+      # On failure, capture Xcode's real distribution errors (the console
+      # summary hides the underlying Apple service responses).
+      - name: Collect signing diagnostics
+        if: failure()
+        run: |
+          mkdir -p build/diagnostics
+          cp /tmp/export.log build/diagnostics/ 2>/dev/null || true
+          find /var/folders -type d -name "*.xcdistributionlogs" -exec cp -R {} build/diagnostics/ \; 2>/dev/null || true
+          ls -R build/diagnostics | head -40
+
+      - name: Upload signing diagnostics
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: signing-diagnostics
+          path: build/diagnostics
+          if-no-files-found: warn
+
+      # Tripwire: a build without the App Group entitlement is broken on
+      # device even though it uploads and installs fine. Fail the run instead
+      # of shipping it.
+      - name: Verify entitlements survived signing
+        run: |
+          unzip -q build/export/ReadLater.ipa -d build/ipa-check
+          APP="build/ipa-check/Payload/ReadLater.app"
+          FAIL=0
+          for BIN in "$APP" "$APP"/PlugIns/*.appex; do
+            echo "=== entitlements: $BIN ==="
+            if ! codesign -d --entitlements :- "$BIN" 2>/dev/null | tee /tmp/ent.plist | grep -q "group.com.ellenbartling.readlater"; then
+              echo "::error::App Group entitlement missing from ${BIN} — archive-time signing regressed (see 'Archive (cloud-signed)' comment)."
+              FAIL=1
+            fi
+          done
+          if ! grep -q "icloud-container-identifiers" <(codesign -d --entitlements :- "$APP" 2>/dev/null); then
+            echo "::warning::iCloud entitlements missing from the app binary (CloudKit is code-gated off today, but flag this before re-enabling sync)."
+          fi
+          exit $FAIL
 
       - name: Upload to TestFlight
         run: |

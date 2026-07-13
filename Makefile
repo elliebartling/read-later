@@ -1,7 +1,7 @@
 .PHONY: gen open test lint clean bootstrap
 
 SCHEME ?= ReadLater
-DESTINATION ?= platform=iOS Simulator,name=iPhone 15
+DESTINATION ?= platform=iOS Simulator,name=iPhone 17
 
 bootstrap:
 	@command -v xcodegen >/dev/null 2>&1 || { echo "Install XcodeGen: brew install xcodegen"; exit 1; }
