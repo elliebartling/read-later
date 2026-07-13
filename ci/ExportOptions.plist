@@ -15,9 +15,9 @@
 		<key>com.ellenbartling.readlater</key>
 		<string>ReadLater App Store</string>
 		<key>com.ellenbartling.readlater.ShareExtension</key>
-		<string>ReadLater ShareExt App Store</string>
-		<key>com.ellenbartling.readlater.SafariWebExtension</key>
 		<string>ReadLater SafariExt App Store</string>
+		<key>com.ellenbartling.readlater.SafariWebExtension</key>
+		<string>ReadLater ShareExt App Store</string>
 	</dict>
 	<key>destination</key>
 	<string>export</string>

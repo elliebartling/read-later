@@ -96,6 +96,10 @@ targets:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: Apple Distribution
           PROVISIONING_PROFILE_SPECIFIER: ReadLater App Store
+          # App-group-only entitlements for Release: CloudKit is code-gated
+          # off and the App Store profile doesn't carry the iCloud container.
+          # Restore ReadLater/ReadLater.entitlements here when sync ships.
+          CODE_SIGN_ENTITLEMENTS: ReadLater/ReadLater.release.entitlements
 
   ShareExtension:
     type: app-extension
@@ -126,6 +130,8 @@ targets:
         Release:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: Apple Distribution
+          # NOTE: portal profile names are crossed (created against the
+          # other extension's App ID) — this mapping matches actual App IDs.
           PROVISIONING_PROFILE_SPECIFIER: ReadLater ShareExt App Store
 
   SafariWebExtension:
