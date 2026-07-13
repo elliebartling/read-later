@@ -160,4 +160,43 @@ final class ArticleParserFidelityTests: XCTestCase {
         var t = ArticleParser.StabilityTracker(requiredStableSamples: 1)
         XCTAssertTrue(t.record(42))
     }
+
+    // MARK: - Full-render tracker (lazy-render scroll pump)
+
+    func testFullRenderTrackerNotSettledWhileDocumentGrows() {
+        var t = ArticleParser.FullRenderTracker(requiredStableSamples: 2)
+        // Lazy page: every scroll pass appends content, so height/text keep moving.
+        XCTAssertFalse(t.record(scrollHeight: 4000, textLength: 1000, atBottom: false))
+        XCTAssertFalse(t.record(scrollHeight: 8000, textLength: 2100, atBottom: true))
+        XCTAssertFalse(t.record(scrollHeight: 12000, textLength: 3400, atBottom: true))
+    }
+
+    func testFullRenderTrackerNotSettledUntilBottomReached() {
+        var t = ArticleParser.FullRenderTracker(requiredStableSamples: 2)
+        // The exact Medium trap: text length stabilizes (nothing new mounted)
+        // but we haven't scrolled to the bottom yet — must NOT settle, or the
+        // article truncates at the fold.
+        XCTAssertFalse(t.record(scrollHeight: 9000, textLength: 5000, atBottom: false))
+        XCTAssertFalse(t.record(scrollHeight: 9000, textLength: 5000, atBottom: false))
+        XCTAssertFalse(t.record(scrollHeight: 9000, textLength: 5000, atBottom: false))
+        // Bottom reached with metrics already stable → settled.
+        XCTAssertTrue(t.record(scrollHeight: 9000, textLength: 5000, atBottom: true))
+    }
+
+    func testFullRenderTrackerSettlesAtBottomWithBothMetricsStable() {
+        var t = ArticleParser.FullRenderTracker(requiredStableSamples: 2)
+        XCTAssertFalse(t.record(scrollHeight: 9000, textLength: 5000, atBottom: true))
+        XCTAssertTrue(t.record(scrollHeight: 9000, textLength: 5000, atBottom: true))
+    }
+
+    func testFullRenderTrackerHeightGrowthAloneBlocksSettle() {
+        var t = ArticleParser.FullRenderTracker(requiredStableSamples: 2)
+        // Text quiet but layout still expanding (images/embeds sizing in):
+        // height instability alone must hold the pump open.
+        XCTAssertFalse(t.record(scrollHeight: 9000, textLength: 5000, atBottom: true))
+        // Height moves: its stability run restarts even though text is stable.
+        XCTAssertFalse(t.record(scrollHeight: 9600, textLength: 5000, atBottom: true))
+        // Second consecutive sample at the new height completes the run.
+        XCTAssertTrue(t.record(scrollHeight: 9600, textLength: 5000, atBottom: true))
+    }
 }
