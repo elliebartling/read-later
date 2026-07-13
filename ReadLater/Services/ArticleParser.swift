@@ -26,6 +26,10 @@ final class ArticleParser: NSObject {
         /// Typed reader blocks in document order. Empty on the fallback path or
         /// when the JS walk emitted nothing usable.
         let blocks: [ArticleBlock]
+        /// Blocks the cruft filter removed (docs/parser-cruft-design.md), in
+        /// document order. Persisted on Article for debugging so a wrong
+        /// removal is inspectable; empty when nothing was filtered.
+        let removedBlocks: [ArticleBlock]
     }
 
     static let shared = ArticleParser()
@@ -90,6 +94,20 @@ final class ArticleParser: NSObject {
                 try {
                     \(readabilityJS)
                     var docClone = document.cloneNode(true);
+                    // Cruft Layer A (docs/parser-cruft-design.md): drop overlay
+                    // chrome — sign-in / subscribe modals — from the clone
+                    // before Readability sees it. Deliberately tiny and
+                    // structural (ARIA dialog semantics only); phrase-level
+                    // cruft is handled post-parse in Swift where it is
+                    // unit-testable.
+                    try {
+                        var overlays = docClone.querySelectorAll(
+                            '[role="dialog"], [role="alertdialog"], [aria-modal="true"]');
+                        for (var oi = 0; oi < overlays.length; oi++) {
+                            var ov = overlays[oi];
+                            if (ov.parentNode) { ov.parentNode.removeChild(ov); }
+                        }
+                    } catch (cleanupErr) { /* never fail the parse over cleanup */ }
                     var reader = new Readability(docClone);
                     var article = reader.parse();
                     if (!article) { return null; }
@@ -308,32 +326,41 @@ final class ArticleParser: NSObject {
             let linkDensity = Self.doubleValue(dict["linkDensity"]) ?? 1
 
             let rawBlocks = (dict["blocks"] as? [[String: Any]]) ?? []
-            let blocks = Self.blocks(fromJS: rawBlocks, baseURL: url)
+            let mapped = Self.blocks(fromJS: rawBlocks, baseURL: url)
 
-            // When the typed walk produced text-bearing blocks, plainText is
-            // derived from them so it stays byte-identical to the block reader's
-            // own view of the text (the highlight offset space). Otherwise keep
-            // the legacy join.
-            let text: String
-            if blocks.isEmpty {
-                text = legacyText
-            } else {
-                let derived = ArticleBlocks.derivePlainText(blocks)
-                #if DEBUG
-                // A preformatted-block divergence is expected: adjacent code
-                // lines are coalesced with "\n" whereas the legacy join used
-                // "\n\n". Only flag genuine drift.
-                if derived != legacyText, !blocks.contains(where: { $0.type == .preformatted }) {
-                    NSLog("ArticleParser: derived plainText differs from legacy join (derived=%d chars, legacy=%d chars) for %@",
-                          derived.count, legacyText.count, url.absoluteString)
-                }
-                #endif
-                text = derived.isEmpty ? legacyText : derived
-            }
-
-            guard QualityGate.passes(plainText: text, blocks: blocks, linkDensity: linkDensity) else {
+            // Cruft Layer B (docs/parser-cruft-design.md): rule-driven removal
+            // of subscribe/sign-in nags, social CTA clusters, and "N min read"
+            // metadata. Runs AFTER blocks(fromJS:) (post preformatted
+            // coalescing) and BEFORE the quality gate, so the gate judges the
+            // post-filter article. `gateAndFilter` backs the filter off when
+            // removal alone would push a legit borderline-short article below
+            // the gate's thresholds. Filtering happens ONLY here, at parse
+            // time — never against stored blocks, because plainText derived
+            // from the kept blocks is the highlight offset space and
+            // re-filtering saved text would shift existing highlight anchors.
+            guard let refined = Self.gateAndFilter(
+                mapped: mapped, legacyText: legacyText, linkDensity: linkDensity
+            ) else {
                 throw ParseError.lowQuality
             }
+            let blocks = refined.blocks
+            let text = refined.plainText
+
+            #if DEBUG
+            if !refined.removed.isEmpty {
+                NSLog("ArticleParser: cruft filter removed %d of %d blocks for %@",
+                      refined.removed.count, mapped.count, url.absoluteString)
+            }
+            // A preformatted-block divergence is expected: adjacent code
+            // lines are coalesced with "\n" whereas the legacy join used
+            // "\n\n". Cruft-filtered divergence is expected too (logged
+            // above). Only flag genuine drift.
+            if text != legacyText, refined.removed.isEmpty, !blocks.isEmpty,
+               !blocks.contains(where: { $0.type == .preformatted }) {
+                NSLog("ArticleParser: derived plainText differs from legacy join (derived=%d chars, legacy=%d chars) for %@",
+                      text.count, legacyText.count, url.absoluteString)
+            }
+            #endif
 
             return Parsed(
                 title: title,
@@ -343,7 +370,8 @@ final class ArticleParser: NSObject {
                 extractedHTML: html,
                 heroImageURL: hero,
                 estimatedReadingMinutes: max(1, text.split(separator: " ").count / 220),
-                blocks: blocks
+                blocks: blocks,
+                removedBlocks: refined.removed
             )
         }
 
@@ -584,6 +612,48 @@ final class ArticleParser: NSObject {
         }
     }
 
+    /// Composes the cruft filter with the quality gate. Pure — no WKWebView or
+    /// main-actor state — so the interaction is unit-testable directly.
+    ///
+    /// The gate evaluates the POST-filter article (filtered blocks + the
+    /// plainText derived from them). If that fails but the UNFILTERED article
+    /// would pass, cruft removal alone pushed a borderline-short legit article
+    /// below the gate's thresholds — the filter backs off entirely, because
+    /// keeping a nag on screen beats rejecting a real article as `.lowQuality`.
+    /// Returns nil when even the unfiltered result reads like a nav shell
+    /// (caller throws `.lowQuality`).
+    ///
+    /// When `blocks` is empty the legacy fallback text is used as-is,
+    /// unfiltered — deliberately out of scope for the first cut (see
+    /// docs/parser-cruft-design.md, "Deferred").
+    nonisolated static func gateAndFilter(
+        mapped: [ArticleBlock],
+        legacyText: String,
+        linkDensity: Double
+    ) -> (blocks: [ArticleBlock], removed: [ArticleBlock], plainText: String)? {
+        // When the typed walk produced text-bearing blocks, plainText is
+        // derived from them so it stays byte-identical to the block reader's
+        // own view of the text (the highlight offset space). Otherwise keep
+        // the legacy join.
+        func plainText(for blocks: [ArticleBlock]) -> String {
+            guard !blocks.isEmpty else { return legacyText }
+            let derived = ArticleBlocks.derivePlainText(blocks)
+            return derived.isEmpty ? legacyText : derived
+        }
+
+        let filtered = CruftFilter.filter(mapped)
+        let filteredText = plainText(for: filtered.kept)
+        if QualityGate.passes(plainText: filteredText, blocks: filtered.kept, linkDensity: linkDensity) {
+            return (filtered.kept, filtered.removed, filteredText)
+        }
+
+        let rawText = plainText(for: mapped)
+        if QualityGate.passes(plainText: rawText, blocks: mapped, linkDensity: linkDensity) {
+            return (mapped, [], rawText)
+        }
+        return nil
+    }
+
     /// Pure sampling helper for DOM-stabilization: reports stability once it has
     /// seen `requiredStableSamples` consecutive equal samples. Extracted from the
     /// polling loop so the settle decision is unit-testable without a WKWebView.
@@ -719,6 +789,14 @@ extension Article {
         extractedHTML = parsed.extractedHTML
         heroImageURL = parsed.heroImageURL
         estimatedReadingMinutes = parsed.estimatedReadingMinutes
+        // Debug bookkeeping for the cruft filter (Ellen's review decisions):
+        // record whether anything was removed and keep the removed blocks
+        // inspectable. Overwritten (or cleared) on every parse so the fields
+        // always describe the CURRENT plainText/blocks.
+        wasCruftFiltered = !parsed.removedBlocks.isEmpty
+        removedCruftJSON = parsed.removedBlocks.isEmpty
+            ? nil
+            : try? JSONEncoder().encode(parsed.removedBlocks)
     }
 }
 
