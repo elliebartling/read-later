@@ -23,6 +23,9 @@ final class ArticleParser: NSObject {
         let extractedHTML: String
         let heroImageURL: URL?
         let estimatedReadingMinutes: Int
+        /// Typed reader blocks in document order. Empty on the fallback path or
+        /// when the JS walk emitted nothing usable.
+        let blocks: [ArticleBlock]
     }
 
     static let shared = ArticleParser()
@@ -92,13 +95,19 @@ final class ArticleParser: NSObject {
                     // large gaps in the reader. Walking block-level leaf elements
                     // and joining them with blank lines yields deterministic,
                     // gap-free paragraph text — the offset space for highlights.
-                    var blockText = (function(html) {
+                    // Walk block-level leaf elements once, producing BOTH the
+                    // gap-free joined text (legacy offset space) AND an ordered
+                    // typed block array. The two share a single traversal so the
+                    // text and blocks can never drift out of document order.
+                    var walked = (function(html) {
                         var BLOCK = { P:1, H1:1, H2:1, H3:1, H4:1, H5:1, H6:1,
                                       LI:1, BLOCKQUOTE:1, PRE:1, FIGCAPTION:1,
                                       DT:1, DD:1, TD:1, TH:1 };
+                        var HEADING = { H1:1, H2:2, H3:3, H4:4, H5:5, H6:6 };
                         var container = document.createElement("div");
                         container.innerHTML = html || "";
                         var out = [];
+                        var blocks = [];
                         function normalize(s) {
                             return (s || "").replace(/\\s+/g, " ").trim();
                         }
@@ -109,30 +118,117 @@ final class ArticleParser: NSObject {
                             }
                             return false;
                         }
+                        function nearestListStyle(el) {
+                            var p = el.parentElement;
+                            while (p && p !== container) {
+                                if (p.tagName === "OL") { return "ordered"; }
+                                if (p.tagName === "UL") { return "unordered"; }
+                                p = p.parentElement;
+                            }
+                            return null;
+                        }
+                        function pushImage(img) {
+                            if (!img) { return; }
+                            var raw = img.getAttribute("src")
+                                   || img.getAttribute("data-src") || "";
+                            if (!raw) { return; }
+                            var src;
+                            try { src = new URL(raw, document.baseURI).href; }
+                            catch (e) { return; }
+                            if (src.indexOf("data:") === 0) { return; }
+                            var wAttr = parseInt(img.getAttribute("width"), 10);
+                            var hAttr = parseInt(img.getAttribute("height"), 10);
+                            // Tracking pixels: explicit 1x1-ish dimensions.
+                            if ((!isNaN(wAttr) && wAttr <= 2) ||
+                                (!isNaN(hAttr) && hAttr <= 2)) { return; }
+                            var b = { type: "image", src: src };
+                            var alt = img.getAttribute("alt");
+                            if (alt) { b.alt = alt; }
+                            var w = !isNaN(wAttr) ? wAttr : (img.naturalWidth || 0);
+                            var h = !isNaN(hAttr) ? hAttr : (img.naturalHeight || 0);
+                            if (w > 0) { b.width = w; }
+                            if (h > 0) { b.height = h; }
+                            blocks.push(b);
+                        }
                         function walk(el) {
                             for (var i = 0; i < el.children.length; i++) {
                                 var child = el.children[i];
-                                if (BLOCK[child.tagName] && !hasBlockChild(child)) {
+                                var tag = child.tagName;
+                                if (tag === "HR") {
+                                    blocks.push({ type: "divider" });
+                                    continue;
+                                }
+                                if (tag === "FIGURE") {
+                                    // Image first, then its caption as a separate
+                                    // text-bearing block immediately after.
+                                    pushImage(child.querySelector("img"));
+                                    var cap = child.querySelector("figcaption");
+                                    if (cap) {
+                                        var ct = normalize(cap.textContent);
+                                        if (ct) {
+                                            out.push(ct);
+                                            blocks.push({ type: "caption", text: ct });
+                                        }
+                                    }
+                                    continue;
+                                }
+                                if (tag === "PICTURE") {
+                                    pushImage(child.querySelector("img"));
+                                    continue;
+                                }
+                                if (tag === "IMG") {
+                                    pushImage(child);
+                                    continue;
+                                }
+                                if (BLOCK[tag] && !hasBlockChild(child)) {
                                     // PRE keeps its internal whitespace; everything
                                     // else collapses runs of whitespace to one space.
-                                    var t = child.tagName === "PRE"
+                                    var t = tag === "PRE"
                                         ? (child.textContent || "").replace(/\\s+$/,"")
                                         : normalize(child.textContent);
-                                    if (t) { out.push(t); }
+                                    if (t) {
+                                        out.push(t);
+                                        if (HEADING[tag]) {
+                                            blocks.push({ type: "heading", text: t, level: HEADING[tag] });
+                                        } else if (tag === "LI") {
+                                            var lb = { type: "listItem", text: t };
+                                            var ls = nearestListStyle(child);
+                                            if (ls) { lb.listStyle = ls; }
+                                            blocks.push(lb);
+                                        } else if (tag === "BLOCKQUOTE") {
+                                            blocks.push({ type: "blockquote", text: t });
+                                        } else if (tag === "PRE") {
+                                            blocks.push({ type: "preformatted", text: t });
+                                        } else if (tag === "FIGCAPTION") {
+                                            blocks.push({ type: "caption", text: t });
+                                        } else {
+                                            blocks.push({ type: "paragraph", text: t });
+                                        }
+                                    }
+                                    // Images nested inside a leaf block — the
+                                    // common <p><img></p> pattern — emit after
+                                    // the block's text, in document order.
+                                    // textContent never includes images, so the
+                                    // legacy text join is unaffected.
+                                    var nested = child.querySelectorAll("img");
+                                    for (var j = 0; j < nested.length; j++) {
+                                        pushImage(nested[j]);
+                                    }
                                 } else {
                                     walk(child);
                                 }
                             }
                         }
                         walk(container);
-                        return out.join("\\n\\n");
+                        return { text: out.join("\\n\\n"), blocks: blocks };
                     })(article.content);
                     return {
                         title: article.title || document.title || "",
                         byline: article.byline || null,
                         siteName: article.siteName || null,
                         content: article.content || "",
-                        text: blockText || article.textContent || "",
+                        text: walked.text || article.textContent || "",
+                        blocks: walked.blocks || [],
                         textContent: article.textContent || "",
                         length: article.length || 0,
                         excerpt: article.excerpt || null,
@@ -164,10 +260,30 @@ final class ArticleParser: NSObject {
         // Prefer the gap-free block text; fall back to raw textContent if the
         // HTML walk produced nothing (e.g. content without block wrappers).
         let cleaned = (dict["text"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? ""
-        let text = cleaned.isEmpty
+        let legacyText = cleaned.isEmpty
             ? ((dict["textContent"] as? String)?.trimmingCharacters(in: .whitespacesAndNewlines) ?? "")
             : cleaned
         let hero = (dict["heroImage"] as? String).flatMap { URL(string: $0) }
+
+        let rawBlocks = (dict["blocks"] as? [[String: Any]]) ?? []
+        let blocks = Self.blocks(fromJS: rawBlocks, baseURL: url)
+
+        // When the typed walk produced text-bearing blocks, plainText is derived
+        // from them so it stays byte-identical to the block reader's own view of
+        // the text (the highlight offset space). Otherwise keep the legacy join.
+        let text: String
+        if blocks.isEmpty {
+            text = legacyText
+        } else {
+            let derived = ArticleBlocks.derivePlainText(blocks)
+            #if DEBUG
+            if derived != legacyText {
+                NSLog("ArticleParser: derived plainText differs from legacy join (derived=%d chars, legacy=%d chars) for %@",
+                      derived.count, legacyText.count, url.absoluteString)
+            }
+            #endif
+            text = derived.isEmpty ? legacyText : derived
+        }
 
         return Parsed(
             title: title,
@@ -176,8 +292,67 @@ final class ArticleParser: NSObject {
             plainText: text,
             extractedHTML: html,
             heroImageURL: hero,
-            estimatedReadingMinutes: max(1, text.split(separator: " ").count / 220)
+            estimatedReadingMinutes: max(1, text.split(separator: " ").count / 220),
+            blocks: blocks
         )
+    }
+
+    /// Maps and validates the JS block dictionaries into typed `ArticleBlock`s.
+    /// Pure — no WKWebView or main-actor state — so it is unit-testable directly.
+    ///
+    /// Rules: unknown `type` strings are dropped (logged, never fatal); ints may
+    /// arrive as `NSNumber`/`Double`; image `src` is resolved against `baseURL`
+    /// and images with no src, a `data:` URI, or tracking-pixel dimensions
+    /// (width or height ≤ 2) are skipped.
+    nonisolated static func blocks(fromJS raw: [[String: Any]], baseURL: URL) -> [ArticleBlock] {
+        var result: [ArticleBlock] = []
+        for dict in raw {
+            guard let typeString = dict["type"] as? String else { continue }
+            guard let type = BlockType(rawValue: typeString) else {
+                NSLog("ArticleParser: dropping unknown block type %@", typeString)
+                continue
+            }
+            let text = dict["text"] as? String
+            let level = intValue(dict["level"])
+            let width = intValue(dict["width"])
+            let height = intValue(dict["height"])
+
+            switch type {
+            case .image:
+                guard let srcString = (dict["src"] as? String), !srcString.isEmpty else { continue }
+                if srcString.hasPrefix("data:") { continue }
+                if let w = width, w <= 2 { continue }
+                if let h = height, h <= 2 { continue }
+                guard let resolved = URL(string: srcString, relativeTo: baseURL)?.absoluteURL else { continue }
+                result.append(ArticleBlock(
+                    type: .image,
+                    src: resolved,
+                    alt: dict["alt"] as? String,
+                    width: width,
+                    height: height
+                ))
+            case .heading:
+                result.append(ArticleBlock(type: .heading, text: text, level: level))
+            case .listItem:
+                let listStyle = (dict["listStyle"] as? String).flatMap { ListStyle(rawValue: $0) }
+                result.append(ArticleBlock(type: .listItem, text: text, listStyle: listStyle))
+            case .divider:
+                result.append(ArticleBlock(type: .divider))
+            case .paragraph, .blockquote, .preformatted, .caption:
+                result.append(ArticleBlock(type: type, text: text))
+            }
+        }
+        return result
+    }
+
+    /// Robustly coerces a JS-bridged numeric (`NSNumber`, `Int`, `Double`) to `Int`.
+    nonisolated private static func intValue(_ any: Any?) -> Int? {
+        switch any {
+        case let n as NSNumber: return n.intValue
+        case let i as Int: return i
+        case let d as Double: return Int(d)
+        default: return nil
+        }
     }
 
     private func fallback(url: URL, title: String) -> Parsed {
@@ -188,7 +363,8 @@ final class ArticleParser: NSObject {
             plainText: "",
             extractedHTML: "",
             heroImageURL: nil,
-            estimatedReadingMinutes: 0
+            estimatedReadingMinutes: 0,
+            blocks: []
         )
     }
 
@@ -233,6 +409,31 @@ final class ArticleParser: NSObject {
         case .success: cont.resume()
         case .failure(let error): cont.resume(throwing: error)
         }
+    }
+}
+
+extension Article {
+    /// Applies a fresh `ArticleParser.Parsed` to this article's derived fields.
+    /// Shared by the initial ingest (`PendingSaveIngest`) and the Re-extract
+    /// action so the field-write set can never drift between the two paths.
+    ///
+    /// `updateTitle` is true on first ingest (adopt the parsed title unless it
+    /// is empty) and false on Re-extract (the user-visible title stays put).
+    /// Highlights are never touched here — they re-anchor lazily on next render.
+    /// `parseStatus` is left to the caller (ingest flips it to `.ready`).
+    func apply(_ parsed: ArticleParser.Parsed, updateTitle: Bool) {
+        if updateTitle, !parsed.title.isEmpty {
+            title = parsed.title
+        }
+        author = parsed.author
+        siteName = parsed.siteName
+        plainText = parsed.plainText
+        if !parsed.blocks.isEmpty {
+            try? setBlocks(parsed.blocks)
+        }
+        extractedHTML = parsed.extractedHTML
+        heroImageURL = parsed.heroImageURL
+        estimatedReadingMinutes = parsed.estimatedReadingMinutes
     }
 }
 

@@ -21,6 +21,13 @@ struct ReaderView: View {
     /// Scroll position as a 0...1 fraction, kept minute-granular via
     /// `readingMinutesLeft` so scrolling doesn't spam view updates.
     @State private var readingMinutesLeft: Int?
+    /// True while a Re-extract parse is running — disables the menu item.
+    @State private var isReextracting = false
+    /// Non-nil drives the "Couldn't re-extract" alert (parallels `tts.lastError`).
+    @State private var reextractError: String?
+    /// Caches the decoded `[ArticleBlock]` so `article.blocks` (which JSON-decodes
+    /// on every access) runs once per blocks change, not once per body pass.
+    @State private var blocksCache = DecodedBlocksCache()
     /// UTF-16 index of the character at the top of the viewport, updated while
     /// reading and written back to the article on disappear so reopening resumes
     /// at the same word instead of jumping to the top.
@@ -86,11 +93,6 @@ struct ReaderView: View {
                 .ignoresSafeArea()
 
             readerContent
-                // Keep the text view full-screen under both bars so its frame
-                // never moves when the chrome appears. ReaderTextView then pins
-                // the text with a frozen inset, so revealing the nav bar has no
-                // effect on where the article sits — the bar just overlays it.
-                .ignoresSafeArea(.container, edges: .vertical)
 
             floatingPlayer
         }
@@ -142,6 +144,17 @@ struct ReaderView: View {
         } message: {
             Text(tts.lastError ?? "")
         }
+        .alert(
+            "Couldn't re-extract",
+            isPresented: Binding(
+                get: { reextractError != nil },
+                set: { if !$0 { reextractError = nil } }
+            )
+        ) {
+            Button("OK", role: .cancel) {}
+        } message: {
+            Text(reextractError ?? "")
+        }
     }
 
     /// The floating pink capsule: the playing bar while read-aloud is active,
@@ -163,7 +176,9 @@ struct ReaderView: View {
                     onTags: { showingTagSheet = true },
                     onPlay: startTTS,
                     onExport: { exportToObsidian() },
-                    onToggleRead: toggleRead
+                    onToggleRead: toggleRead,
+                    onReextract: reextract,
+                    isReextracting: isReextracting
                 )
                 .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottom)))
             }
@@ -180,42 +195,81 @@ struct ReaderView: View {
         case .failed:
             failedState
         case .ready:
-            HighlightableTextView(
-                text: article.plainText,
-                highlights: article.allHighlights,
-                currentSpokenRange: currentParagraphRange,
-                theme: resolvedTheme,
-                fontSize: CGFloat(settings.readerFontSize),
-                fontRaw: settings.readerFontRaw,
-                lineSpacing: CGFloat(settings.readerLineSpacing),
-                paragraphSpacing: CGFloat(settings.readerParagraphSpacing),
-                width: settings.readerWidth,
-                defaultColor: lastHighlightColor,
-                editingHighlightID: editingHighlight?.id,
-                onCreateHighlight: createHighlight,
-                onUpdateHighlight: updateHighlight,
-                onRecolorHighlight: recolorHighlight,
-                onDeleteHighlight: deleteHighlight,
-                onRequestNote: { id in
-                    focusNoteOnAppear = true
-                    editingHighlight = findHighlight(id)
-                },
-                onTapHighlight: { id in
-                    focusNoteOnAppear = false
-                    editingHighlight = findHighlight(id)
-                },
-                onScrollProgress: handleScrollProgress,
-                onTopCharacterOffset: { latestTopOffset = $0 },
-                initialCharacterOffset: article.readingCharacterOffset,
-                onTap: {
-                    // Drive the chrome from a single explicit animation so both
-                    // directions match. A redundant implicit `.animation(value:)`
-                    // modifier used to fight this and left the *dismiss* un-animated.
-                    withAnimation(Self.chromeAnimation) {
-                        chromeVisible.toggle()
+            if let blocks = blocksCache.blocks(for: article), !blocks.isEmpty, settings.useBlockReader {
+                BlockReaderView(
+                    blocks: blocks,
+                    plainText: article.plainText,
+                    highlights: article.allHighlights,
+                    currentParagraph: tts.currentParagraph,
+                    isSpeaking: tts.isActive,
+                    theme: resolvedTheme,
+                    fontSize: CGFloat(settings.readerFontSize),
+                    fontRaw: settings.readerFontRaw,
+                    lineSpacing: CGFloat(settings.readerLineSpacing),
+                    paragraphSpacing: CGFloat(settings.readerParagraphSpacing),
+                    width: settings.readerWidth,
+                    defaultColor: lastHighlightColor,
+                    editingHighlightID: editingHighlight?.id,
+                    onCreateHighlight: createHighlight,
+                    onUpdateHighlight: updateHighlight,
+                    onRecolorHighlight: recolorHighlight,
+                    onDeleteHighlight: deleteHighlight,
+                    onRequestNote: { id in
+                        focusNoteOnAppear = true
+                        editingHighlight = findHighlight(id)
+                    },
+                    onTapHighlight: { id in
+                        focusNoteOnAppear = false
+                        editingHighlight = findHighlight(id)
+                    },
+                    onScrollProgress: handleScrollProgress,
+                    onTap: {
+                        withAnimation(Self.chromeAnimation) { chromeVisible.toggle() }
                     }
-                }
-            )
+                )
+            } else {
+                HighlightableTextView(
+                    text: article.plainText,
+                    highlights: article.allHighlights,
+                    currentSpokenRange: currentParagraphRange,
+                    theme: resolvedTheme,
+                    fontSize: CGFloat(settings.readerFontSize),
+                    fontRaw: settings.readerFontRaw,
+                    lineSpacing: CGFloat(settings.readerLineSpacing),
+                    paragraphSpacing: CGFloat(settings.readerParagraphSpacing),
+                    width: settings.readerWidth,
+                    defaultColor: lastHighlightColor,
+                    editingHighlightID: editingHighlight?.id,
+                    onCreateHighlight: createHighlight,
+                    onUpdateHighlight: updateHighlight,
+                    onRecolorHighlight: recolorHighlight,
+                    onDeleteHighlight: deleteHighlight,
+                    onRequestNote: { id in
+                        focusNoteOnAppear = true
+                        editingHighlight = findHighlight(id)
+                    },
+                    onTapHighlight: { id in
+                        focusNoteOnAppear = false
+                        editingHighlight = findHighlight(id)
+                    },
+                    onScrollProgress: handleScrollProgress,
+                    onTopCharacterOffset: { latestTopOffset = $0 },
+                    initialCharacterOffset: article.readingCharacterOffset,
+                    onTap: {
+                        // Drive the chrome from a single explicit animation so both
+                        // directions match. A redundant implicit `.animation(value:)`
+                        // modifier used to fight this and left the *dismiss* un-animated.
+                        withAnimation(Self.chromeAnimation) {
+                            chromeVisible.toggle()
+                        }
+                    }
+                )
+                // Keep the text view full-screen under both bars so its frame
+                // never moves when the chrome appears. ReaderTextView then pins
+                // the text with a frozen inset, so revealing the nav bar has no
+                // effect on where the article sits — the bar just overlays it.
+                .ignoresSafeArea(.container, edges: .vertical)
+            }
         }
     }
 
@@ -291,6 +345,33 @@ struct ReaderView: View {
         try? context.save()
     }
 
+    /// Re-runs the extractor over the article's URL and refreshes its derived
+    /// fields (plainText, extractedHTML, blocks, reading time) via the shared
+    /// `Article.apply` helper — the same parse path used on first ingest. The
+    /// user-visible title and existing highlights are left untouched; highlights
+    /// re-anchor lazily on the next render. Failures surface in an alert.
+    private func reextract() {
+        guard let url = article.url, !isReextracting else { return }
+        isReextracting = true
+        // Stop read-aloud before swapping the text out from under it — audio
+        // reading stale paragraphs against refreshed text is a desync. No-op
+        // when idle.
+        tts.stop()
+        Task { @MainActor in
+            defer { isReextracting = false }
+            do {
+                let parsed = try await ArticleParser.shared.parse(url: url)
+                article.apply(parsed, updateTitle: false)
+                // Harmless when already ready; recovers an article stuck in
+                // .failed whose re-extract succeeded.
+                article.parseStatus = .ready
+                try context.save()
+            } catch {
+                reextractError = error.localizedDescription
+            }
+        }
+    }
+
     // MARK: - Highlight actions
 
     private func findHighlight(_ id: UUID) -> Highlight? {
@@ -305,6 +386,12 @@ struct ReaderView: View {
             quotedText: intent.quotedText,
             color: intent.color
         )
+        let (prefix, suffix) = HighlightAnchor.contextAround(
+            range: NSRange(location: intent.startOffset, length: intent.endOffset - intent.startOffset),
+            in: article.plainText
+        )
+        h.prefixContext = prefix
+        h.suffixContext = suffix
         context.insert(h)
         try? context.save()
         Task { exportToObsidian(silent: true) }
@@ -374,4 +461,22 @@ extension View {
 
 extension UIColor {
     var swiftUIColor: Color { Color(uiColor: self) }
+}
+
+/// Caches the decoded `[ArticleBlock]` for the reader so the JSON blob is decoded
+/// once per change rather than on every `article.blocks` access (which decodes
+/// eagerly). Keyed on the raw `blocksJSON` bytes: a cheap `Data` compare catches
+/// re-extract (which rewrites the blob without bumping `blocksVersion`).
+final class DecodedBlocksCache {
+    private var lastJSON: Data?
+    private var decoded: [ArticleBlock]?
+
+    func blocks(for article: Article) -> [ArticleBlock]? {
+        let json = article.blocksJSON
+        if json != lastJSON {
+            lastJSON = json
+            decoded = json.flatMap { ArticleBlocks.decode($0) }
+        }
+        return decoded
+    }
 }

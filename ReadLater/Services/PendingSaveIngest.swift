@@ -80,13 +80,7 @@ enum PendingSaveIngest {
         }
         do {
             let parsed = try await ArticleParser.shared.parse(url: url, prefetchedHTML: prefetchedHTML)
-            article.title = parsed.title.isEmpty ? article.title : parsed.title
-            article.author = parsed.author
-            article.siteName = parsed.siteName
-            article.plainText = parsed.plainText
-            article.extractedHTML = parsed.extractedHTML
-            article.heroImageURL = parsed.heroImageURL
-            article.estimatedReadingMinutes = parsed.estimatedReadingMinutes
+            article.apply(parsed, updateTitle: true)
             article.parseStatus = .ready
             try context.save()
         } catch {

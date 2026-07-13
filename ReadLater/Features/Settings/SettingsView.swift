@@ -135,6 +135,7 @@ private struct SettingsForm: View {
                     Text("Font Size: \(Int(settings.readerFontSize)) pt")
                     Slider(value: $settings.readerFontSize, in: 12...32, step: 1)
                 }
+                Toggle("Block reader (beta)", isOn: $settings.useBlockReader)
             }
         }
         .navigationTitle("Settings")

@@ -21,6 +21,11 @@ final class Article {
     var extractedHTML: String?
     var heroImageURL: URL?
     var estimatedReadingMinutes: Int = 0
+    /// JSON-encoded [ArticleBlock]; nil until the article is (re)parsed by a
+    /// blocks-aware parser. CloudKit-safe optional blob.
+    var blocksJSON: Data?
+    /// ArticleBlocks.currentVersion at encode time; 0 = no blocks.
+    var blocksVersion: Int = 0
     /// Last reading position as a UTF-16 character index into `plainText` — the
     /// first character visible at the top of the viewport when the reader was
     /// last closed. Lets the reader resume at the same *word* rather than the
@@ -33,6 +38,16 @@ final class Article {
     var parseStatus: ParseStatus {
         get { ParseStatus(rawValue: parseStatusRaw) ?? .pending }
         set { parseStatusRaw = newValue.rawValue }
+    }
+
+    var blocks: [ArticleBlock]? {
+        guard let blocksJSON else { return nil }
+        return ArticleBlocks.decode(blocksJSON)
+    }
+
+    func setBlocks(_ blocks: [ArticleBlock]) throws {
+        blocksJSON = try JSONEncoder().encode(blocks)
+        blocksVersion = ArticleBlocks.currentVersion
     }
 
     @Relationship(deleteRule: .nullify, inverse: \Tag.articles)
