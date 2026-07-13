@@ -35,7 +35,12 @@ final class ArticleParser: NSObject {
     private let webView: WKWebView = {
         let config = WKWebViewConfiguration()
         config.suppressesIncrementalRendering = true
-        let wv = WKWebView(frame: .zero, configuration: config)
+        // Tall phone-width frame: lazy-rendering sites (Medium) mount content
+        // through viewport-rooted IntersectionObservers, and a zero-size frame
+        // gives them a zero-size viewport — nothing below the fold ever renders.
+        // A tall viewport makes most of the article "visible" at once; the
+        // scroll pump in `pumpFullRender` covers whatever still isn't.
+        let wv = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 4000), configuration: config)
         wv.customUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 ReadLater/0.1"
         return wv
     }()
@@ -342,13 +347,13 @@ final class ArticleParser: NSObject {
             )
         }
 
-        // Wait for the DOM to settle, extract, and gate — retrying with a longer
-        // settle when a pass looks like a shell. If every attempt fails the gate
-        // we surface the error so the caller records `.failed` (user can retry /
-        // open in Safari) instead of persisting nav junk.
+        // Pump the page to a full render, extract, and gate — retrying with a
+        // longer settle when a pass looks like a shell. If every attempt fails
+        // the gate we surface the error so the caller records `.failed` (user
+        // can retry / open in Safari) instead of persisting nav junk.
         var lastError: Error = ParseError.lowQuality
         for attempt in 0 ..< Self.maxParseAttempts {
-            await waitForDOMStable(longSettle: attempt > 0)
+            await pumpFullRender(longSettle: attempt > 0)
             do {
                 return try await runPass()
             } catch {
@@ -364,35 +369,96 @@ final class ArticleParser: NSObject {
     }
 
     /// Number of extract-and-gate attempts before giving up. Each attempt is
-    /// preceded by a DOM-stabilization wait; later attempts wait longer, which
+    /// preceded by a full-render pump; later attempts pump longer, which
     /// (together with the inter-attempt backoff) gives a JS-rendered page time
     /// to swap its app shell for the real article.
     private static let maxParseAttempts = 3
 
-    /// Polls the rendered text length until it stops growing across consecutive
-    /// samples, then returns. JS-rendered pages fire `didFinish` while the body
-    /// is still the app shell; sampling `innerText.length` until it stabilizes
-    /// avoids running Readability on a half-streamed DOM. Capped so a page that
-    /// never settles (animations, live tickers) still proceeds to extraction.
-    private func waitForDOMStable(longSettle: Bool) async {
-        let cap: Duration = longSettle ? .seconds(12) : .seconds(10)
+    /// One JS pass of the render pump. Steps the scroll position toward the
+    /// document bottom (both `scrollTo` and a direct `scrollTop` write — some
+    /// engines ignore one or the other off-screen), then dispatches synthetic
+    /// `scroll` events for lazy-loaders that listen for events rather than
+    /// observing positions, and reports the resulting document metrics.
+    private static let pumpPassJS = """
+    (function() {
+        var se = document.scrollingElement || document.documentElement;
+        var vh = window.innerHeight || 1;
+        var maxTop = Math.max(0, se.scrollHeight - vh);
+        var next = Math.min(se.scrollTop + vh * 3, maxTop);
+        try { window.scrollTo(0, next); } catch (e) {}
+        se.scrollTop = next;
+        try {
+            window.dispatchEvent(new Event("scroll"));
+            document.dispatchEvent(new Event("scroll"));
+        } catch (e) {}
+        var t = (document.body && document.body.innerText)
+            ? document.body.innerText.length : 0;
+        var atBottom = (se.scrollTop + vh) >= (se.scrollHeight - 4);
+        return { h: se.scrollHeight, t: t, bottom: atBottom ? 1 : 0 };
+    })()
+    """
+
+    /// Drives the page to a full render before extraction. JS-heavy sites fire
+    /// `didFinish` with only the app shell, and lazy-rendering sites (Medium)
+    /// mount below-the-fold content only as it approaches the viewport — an
+    /// off-screen WKWebView never scrolls, so without this the DOM "stabilizes"
+    /// with just the top of the article and extraction truncates it at a
+    /// consistent point. Each pass scroll-steps toward the bottom, nudges lazy
+    /// loaders with synthetic scroll events, and samples `scrollHeight` +
+    /// `innerText.length`; the pump exits once the bottom is reached and both
+    /// metrics are stable across consecutive samples (`FullRenderTracker`).
+    /// Capped so a page that never settles (tickers, infinite feeds) still
+    /// proceeds to extraction — with a log flagging possible truncation.
+    private func pumpFullRender(longSettle: Bool) async {
+        let cap: Duration = longSettle ? .seconds(25) : .seconds(20)
         let pollInterval: Duration = .milliseconds(400)
-        var tracker = StabilityTracker(requiredStableSamples: 2)
+        var tracker = FullRenderTracker(requiredStableSamples: 2)
+        var lastHeight = -1
+        var lastHeightDelta = 0
         let start = ContinuousClock.now
         while ContinuousClock.now - start < cap {
-            let length = await currentRenderedTextLength()
-            if tracker.record(length), length > 0 {
+            guard let sample = await runPumpPass() else {
+                try? await Task.sleep(for: pollInterval)
+                continue
+            }
+            if lastHeight >= 0 { lastHeightDelta = sample.scrollHeight - lastHeight }
+            lastHeight = sample.scrollHeight
+            if tracker.record(
+                scrollHeight: sample.scrollHeight,
+                textLength: sample.textLength,
+                atBottom: sample.atBottom
+            ), sample.textLength > 0 {
                 return
             }
             try? await Task.sleep(for: pollInterval)
         }
+        // Cap hit. If the document was still growing on the final pass the
+        // extraction below is likely truncated — flag it for diagnosis. (An
+        // infinite feed also lands here; the quality gate still applies.)
+        if lastHeightDelta > 0 {
+            NSLog("ArticleParser: render pump hit %.0fs cap while scrollHeight was still growing (+%d on last pass) — extraction may be truncated",
+                  Double(cap.components.seconds), lastHeightDelta)
+        }
     }
 
-    /// UTF-16 length of the currently-rendered body text (0 on any failure).
-    private func currentRenderedTextLength() async -> Int {
-        let js = "(document.body && document.body.innerText) ? document.body.innerText.length : 0"
-        let value = try? await webView.evaluateJavaScript(js)
-        return Self.intValue(value) ?? 0
+    private struct PumpSample {
+        let scrollHeight: Int
+        let textLength: Int
+        let atBottom: Bool
+    }
+
+    /// Executes one pump pass and decodes its metrics (nil on any JS failure).
+    private func runPumpPass() async -> PumpSample? {
+        guard let value = try? await webView.evaluateJavaScript(Self.pumpPassJS),
+              let dict = value as? [String: Any],
+              let h = Self.intValue(dict["h"]),
+              let t = Self.intValue(dict["t"])
+        else { return nil }
+        return PumpSample(
+            scrollHeight: h,
+            textLength: t,
+            atBottom: (Self.intValue(dict["bottom"]) ?? 0) == 1
+        )
     }
 
     /// Maps and validates the JS block dictionaries into typed `ArticleBlock`s.
@@ -540,6 +606,32 @@ final class ArticleParser: NSObject {
             }
             last = sample
             return stableCount >= requiredStableSamples
+        }
+    }
+
+    /// Pure settle decision for the full-render pump: the page counts as fully
+    /// rendered only when the scroll position has reached the document bottom
+    /// AND both `scrollHeight` and rendered-text length are stable across
+    /// consecutive samples. Requiring all three prevents the lazy-render trap —
+    /// text length going quiet while the still-unscrolled remainder of the
+    /// article has simply never been given a reason to mount. Extracted from
+    /// the polling loop so it is unit-testable without a WKWebView.
+    struct FullRenderTracker {
+        private var heightTracker: StabilityTracker
+        private var textTracker: StabilityTracker
+
+        init(requiredStableSamples: Int) {
+            heightTracker = StabilityTracker(requiredStableSamples: requiredStableSamples)
+            textTracker = StabilityTracker(requiredStableSamples: requiredStableSamples)
+        }
+
+        /// Feeds one sample; returns true once the render is settled. Both
+        /// sub-trackers record unconditionally (no short-circuit) so their
+        /// stability runs stay accurate even on not-at-bottom passes.
+        mutating func record(scrollHeight: Int, textLength: Int, atBottom: Bool) -> Bool {
+            let heightStable = heightTracker.record(scrollHeight)
+            let textStable = textTracker.record(textLength)
+            return atBottom && heightStable && textStable
         }
     }
 

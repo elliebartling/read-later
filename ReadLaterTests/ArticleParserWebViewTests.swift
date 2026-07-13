@@ -111,4 +111,55 @@ final class ArticleParserWebViewTests: XCTestCase {
         XCTAssertFalse(parsed.plainText.isEmpty)
         XCTAssertTrue(parsed.blocks.contains { $0.type == .paragraph })
     }
+
+    /// Simulates a Medium-style lazy renderer: the page initially contains only
+    /// the top of the article, and each `scroll` event mounts one more chunk
+    /// (the last one carrying an end-of-article marker). Without the render
+    /// pump — which scroll-steps the off-screen web view and dispatches
+    /// synthetic scroll events until scrollHeight and text length settle at the
+    /// bottom — extraction would stabilize on the initial chunk alone and
+    /// truncate the article at a consistent point, exactly the bug seen on
+    /// device. The marker reaching plainText proves the pump drove the page to
+    /// a full render before Readability ran.
+    func testLazyRenderedTailIsCapturedByScrollPump() async throws {
+        let body = page(body: """
+        <article id="story">
+        <h1>The lazy article</h1>
+        \(prose)
+        <p>Everything below this point is mounted lazily by script, one chunk per
+        scroll event, exactly like a virtualized reading platform does it.</p>
+        </article>
+        <script>
+        (function() {
+            var added = 0;
+            var total = 8;
+            var filler = "This chunk continues the article with enough prose to move " +
+                         "the layout and the rendered text length on every mount so the " +
+                         "settle tracker genuinely has to wait for the page to finish. ";
+            function mountNext() {
+                if (added >= total) { return; }
+                added += 1;
+                var p = document.createElement("p");
+                p.textContent = (added === total)
+                    ? "LAZY-TAIL-MARKER this is the true final paragraph of the article."
+                    : ("Chunk " + added + ". " + filler + filler);
+                document.getElementById("story").appendChild(p);
+            }
+            window.addEventListener("scroll", mountNext);
+            document.addEventListener("scroll", mountNext);
+        })();
+        </script>
+        """)
+
+        let parsed = try await ArticleParser.shared.parse(url: url, prefetchedHTML: body)
+
+        XCTAssertTrue(
+            parsed.plainText.contains("LAZY-TAIL-MARKER"),
+            "pump failed to mount the lazy tail; plainText ends with: …\(parsed.plainText.suffix(120))"
+        )
+        XCTAssertTrue(parsed.plainText.contains("Chunk 4."), "middle chunks missing")
+        // The lazy chunks must be part of the block stream too, in order.
+        let paragraphTexts = parsed.blocks.compactMap { $0.type == .paragraph ? $0.text : nil }
+        XCTAssertTrue(paragraphTexts.contains { $0.contains("LAZY-TAIL-MARKER") })
+    }
 }
