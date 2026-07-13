@@ -65,6 +65,17 @@ Article extraction: Mozilla Readability.js runs in an off-screen `WKWebView` (`R
 
 Skills in `.agents/skills/` are vendored from [dpearson2699/swift-ios-skills](https://github.com/dpearson2699/swift-ios-skills) (targets iOS 26+/Swift 6.3) and Apple's [xcode27-skills](https://github.com/superagents-lab/xcode27-skills). Treat their code examples as **pattern references, not copy-paste sources** — verify every API against the iOS 26.0 deployment target before using it, and gate anything newer with `#available`.
 
+## Multi-session orchestration
+
+Ellen runs several Claude/Cursor sessions on this repo in parallel. One dedicated session acts as the **Orchestrator** (her "Senior Dev Manager") — it sequences merges, assigns file ownership, and tracks every branch in flight. If you are a working session (not the orchestrator), follow these rules:
+
+1. **Check merge order before starting or rebasing.** Cross-cutting changes (deployment target, `project.yml`, signing, CI) land before feature branches; everything else rebases after them. If you're unsure whether another in-flight branch gates yours, ask Ellen or the orchestrator before building on stale `main`.
+2. **Report back at milestones.** When you open a PR, go CI-green, hit a merge conflict, get blocked, or finish, report to the orchestrator session (message it directly if you have session-messaging tools, otherwise end your reply with a clearly-labeled "Status for orchestrator" block so Ellen can relay): branch name, worktree path, files touched, PR number + state, and anything blocking you.
+3. **Declare file ownership early.** If your task touches hot files (`HighlightableTextView.swift`, `ReaderView.swift`, `project.yml`, `AGENTS.md`), say so in your first status report so overlapping sessions get serialized instead of colliding.
+4. **One simulator at a time.** Concurrent sessions stomp each other's simulator installs. If you need the sim and can't confirm it's free, ask before installing/launching.
+5. **Stay in your own worktree.** Never edit files in the main checkout or another session's worktree unless the orchestrator hands that work to you.
+6. **Don't merge your own PR** unless Ellen or the orchestrator says to. Merges are sequenced so downstream rebases cascade in the right order.
+
 ## Sub-agent model policy
 
 When dispatching sub-agents (Agent/Task tool) on this project:
