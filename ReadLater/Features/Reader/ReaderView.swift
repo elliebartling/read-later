@@ -23,6 +23,10 @@ struct ReaderView: View {
     @State private var readingMinutesLeft: Int?
     /// True while a Re-extract parse is running — disables the menu item.
     @State private var isReextracting = false
+    /// Drives the in-app site-login sheet, opened from the member-only banner.
+    /// Dismissing it re-extracts so a now-authenticated session resolves the
+    /// preview to the full article.
+    @State private var showingSiteLogin = false
     /// Non-nil drives the "Couldn't re-extract" alert (parallels `tts.lastError`).
     @State private var reextractError: String?
     /// Non-nil drives the transient success toast after a re-extract finishes,
@@ -129,6 +133,11 @@ struct ReaderView: View {
         .sheet(isPresented: $showingTagSheet) {
             TagAssignmentSheet(article: article)
         }
+        .sheet(isPresented: $showingSiteLogin, onDismiss: reextract) {
+            if let url = article.url {
+                SiteLoginView(url: url)
+            }
+        }
         .sheet(item: $editingHighlight, onDismiss: finishHighlightEditing) { highlight in
             HighlightEditSheet(
                 highlight: highlight,
@@ -211,14 +220,47 @@ struct ReaderView: View {
                     Text(toast)
                 }
             } else if article.isPaywalledPartial, showChrome {
-                statusPill(systemImage: "lock.fill") {
-                    Text("Preview only — this story is member-only")
-                }
+                paywallBanner
             }
         }
         .padding(.top, 6)
         .padding(.horizontal, 24)
         .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    /// Member-only notice. When we know the article's host, the whole pill is a
+    /// button that opens the in-app site-login sheet ("Sign in to <host>"); once
+    /// the user signs in and the sheet dismisses, the reader re-extracts and,
+    /// if the full article comes back, `isPaywalledPartial` clears and this
+    /// banner disappears on its own. Falls back to the passive notice when there
+    /// is no URL to sign into.
+    @ViewBuilder
+    private var paywallBanner: some View {
+        if let host = signInHost {
+            Button {
+                showingSiteLogin = true
+            } label: {
+                statusPill(systemImage: "lock.fill") {
+                    Text("Member-only — Sign in to \(host)")
+                    Image(systemName: "chevron.right")
+                        .font(.caption2.weight(.semibold))
+                        .foregroundStyle(.secondary)
+                }
+            }
+            .buttonStyle(.plain)
+            .accessibilityHint("Opens \(host) so you can sign in and load the full story")
+        } else {
+            statusPill(systemImage: "lock.fill") {
+                Text("Preview only — this story is member-only")
+            }
+        }
+    }
+
+    /// Host to offer sign-in for, trimmed of a `www.` prefix. Nil when the
+    /// article has no URL (nothing to sign into).
+    private var signInHost: String? {
+        guard let host = article.url?.host else { return nil }
+        return host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
 
     /// Neutral glass capsule used by `topStatusOverlay`. Distinct from the
