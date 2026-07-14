@@ -10,6 +10,23 @@ import Foundation
 /// it out.
 enum PaywallRules {
 
+    // MARK: - Truncation heuristic
+
+    /// Word floor above which an extraction counts as "substantially more than
+    /// a preview" (`PaywallDetector.verdict`). schema.org
+    /// `isAccessibleForFree:false` describes the article's *public*
+    /// accessibility and stays false forever — even when an authenticated fetch
+    /// returned the complete text — so that signal alone flags an article only
+    /// when the captured content is below this scale.
+    ///
+    /// Why 500: Medium-style anonymous previews are the intro section, in
+    /// practice well under ~350 words; member-only long-form is typically
+    /// 1000+. 500 is also 10x the quality gate's 50-word minimum, i.e. "passed
+    /// the gate comfortably". A sub-500-word *complete* member article with no
+    /// gate CTA on the page is the accepted false-positive cost (rare, and the
+    /// banner is advisory — the flag recomputes on every re-extract).
+    static let substantialWordFloor = 500
+
     // MARK: - schema.org signal
 
     /// schema.org property whose false value marks metered/member-only content.
@@ -22,8 +39,10 @@ enum PaywallRules {
 
     /// Case-insensitive substring markers matched against the rendered page's
     /// visible text. These are the calls-to-action a wall shows in place of the
-    /// article body once the free preview runs out. Kept tight and gate-specific
-    /// so they don't fire on prose that merely mentions subscribing.
+    /// article body once the free preview runs out — sites render them only on
+    /// gated (anonymous / expired-session) views, so their presence is direct
+    /// evidence the capture is truncated. Kept tight and gate-specific so they
+    /// don't fire on prose that merely mentions subscribing.
     static let gatePhrases: [String] = [
         // Medium
         "read the full story",

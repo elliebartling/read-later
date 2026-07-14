@@ -30,10 +30,14 @@ final class ArticleParser: NSObject {
         /// document order. Persisted on Article for debugging so a wrong
         /// removal is inspectable; empty when nothing was filtered.
         let removedBlocks: [ArticleBlock]
-        /// True when the page is metered/member-only and only the free preview
-        /// reached the WebView (see `PaywallDetector`). The captured text is
-        /// therefore partial. Additive to the quality gate — a preview is real
-        /// prose and may pass — so it never blocks saving; it just flags it.
+        /// True when the capture is likely a truncated member-only preview —
+        /// truncation evidence required, not merely "the source is metered"
+        /// (see `PaywallDetector.verdict`): an in-DOM gate CTA, or schema.org
+        /// `isAccessibleForFree:false` with sub-preview-scale content. An
+        /// authenticated fetch that returns the full text therefore clears the
+        /// flag even though the schema value stays false forever. Additive to
+        /// the quality gate — a preview is real prose and may pass — so it
+        /// never blocks saving; it just flags it.
         let isPaywalledPartial: Bool
     }
 
@@ -255,8 +259,10 @@ final class ArticleParser: NSObject {
             }
 
             // Honest paywall detection (additive — never a gate rejection).
-            // Read off the live DOM signals gathered by the wrapper.
-            let paywall = PaywallDetector.detect(
+            // Raw signals come off the live DOM; the truncation *verdict* also
+            // needs the final extracted word count, so it is computed below
+            // once the kept text is known (`PaywallDetector.verdict`).
+            let paywallSignals = PaywallDetector.signals(
                 jsonLDBlobs: (dict["jsonLD"] as? [String]) ?? [],
                 bodyText: (dict["bodyText"] as? String) ?? ""
             )
@@ -274,15 +280,26 @@ final class ArticleParser: NSObject {
             guard let refined = Self.gateAndFilter(
                 mapped: mapped, legacyText: legacyText, linkDensity: linkDensity
             ) else {
-                // The gate rejected this pass. If it's a paywall, the "missing"
-                // content is behind a login the retries can't defeat — stop the
-                // loop now instead of burning 40+ seconds re-pumping the same
-                // gated page. Otherwise fall through to the normal retry.
-                if paywall.isPaywalled { throw ParseError.paywalled }
+                // The gate rejected this pass. If the source is gated at all
+                // (either raw signal), the "missing" content is behind a login
+                // the retries can't defeat — stop the loop now instead of
+                // burning 40+ seconds re-pumping the same gated page.
+                // Otherwise fall through to the normal retry.
+                if paywallSignals.indicatesGatedSource { throw ParseError.paywalled }
                 throw ParseError.lowQuality
             }
             let blocks = refined.blocks
             let text = refined.plainText
+
+            // Truncation verdict over what we are actually about to save (the
+            // post-filter text — the harvester-assembled result when it won).
+            // schema.org `isAccessibleForFree:false` alone does NOT flag a
+            // substantial capture: it stays false forever, even after an
+            // authenticated fetch returns the complete article.
+            let paywall = PaywallDetector.verdict(
+                paywallSignals,
+                extractedWordCount: text.split(whereSeparator: { $0.isWhitespace }).count
+            )
 
             #if DEBUG
             if !refined.removed.isEmpty {
