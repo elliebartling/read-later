@@ -199,7 +199,10 @@ private struct BlockTextRepresentable: UIViewRepresentable {
     private var textLength: Int { ((block.text ?? "") as NSString).length }
 
     func makeUIView(context: Context) -> UITextView {
-        let tv = UITextView()
+        // SelectionWashHidingTextView hides the system's blue selection wash so
+        // it doesn't paint over the instantly-created yellow highlight, matching
+        // the plain reader's ReaderTextView. Handles and magnifier stay visible.
+        let tv = SelectionWashHidingTextView()
         tv.isEditable = false
         tv.isSelectable = true
         // Non-scrolling: SwiftUI (via sizeThatFits) owns the height; the parent
@@ -449,6 +452,11 @@ private struct BlockTextRepresentable: UIViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
+            // The instantly-created highlight already shows the selected range;
+            // keep the system's blue selection wash from painting over it.
+            // (Re-applied on every change because UIKit re-shows the view when
+            // the selection re-activates.)
+            (textView as? SelectionWashHidingTextView)?.hideSelectionHighlight()
             guard !suppressSelectionChange else { return }
             // Selection collapsed: end the session unless sheet-edit mode is
             // holding the highlight open. Range updates happen in
