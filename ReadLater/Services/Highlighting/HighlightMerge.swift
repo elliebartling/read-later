@@ -132,6 +132,19 @@ enum HighlightMerge {
         )
     }
 
+    /// Color the edit-menu checkmark should show for the highlight ID that
+    /// `createHighlight` handed back. A merge returns a *surviving* pre-existing
+    /// highlight, which keeps its own color — so the checkmark must show that
+    /// color, not the default. A genuinely new highlight isn't in `existing`
+    /// yet and was created with the default color.
+    static func sessionColor(
+        forCreated id: UUID,
+        existing: [(id: UUID, color: HighlightColor)],
+        defaultColor: HighlightColor
+    ) -> HighlightColor {
+        existing.first(where: { $0.id == id })?.color ?? defaultColor
+    }
+
     /// Combines the survivor's existing note with the folded-in absorbed notes,
     /// dropping blanks and joining with `noteSeparator`. Returns nil when the
     /// result is empty, so a note-less merge stays note-less.

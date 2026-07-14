@@ -415,7 +415,13 @@ private struct BlockTextRepresentable: UIViewRepresentable {
                     return UIMenu(children: suggestedActions)
                 }
                 activeHighlightID = id
-                activeColor = parent.defaultColor
+                // Creation can merge into an existing highlight, which keeps
+                // its own color — sync the menu checkmark to the survivor.
+                activeColor = HighlightMerge.sessionColor(
+                    forCreated: id,
+                    existing: parent.locatedRanges.map { ($0.id, $0.color) },
+                    defaultColor: parent.defaultColor
+                )
                 highlightID = id
             }
 
