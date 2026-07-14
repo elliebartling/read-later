@@ -50,6 +50,7 @@ Article extraction: Mozilla Readability.js runs in an off-screen `WKWebView` (`R
 - **Two stores**: `AppSettings` lives in a separate local-only store (it holds a device-specific security-scoped bookmark) and must never move to the synced store. See `Shared/ModelContainer+Shared.swift`.
 - **Obsidian export** only rewrites the region between `%% readlater:start %%` and `%% readlater:end %%`. User edits outside that region must survive every export. Rendering must stay deterministic so writes are idempotent.
 - **Test target must not compile `Shared/` sources directly** — they arrive via `@testable import ReadLater`. Adding them to `ReadLaterTests` sources creates duplicate model types and ambiguous-type errors (noted in `project.yml`).
+- **There are two readers.** The plain reader (`HighlightableTextView.swift`) and the native block reader (`Features/Reader/Blocks/`, behind a Settings flag) each host their own `UITextView`s. Any fix to selection, highlighting, insets, or text-view behavior must cover BOTH — a fix landed in one reader silently regresses in the other (this has happened: the selection-wash suppression initially missed the block reader).
 - **ShareExtension activation rule**: WebURL only. Do not add `SupportsWebPageWithMaxCount` without also bundling an `NSExtensionJavaScriptPreprocessingFile`.
 
 ## Prohibited patterns
