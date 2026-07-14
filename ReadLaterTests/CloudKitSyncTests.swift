@@ -59,6 +59,77 @@ final class CloudKitSyncTests: XCTestCase {
         XCTAssertFalse(status.isSyncing)
     }
 
+    // MARK: - Mirroring-event telemetry
+
+    /// A finished, failed export exposes a prominent failure string carrying the
+    /// CKError code — this is the value Settings renders for Ellen.
+    func testExportFailureTextIncludesCKErrorCode() {
+        let record = SyncStatus.SyncEventRecord(
+            kind: .exportEvent,
+            startDate: Date(),
+            endDate: Date(),
+            succeeded: false,
+            errorDescription: "Network unavailable",
+            ckErrorCode: 4
+        )
+        XCTAssertTrue(record.isFinished)
+        XCTAssertEqual(record.failureText, "Network unavailable (CKError 4)")
+    }
+
+    /// A successful or still-running event has no failure text.
+    func testFailureTextNilWhenSucceededOrUnfinished() {
+        let succeeded = SyncStatus.SyncEventRecord(
+            kind: .exportEvent, startDate: Date(), endDate: Date(),
+            succeeded: true, errorDescription: nil, ckErrorCode: nil
+        )
+        XCTAssertNil(succeeded.failureText)
+
+        let running = SyncStatus.SyncEventRecord(
+            kind: .exportEvent, startDate: Date(), endDate: nil,
+            succeeded: false, errorDescription: "half done", ckErrorCode: nil
+        )
+        XCTAssertFalse(running.isFinished)
+        XCTAssertNil(running.failureText)
+    }
+
+    /// Recording events keeps the latest per kind, tallies only finished ones,
+    /// and surfaces the last export error via `exportFailureText`.
+    func testRecordTracksLatestAndCountsFinished() {
+        let status = SyncStatus.shared
+        let kind = SyncStatus.SyncEventKind.importEvent
+        let baseline = status.eventCounts[kind] ?? 0
+
+        // A begin notification (unfinished) must not bump the counter.
+        status.record(SyncStatus.SyncEventRecord(
+            kind: kind, startDate: Date(), endDate: nil,
+            succeeded: false, errorDescription: nil, ckErrorCode: nil
+        ))
+        XCTAssertEqual(status.eventCounts[kind] ?? 0, baseline)
+        XCTAssertEqual(status.lastEvents[kind]?.isFinished, false)
+
+        // The matching end notification bumps it and replaces the last record.
+        status.record(SyncStatus.SyncEventRecord(
+            kind: kind, startDate: Date(), endDate: Date(),
+            succeeded: true, errorDescription: nil, ckErrorCode: nil
+        ))
+        XCTAssertEqual(status.eventCounts[kind] ?? 0, baseline + 1)
+        XCTAssertEqual(status.lastEvents[kind]?.succeeded, true)
+
+        // A failed export surfaces through the prominent export-error accessor.
+        status.record(SyncStatus.SyncEventRecord(
+            kind: .exportEvent, startDate: Date(), endDate: Date(),
+            succeeded: false, errorDescription: "Quota exceeded", ckErrorCode: 25
+        ))
+        XCTAssertEqual(status.exportFailureText, "Quota exceeded (CKError 25)")
+    }
+
+    /// The three event kinds map to distinct, non-empty labels for the UI.
+    func testEventKindLabelsAreDistinct() {
+        let labels = SyncStatus.SyncEventKind.allCases.map(\.label)
+        XCTAssertEqual(Set(labels).count, SyncStatus.SyncEventKind.allCases.count)
+        XCTAssertFalse(labels.contains(where: \.isEmpty))
+    }
+
     // MARK: - Model invariant audit (CloudKit requirements)
 
     /// The synced store models must satisfy CloudKit's SwiftData rules:

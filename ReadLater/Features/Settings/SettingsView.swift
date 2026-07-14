@@ -49,6 +49,10 @@ private struct SettingsForm: View {
                 }
             }
 
+            if syncStatus.isSyncing {
+                syncDiagnosticsSection
+            }
+
             Section {
                 NavigationLink {
                     SiteLoginsView()
@@ -189,6 +193,42 @@ private struct SettingsForm: View {
         }
     }
 
+    /// Diagnostics for live CloudKit mirroring. Only shown while syncing; this
+    /// is a developer-facing readout (setup/import/export events, counts, and
+    /// any export error) but harmless to ship since Release never reaches sync.
+    @ViewBuilder
+    private var syncDiagnosticsSection: some View {
+        Section {
+            if let exportError = syncStatus.exportFailureText {
+                HStack(alignment: .top, spacing: 8) {
+                    Image(systemName: "exclamationmark.triangle.fill")
+                        .foregroundStyle(.red)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Export failed")
+                            .font(.subheadline.weight(.semibold))
+                            .foregroundStyle(.red)
+                        Text(exportError)
+                            .font(.caption)
+                            .foregroundStyle(.secondary)
+                            .textSelection(.enabled)
+                    }
+                }
+            }
+
+            ForEach(SyncStatus.SyncEventKind.allCases) { kind in
+                SyncEventRow(
+                    kind: kind,
+                    record: syncStatus.lastEvents[kind],
+                    count: syncStatus.eventCounts[kind] ?? 0
+                )
+            }
+        } header: {
+            Text("Sync Diagnostics")
+        } footer: {
+            Text("Live iCloud mirroring events this session. If Export never appears or shows an error, the export engine isn't flushing records to CloudKit.")
+        }
+    }
+
     private var trimmedKeyInput: String {
         apiKeyInput.trimmingCharacters(in: .whitespacesAndNewlines)
     }
@@ -234,5 +274,65 @@ private struct SettingsForm: View {
         } catch {
             lastExportStatus = "Export failed: \(error.localizedDescription)"
         }
+    }
+}
+
+/// One line in the Sync Diagnostics section: the event kind, its status
+/// (pending / ✓ / ✗), how long ago it happened, and the session count.
+private struct SyncEventRow: View {
+    let kind: SyncStatus.SyncEventKind
+    let record: SyncStatus.SyncEventRecord?
+    let count: Int
+
+    var body: some View {
+        HStack(spacing: 10) {
+            statusIcon
+            VStack(alignment: .leading, spacing: 1) {
+                Text(kind.label)
+                if let record {
+                    Text(timestamp(for: record))
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                } else {
+                    Text("No events yet")
+                        .font(.caption)
+                        .foregroundStyle(.secondary)
+                }
+            }
+            Spacer()
+            if count > 0 {
+                Text("\(count)")
+                    .font(.caption.monospacedDigit())
+                    .foregroundStyle(.secondary)
+            }
+        }
+    }
+
+    @ViewBuilder
+    private var statusIcon: some View {
+        if let record {
+            if !record.isFinished {
+                Image(systemName: "arrow.triangle.2.circlepath")
+                    .foregroundStyle(.secondary)
+            } else if record.succeeded {
+                Image(systemName: "checkmark.circle.fill")
+                    .foregroundStyle(.green)
+            } else {
+                Image(systemName: "xmark.circle.fill")
+                    .foregroundStyle(.red)
+            }
+        } else {
+            Image(systemName: "circle.dashed")
+                .foregroundStyle(.secondary)
+        }
+    }
+
+    private func timestamp(for record: SyncStatus.SyncEventRecord) -> String {
+        let date = record.endDate ?? record.startDate
+        let relative = date.formatted(.relative(presentation: .named))
+        if !record.isFinished {
+            return "In progress · started \(relative)"
+        }
+        return relative
     }
 }
