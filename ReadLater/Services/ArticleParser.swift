@@ -57,7 +57,12 @@ final class ArticleParser: NSObject {
         // A tall viewport makes most of the article "visible" at once; the
         // scroll pump in `pumpFullRender` covers whatever still isn't.
         let wv = WKWebView(frame: CGRect(x: 0, y: 0, width: 390, height: 4000), configuration: config)
-        wv.customUserAgent = "Mozilla/5.0 (iPhone; CPU iPhone OS 17_0 like Mac OS X) AppleWebKit/605.1.15 ReadLater/0.1"
+        // Match the login sheet's Mobile Safari UA (MobileSafariUserAgent) so
+        // sites serve extraction the same markup they serve the in-app login and
+        // real Safari. The old bespoke "ReadLater/0.1" token advertised an
+        // embedded webview — some metered sites vary their gate on that. Fixtures
+        // drive the parser via prefetchedHTML, so this doesn't affect tests.
+        wv.customUserAgent = MobileSafariUserAgent.current
         return wv
     }()
 
