@@ -43,6 +43,13 @@ final class ArticleParser: NSObject {
 
     private let webView: WKWebView = {
         let config = WKWebViewConfiguration()
+        // Share the persistent cookie jar with the in-app site-login sheet
+        // (SiteLoginView) via SiteLoginStore. `.default()` is persistent, so a
+        // session cookie the user establishes by signing into a metered site is
+        // present here on the next extraction and the paywalled preview resolves
+        // to the full article. (A bare config already defaults to `.default()`;
+        // setting it explicitly makes the shared contract intentional.)
+        config.websiteDataStore = SiteLoginStore.shared.dataStore
         config.suppressesIncrementalRendering = true
         // Tall phone-width frame: lazy-rendering sites (Medium) mount content
         // through viewport-rooted IntersectionObservers, and a zero-size frame
