@@ -172,9 +172,17 @@ struct IdlePlayerBar: View {
                     }
                 }
             } label: {
-                capsuleGlyph("ellipsis")
+                if isReextracting {
+                    ProgressView()
+                        .controlSize(.regular)
+                        .tint(.white)
+                        .frame(width: 30, height: 30)
+                        .contentShape(.rect)
+                } else {
+                    capsuleGlyph("ellipsis")
+                }
             }
-            .accessibilityLabel("More")
+            .accessibilityLabel(isReextracting ? "Re-extracting" : "More")
 
             if let url = article.url {
                 ShareLink(item: url) {

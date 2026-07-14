@@ -25,6 +25,10 @@ struct ReaderView: View {
     @State private var isReextracting = false
     /// Non-nil drives the "Couldn't re-extract" alert (parallels `tts.lastError`).
     @State private var reextractError: String?
+    /// Non-nil drives the transient success toast after a re-extract finishes,
+    /// so a parse that produces identical text still gives visible feedback
+    /// instead of looking like the button did nothing.
+    @State private var reextractToast: String?
     /// Caches the decoded `[ArticleBlock]` so `article.blocks` (which JSON-decodes
     /// on every access) runs once per blocks change, not once per body pass.
     @State private var blocksCache = DecodedBlocksCache()
@@ -96,6 +100,9 @@ struct ReaderView: View {
 
             floatingPlayer
         }
+        .overlay(alignment: .top) { topStatusOverlay }
+        .animation(Self.chromeAnimation, value: isReextracting)
+        .animation(Self.chromeAnimation, value: reextractToast)
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: tts.isActive)
         .readerTitleBar(title: article.title, subtitle: subtitleText)
         .toolbar(.hidden, for: .tabBar)
@@ -185,6 +192,54 @@ struct ReaderView: View {
         }
         .padding(.horizontal, 24)
         .padding(.bottom, 10)
+    }
+
+    /// Floating status region pinned below the top chrome. Priority order:
+    /// an in-progress re-extract spinner, then the transient completion toast,
+    /// then the persistent "member-only preview" notice (shown alongside chrome
+    /// so it never intrudes on immersive reading). Exactly one shows at a time.
+    @ViewBuilder
+    private var topStatusOverlay: some View {
+        Group {
+            if isReextracting {
+                statusPill(systemImage: nil) {
+                    ProgressView().controlSize(.small)
+                    Text("Re-extracting…")
+                }
+            } else if let toast = reextractToast {
+                statusPill(systemImage: "checkmark.circle.fill") {
+                    Text(toast)
+                }
+            } else if article.isPaywalledPartial, showChrome {
+                statusPill(systemImage: "lock.fill") {
+                    Text("Preview only — this story is member-only")
+                }
+            }
+        }
+        .padding(.top, 6)
+        .padding(.horizontal, 24)
+        .transition(.move(edge: .top).combined(with: .opacity))
+    }
+
+    /// Neutral glass capsule used by `topStatusOverlay`. Distinct from the
+    /// pink player capsule so status never reads as a transport control.
+    private func statusPill(
+        systemImage: String?,
+        @ViewBuilder _ content: () -> some View
+    ) -> some View {
+        HStack(spacing: 8) {
+            if let systemImage {
+                Image(systemName: systemImage)
+            }
+            content()
+        }
+        .font(.subheadline.weight(.medium))
+        .foregroundStyle(.primary)
+        .padding(.horizontal, 16)
+        .padding(.vertical, 10)
+        .background(.regularMaterial, in: .capsule)
+        .overlay(Capsule().strokeBorder(.separator, lineWidth: 0.5))
+        .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
     }
 
     @ViewBuilder
@@ -353,6 +408,11 @@ struct ReaderView: View {
     private func reextract() {
         guard let url = article.url, !isReextracting else { return }
         isReextracting = true
+        reextractToast = nil
+        // Keep the chrome up so the in-progress spinner (and, on finish, the
+        // toast) is visible and the user retains a back button — a parse can
+        // run for tens of seconds.
+        withAnimation(Self.chromeAnimation) { chromeVisible = true }
         // Stop read-aloud before swapping the text out from under it — audio
         // reading stale paragraphs against refreshed text is a desync. No-op
         // when idle.
@@ -366,8 +426,26 @@ struct ReaderView: View {
                 // .failed whose re-extract succeeded.
                 article.parseStatus = .ready
                 try context.save()
+                // Always confirm completion — even when the refreshed text is
+                // byte-identical (e.g. a member-only preview re-served) — so the
+                // action never looks like a silent no-op.
+                showReextractToast(article.isPaywalledPartial
+                    ? "Re-extracted — preview only (member-only source)"
+                    : "Article re-extracted")
             } catch {
                 reextractError = error.localizedDescription
+            }
+        }
+    }
+
+    /// Shows the completion toast and auto-dismisses it after a short beat.
+    private func showReextractToast(_ message: String) {
+        reextractToast = message
+        Task { @MainActor in
+            try? await Task.sleep(for: .seconds(2.5))
+            // Only clear if this toast is still the one showing.
+            if reextractToast == message {
+                withAnimation(Self.chromeAnimation) { reextractToast = nil }
             }
         }
     }

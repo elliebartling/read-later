@@ -291,7 +291,7 @@ final class CruftFilterTests: XCTestCase {
             title: "t", author: nil, siteName: nil,
             plainText: "Prose that stays.", extractedHTML: "",
             heroImageURL: nil, estimatedReadingMinutes: 1,
-            blocks: kept, removedBlocks: removed
+            blocks: kept, removedBlocks: removed, isPaywalledPartial: false
         )
         article.apply(parsed, updateTitle: false)
         XCTAssertTrue(article.wasCruftFiltered)
@@ -303,7 +303,7 @@ final class CruftFilterTests: XCTestCase {
             title: "t", author: nil, siteName: nil,
             plainText: "Prose that stays.", extractedHTML: "",
             heroImageURL: nil, estimatedReadingMinutes: 1,
-            blocks: kept, removedBlocks: []
+            blocks: kept, removedBlocks: [], isPaywalledPartial: false
         )
         article.apply(clean, updateTitle: false)
         XCTAssertFalse(article.wasCruftFiltered)
