@@ -139,6 +139,104 @@ final class CruftFilterTests: XCTestCase {
         XCTAssertEqual(keptTexts(blocks), ["Prose."])
     }
 
+    // MARK: - Removal fixtures: label/value press-release stacks (round 2)
+
+    /// Distilled from a real ScienceDaily page (fetched 2026-07-14): the
+    /// header stack above "FULL STORY". Decision: "Summary:"'s VALUE is the
+    /// article abstract — real prose — so only the label falls; Date/Source
+    /// labels take their short values with them.
+    func testRemovesScienceDailyHeaderStack() {
+        let summary = "Researchers found that peach fuzz triggers a previously unknown itch pathway in human skin."
+        let blocks = [
+            p("Date:"),
+            p("July 14, 2026"),
+            p("Source:"),
+            p("University of Michigan"),
+            p("Summary:"),
+            p(summary),
+            p("FULL STORY"),
+            p("The article body begins here with real prose."),
+        ]
+        XCTAssertEqual(keptTexts(blocks), [
+            summary,
+            "The article body begins here with real prose.",
+        ])
+    }
+
+    func testRemovesStorySourceBoilerplate() {
+        let blocks = [
+            p("The last real paragraph."),
+            p("Story Source:"),
+            p("Materials provided by University of Michigan. Note: Content may be edited for style and length."),
+        ]
+        XCTAssertEqual(keptTexts(blocks), ["The last real paragraph."])
+    }
+
+    /// Journal citations are deliberately KEPT (scholarly value); only the
+    /// labels and section furniture fall.
+    func testRemovesCitationLabelsButKeepsTheCitation() {
+        let citation = "Jane Doe, John Smith. Why peach fuzz can suddenly make you itch. Journal of Dermatological Science, 2026; DOI: 10.1000/jds.2026.123"
+        let blocks = [
+            p("Body prose."),
+            p("Journal Reference:"),
+            p(citation),
+            p("Cite This Page:"),
+            h("RELATED STORIES"),
+            h("RELATED TERMS"),
+        ]
+        XCTAssertEqual(keptTexts(blocks), ["Body prose.", citation])
+    }
+
+    func testDoesNotConsumeLongOrSententialValueAfterFieldLabel() {
+        // Label falls; a prose-like follower survives both guards
+        // (word count and sentence shape).
+        let blocks = [
+            p("Source:"),
+            p("This article was adapted from a longer report written by the university's press office."),
+        ]
+        XCTAssertEqual(keptTexts(blocks), [
+            "This article was adapted from a longer report written by the university's press office.",
+        ])
+    }
+
+    func testRemovesSingleBlockShareRow() {
+        let blocks = [
+            p("Prose before."),
+            p("Share: Facebook Twitter Pinterest LinkedIn Email"),
+            p("Prose after."),
+        ]
+        XCTAssertEqual(keptTexts(blocks), ["Prose before.", "Prose after."])
+    }
+
+    // MARK: - Removal fixtures: engagement counters (round 2, Medium)
+
+    /// Ellen's device evidence: Medium's post-content clap/response stack —
+    /// "3.6K", "2", "Top highlight", "1", "1", "1", "1" — as paragraphs.
+    func testRemovesMediumEngagementStackAtTail() {
+        let blocks = [
+            p("A real paragraph that ends the article properly."),
+            p("3.6K"),
+            p("2"),
+            p("Top highlight"),
+            p("1"),
+            p("1"),
+            p("1"),
+            p("1"),
+        ]
+        XCTAssertEqual(keptTexts(blocks), [
+            "A real paragraph that ends the article properly.",
+        ])
+    }
+
+    func testRemovesResponseCountsWithUnits() {
+        let blocks = [
+            p("Body."),
+            p("47 responses"),
+            p("3.6K claps"),
+        ]
+        XCTAssertEqual(keptTexts(blocks), ["Body."])
+    }
+
     // MARK: - Counter-fixtures: legit content must survive
 
     func testKeepsRealSignInSentenceInProse() {
@@ -210,6 +308,85 @@ final class CruftFilterTests: XCTestCase {
         let blocks = [
             ArticleBlock(type: .preformatted, text: "sign in"),
             p("Explanation of the code above."),
+        ]
+        XCTAssertEqual(CruftFilter.filter(blocks).removed, [])
+    }
+
+    // MARK: - Counter-fixtures: round-2 families must not eat content
+
+    func testKeepsDateLabelUsedInsideProse() {
+        // A block merely STARTING with "Date:" is prose, not a label — the
+        // whole-block match plus trailing-colon requirement protect it.
+        let blocks = [
+            p("Date: July 14, 2026 was circled on every calendar in the lab."),
+        ]
+        XCTAssertEqual(CruftFilter.filter(blocks).removed, [])
+    }
+
+    func testKeepsSummaryHeadingWithoutColon() {
+        // A legit "Summary" section heading has no trailing colon and is not
+        // section furniture — it survives, unlike ScienceDaily's "Summary:".
+        let blocks = [
+            h("Summary"),
+            p("In short, the approach works but needs more validation."),
+        ]
+        XCTAssertEqual(CruftFilter.filter(blocks).removed, [])
+    }
+
+    func testKeepsDefinitionListStyleContent() {
+        // DT/DD recipe-style label/value pairs whose labels are not in the
+        // rule tables must survive untouched.
+        let blocks = [
+            p("Ingredients:"),
+            p("Flour, sugar, and butter"),
+            p("Method:"),
+            p("Cream the butter and sugar"),
+        ]
+        XCTAssertEqual(CruftFilter.filter(blocks).removed, [])
+    }
+
+    func testKeepsLoneNumberListicleParagraphEvenInTail() {
+        // A standalone "42" with no cruft neighbors survives everywhere —
+        // including the tail zone.
+        let blocks = [
+            p("The answer to the ultimate question turned out to be a number."),
+            p("42"),
+            p("Nobody was satisfied with this."),
+        ]
+        XCTAssertEqual(CruftFilter.filter(blocks).removed, [])
+    }
+
+    func testKeepsMidArticleCountdownRun() {
+        // A dramatic one-line countdown is a pure-counter run OUTSIDE the
+        // tail zone (12 blocks of prose follow) — it must survive.
+        let countdown = [p("The launch sequence began."), p("3"), p("2"), p("1")]
+        let padding = (0 ..< 12).map { i in
+            p("Padding paragraph \(i) with enough prose to keep the tail far away.")
+        }
+        let blocks = countdown + padding
+        XCTAssertEqual(CruftFilter.filter(blocks).removed, [])
+    }
+
+    func testKeepsBareNumberListItems() {
+        // Numeric LIST ITEMS (lottery numbers, tabular data) are exempt from
+        // the counter rule even in the tail.
+        let blocks = [
+            p("The winning numbers were:"),
+            li("7"),
+            li("14"),
+            li("42"),
+        ]
+        XCTAssertEqual(CruftFilter.filter(blocks).removed, [])
+    }
+
+    func testKeepsNumericListicleHeadings() {
+        // "1." as an H2 normalizes to "1" but headings are exempt from the
+        // counter rule.
+        let blocks = [
+            h("1."),
+            p("The first item explained at length."),
+            h("2."),
+            p("The second item explained at length."),
         ]
         XCTAssertEqual(CruftFilter.filter(blocks).removed, [])
     }
