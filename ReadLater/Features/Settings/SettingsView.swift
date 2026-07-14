@@ -30,9 +30,25 @@ private struct SettingsForm: View {
     @State private var hasStoredKey = false
     @State private var showingFolderPicker = false
     @State private var lastExportStatus: String?
+    private let syncStatus = SyncStatus.shared
 
     var body: some View {
         Form {
+            Section {
+                HStack {
+                    Image(systemName: syncStatus.isSyncing ? "checkmark.icloud" : "icloud.slash")
+                        .foregroundStyle(syncStatus.isSyncing ? .green : .secondary)
+                    Text(syncStatus.summary)
+                    Spacer()
+                }
+            } header: {
+                Text("iCloud Sync")
+            } footer: {
+                if let detail = syncStatus.detail {
+                    Text(detail)
+                }
+            }
+
             Section("Read Aloud") {
                 Picker("Provider", selection: $settings.ttsProvider) {
                     ForEach(TTSProvider.allCases) { p in

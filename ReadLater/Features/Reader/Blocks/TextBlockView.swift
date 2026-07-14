@@ -83,10 +83,53 @@ struct TextBlockView: View {
                     .frame(maxHeight: .infinity)
                 representable
             }
+        case .preformatted:
+            codeBlock
         default:
             representable
         }
     }
+
+    /// A `.preformatted` block as a distinct code container: a monospaced,
+    /// whitespace-preserving text view that never wraps mid-token, hosted in a
+    /// horizontal `ScrollView` so long lines scroll instead of reflowing, inside
+    /// a subtle rounded, inset panel tinted from the reader theme.
+    private var codeBlock: some View {
+        ScrollView(.horizontal, showsIndicators: true) {
+            BlockTextRepresentable(
+                block: block,
+                baseOffset: baseOffset,
+                locatedRanges: locatedRanges,
+                theme: theme,
+                fontSize: fontSize,
+                fontRaw: fontRaw,
+                lineSpacing: lineSpacing,
+                defaultColor: defaultColor,
+                editingHighlightID: editingHighlightID,
+                wraps: false,
+                onCreateHighlight: onCreateHighlight,
+                onUpdateHighlight: onUpdateHighlight,
+                onRecolorHighlight: onRecolorHighlight,
+                onDeleteHighlight: onDeleteHighlight,
+                onRequestNote: onRequestNote,
+                onTapHighlight: onTapHighlight,
+                onTap: onTap
+            )
+            .padding(.horizontal, Self.codePaddingH)
+            .padding(.vertical, Self.codePaddingV)
+        }
+        .frame(maxWidth: .infinity, alignment: .leading)
+        .background(Color(uiColor: theme.foreground.withAlphaComponent(0.055)))
+        .clipShape(RoundedRectangle(cornerRadius: Self.codeCornerRadius, style: .continuous))
+        .overlay(
+            RoundedRectangle(cornerRadius: Self.codeCornerRadius, style: .continuous)
+                .strokeBorder(Color(uiColor: theme.foreground.withAlphaComponent(0.12)), lineWidth: 1)
+        )
+    }
+
+    private static let codeCornerRadius: CGFloat = 10
+    private static let codePaddingH: CGFloat = 14
+    private static let codePaddingV: CGFloat = 12
 
     private var representable: some View {
         BlockTextRepresentable(
@@ -99,6 +142,7 @@ struct TextBlockView: View {
             lineSpacing: lineSpacing,
             defaultColor: defaultColor,
             editingHighlightID: editingHighlightID,
+            wraps: true,
             onCreateHighlight: onCreateHighlight,
             onUpdateHighlight: onUpdateHighlight,
             onRecolorHighlight: onRecolorHighlight,
@@ -138,6 +182,10 @@ private struct BlockTextRepresentable: UIViewRepresentable {
     let lineSpacing: CGFloat
     let defaultColor: HighlightColor
     let editingHighlightID: UUID?
+    /// When false, the text is laid out at its natural (unwrapped) width so a
+    /// horizontal `ScrollView` can scroll long lines — used for `.preformatted`
+    /// code blocks, where mid-token wrapping would mangle the content.
+    var wraps: Bool = true
 
     let onCreateHighlight: (HighlightableTextView.HighlightIntent) -> UUID?
     let onUpdateHighlight: (UUID, NSRange, String) -> Void
@@ -151,7 +199,10 @@ private struct BlockTextRepresentable: UIViewRepresentable {
     private var textLength: Int { ((block.text ?? "") as NSString).length }
 
     func makeUIView(context: Context) -> UITextView {
-        let tv = UITextView()
+        // SelectionWashHidingTextView hides the system's blue selection wash so
+        // it doesn't paint over the instantly-created yellow highlight, matching
+        // the plain reader's ReaderTextView. Handles and magnifier stay visible.
+        let tv = SelectionWashHidingTextView()
         tv.isEditable = false
         tv.isSelectable = true
         // Non-scrolling: SwiftUI (via sizeThatFits) owns the height; the parent
@@ -203,6 +254,14 @@ private struct BlockTextRepresentable: UIViewRepresentable {
     // iOS 16+ self-sizing: measure the text within the proposed width so the
     // block reports its natural height to SwiftUI.
     func sizeThatFits(_ proposal: ProposedViewSize, uiView tv: UITextView, context: Context) -> CGSize? {
+        // Code blocks: report the natural UNWRAPPED size (widest line × height)
+        // regardless of the proposal — the enclosing horizontal ScrollView owns
+        // scrolling, and a proposal width would force reflow we don't want.
+        if !wraps {
+            let fitted = tv.sizeThatFits(CGSize(width: CGFloat.greatestFiniteMagnitude,
+                                                height: CGFloat.greatestFiniteMagnitude))
+            return CGSize(width: ceil(fitted.width), height: ceil(fitted.height))
+        }
         guard let width = proposal.width, width > 0, width.isFinite else { return nil }
         let fitted = tv.sizeThatFits(CGSize(width: width, height: .greatestFiniteMagnitude))
         return CGSize(width: width, height: ceil(fitted.height))
@@ -235,8 +294,11 @@ private struct BlockTextRepresentable: UIViewRepresentable {
         case .caption:
             paragraphStyle.alignment = .center
         case .preformatted:
-            // Long code tokens should wrap rather than force horizontal overflow.
-            paragraphStyle.lineBreakMode = .byCharWrapping
+            // Code never breaks mid-token: whole lines stay intact and the
+            // enclosing horizontal ScrollView scrolls anything wider than the
+            // column. Word wrapping only ever applies as a last resort if the
+            // block is somehow constrained below its natural width.
+            paragraphStyle.lineBreakMode = .byWordWrapping
         default:
             break
         }
@@ -277,7 +339,9 @@ private struct BlockTextRepresentable: UIViewRepresentable {
             }
             return scaled
         case .preformatted:
-            return .monospacedSystemFont(ofSize: fontSize, weight: .regular)
+            // Slightly smaller than body so more code fits per line, but still
+            // scaled by the reader's typography setting.
+            return .monospacedSystemFont(ofSize: fontSize * 0.88, weight: .regular)
         case .caption:
             return base.withSize(fontSize * 0.85)
         default:
@@ -388,6 +452,11 @@ private struct BlockTextRepresentable: UIViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
+            // The instantly-created highlight already shows the selected range;
+            // keep the system's blue selection wash from painting over it.
+            // (Re-applied on every change because UIKit re-shows the view when
+            // the selection re-activates.)
+            (textView as? SelectionWashHidingTextView)?.hideSelectionHighlight()
             guard !suppressSelectionChange else { return }
             // Selection collapsed: end the session unless sheet-edit mode is
             // holding the highlight open. Range updates happen in

@@ -566,6 +566,11 @@ struct HighlightableTextView: UIViewRepresentable {
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
+            // The instantly-created highlight already shows the selected range;
+            // keep the system's blue selection wash from painting over it.
+            // (Re-applied on every change because UIKit re-shows the view when
+            // the selection re-activates.)
+            (textView as? ReaderTextView)?.hideSelectionHighlight()
             guard !suppressSelectionChange else { return }
             // Selection collapsed: end the session unless sheet-edit mode is
             // holding the highlight open (we'll re-select on the next update).
@@ -637,7 +642,7 @@ struct HighlightableTextView: UIViewRepresentable {
 /// grows, but we keep using the frozen value, so the text never shifts — the
 /// translucent bar simply overlays it. `contentInsetAdjustmentBehavior` is
 /// `.never` (set by the representable) so UIKit doesn't re-inset either.
-final class ReaderTextView: UITextView {
+final class ReaderTextView: SelectionWashHidingTextView {
     /// Reading padding (top/bottom breathing room + width-based side margins)
     /// supplied by the representable. Safe-area accommodation is layered on top.
     var baseTextInsets: UIEdgeInsets = .zero {
@@ -653,6 +658,8 @@ final class ReaderTextView: UITextView {
     var onLayout: (() -> Void)?
 
     override func layoutSubviews() {
+        // `super` (SelectionWashHidingTextView) lays out the text view and then
+        // re-hides the selection wash; we only need to add the layout callback.
         super.layoutSubviews()
         onLayout?()
     }

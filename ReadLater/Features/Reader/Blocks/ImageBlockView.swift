@@ -13,14 +13,26 @@ struct ImageBlockView: View {
 
     @State private var image: UIImage?
     @State private var didFail = false
+    @State private var isZoomed = false
 
     var body: some View {
         content
             .frame(maxWidth: .infinity)
+            .accessibilityElement(children: .combine)
             .accessibilityLabel(block.alt ?? "Image")
-            .accessibilityAddTraits(.isImage)
+            .accessibilityAddTraits(canZoom ? [.isImage, .isButton] : .isImage)
+            .accessibilityHint(canZoom ? "Opens full screen" : "")
+            .accessibilityAction { if canZoom { isZoomed = true } }
             .task(id: block.src) { await load() }
+            .fullScreenCover(isPresented: $isZoomed) {
+                if let src = block.src {
+                    ImageZoomViewer(src: src, alt: block.alt)
+                }
+            }
     }
+
+    /// A tap opens the viewer only once a real bitmap has loaded.
+    private var canZoom: Bool { image != nil && block.src != nil }
 
     @ViewBuilder
     private var content: some View {
@@ -32,6 +44,8 @@ struct ImageBlockView: View {
                 .frame(height: reservedHeight)
                 .clipShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
                 .transition(.opacity)
+                .contentShape(RoundedRectangle(cornerRadius: 8, style: .continuous))
+                .onTapGesture { if canZoom { isZoomed = true } }
         } else if didFail {
             failurePlaceholder
         } else {
