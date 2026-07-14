@@ -168,6 +168,27 @@ struct TextBlockView: View {
     }
 }
 
+// MARK: - Block text view
+
+/// The block reader's `UITextView`: hides the selection wash (super) and pins
+/// the container to zero insets / zero line-fragment padding on EVERY layout
+/// pass. The block's horizontal margins are SwiftUI padding around the view, so
+/// any UIKit-side inset reappearing (e.g. a TextKit 1 compatibility fallback
+/// swapping the text container restores the default 5pt padding) would shift
+/// the text and stick until something else touched the container — the same
+/// sticky-inset failure ReaderTextView heals per-pass in the plain reader.
+final class BlockTextView: SelectionWashHidingTextView {
+    override func layoutSubviews() {
+        if textContainerInset != .zero {
+            textContainerInset = .zero
+        }
+        if textContainer.lineFragmentPadding != 0 {
+            textContainer.lineFragmentPadding = 0
+        }
+        super.layoutSubviews()
+    }
+}
+
 // MARK: - Representable
 
 /// The selectable, self-sizing `UITextView` for a single block's text.
@@ -199,10 +220,12 @@ private struct BlockTextRepresentable: UIViewRepresentable {
     private var textLength: Int { ((block.text ?? "") as NSString).length }
 
     func makeUIView(context: Context) -> UITextView {
-        // SelectionWashHidingTextView hides the system's blue selection wash so
-        // it doesn't paint over the instantly-created yellow highlight, matching
-        // the plain reader's ReaderTextView. Handles and magnifier stay visible.
-        let tv = SelectionWashHidingTextView()
+        // BlockTextView (a SelectionWashHidingTextView) hides the system's blue
+        // selection wash so it doesn't paint over the instantly-created yellow
+        // highlight, matching the plain reader's ReaderTextView — and re-pins
+        // its zero container insets on every layout pass, mirroring
+        // ReaderTextView's per-pass healing.
+        let tv = BlockTextView()
         tv.isEditable = false
         tv.isSelectable = true
         // Non-scrolling: SwiftUI (via sizeThatFits) owns the height; the parent
