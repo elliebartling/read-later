@@ -29,6 +29,6 @@ final class AppModel {
     var pendingArticleToOpen: UUID?
 
     enum Tab: Hashable {
-        case library, highlights, search
+        case library, feeds, highlights, search
     }
 }

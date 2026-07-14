@@ -34,7 +34,7 @@ CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) mirrors this: xcodegen
 
 Four targets (see [project.yml](project.yml)):
 
-1. **ReadLater** — main app. SwiftUI TabView (Library / Highlights / Search / Settings) in `ReadLater/RootView.swift`; features under `ReadLater/Features/`, services under `ReadLater/Services/`.
+1. **ReadLater** — main app. SwiftUI TabView (Library / Feeds / Highlights / Search / Settings) in `ReadLater/RootView.swift`; features under `ReadLater/Features/`, services under `ReadLater/Services/`.
 2. **ShareExtension** — Share Sheet; writes a `PendingSave` JSON into the App Group container, then deep-links back via `readlater://open?id=<uuid>`.
 3. **SafariWebExtension** — MV3 extension (`SafariWebExtension/Resources/`); same `PendingSave` path.
 4. **ReadLaterTests** — XCTest unit tests.
@@ -43,10 +43,12 @@ Data flow: extensions never touch CloudKit. They write `PendingSave` JSON to the
 
 Article extraction: Mozilla Readability.js runs in an off-screen `WKWebView` (`ReadLater/Services/ArticleParser.swift`); extracted plain text is the offset space for highlights.
 
+RSS: `Feed` + `FeedEntry` (synced models) store subscriptions and their items with read state. `FeedRefresher` fetches concurrently and merges idempotently (guid-keyed, read state survives, capped at 300 entries/feed); parsing is `ReadLater/Services/Feeds/` (XMLParser-based, RSS 2.0/Atom/RDF). The Feeds tab has a unified "All Items" river plus per-feed lists with unread counts. Opening an entry writes a `PendingSave` (source `.rss`) and drains it, so it becomes a normal `Article`. Background refresh is intentionally not wired yet — when it is, it should just call `FeedRefresher.refreshAll`.
+
 ## Critical invariants
 
 - **Highlight offsets are UTF-16 code units** (they come from `UITextView.selectedRange`). Never treat them as `Character` offsets — that misplaces highlights in emoji-bearing articles. On render: try offsets, fall back to searching `quotedText`. See `ReadLater/Services/Highlighting/HighlightAnchor.swift`.
-- **CloudKit-backed SwiftData**: every synced `@Model` attribute must be optional or carry an inline default, and every relationship must be optional — otherwise container creation throws at runtime. Keep this when adding properties to `Article`, `Highlight`, `Tag`.
+- **CloudKit-backed SwiftData**: every synced `@Model` attribute must be optional or carry an inline default, and every relationship must be optional — otherwise container creation throws at runtime. Keep this when adding properties to `Article`, `Highlight`, `Tag`, `Feed`.
 - **Two stores**: `AppSettings` lives in a separate local-only store (it holds a device-specific security-scoped bookmark) and must never move to the synced store. See `Shared/ModelContainer+Shared.swift`.
 - **Obsidian export** only rewrites the region between `%% readlater:start %%` and `%% readlater:end %%`. User edits outside that region must survive every export. Rendering must stay deterministic so writes are idempotent.
 - **Test target must not compile `Shared/` sources directly** — they arrive via `@testable import ReadLater`. Adding them to `ReadLaterTests` sources creates duplicate model types and ambiguous-type errors (noted in `project.yml`).

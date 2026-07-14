@@ -32,11 +32,11 @@ enum SharedModelContainer {
     /// The set of models that live in the CloudKit-mirrored "synced" store.
     /// `AppSettings` is deliberately excluded — it lives in a local-only store.
     private static var syncedModels: [any PersistentModel.Type] {
-        [Article.self, Highlight.self, Tag.self]
+        [Article.self, Highlight.self, Tag.self, Feed.self, FeedEntry.self]
     }
 
     /// Container with two stores:
-    /// - "synced": Article/Highlight/Tag, optionally in the CloudKit private DB
+    /// - "synced": Article/Highlight/Tag/Feed/FeedEntry, optionally in the CloudKit private DB
     /// - "local": AppSettings only — holds a device-specific security-scoped
     ///   bookmark that must never sync between devices
     ///
@@ -52,6 +52,8 @@ enum SharedModelContainer {
             Article.self,
             Highlight.self,
             Tag.self,
+            Feed.self,
+            FeedEntry.self,
             AppSettings.self,
         ])
 
