@@ -49,6 +49,18 @@ private struct SettingsForm: View {
                 }
             }
 
+            Section {
+                NavigationLink {
+                    SiteLoginsView()
+                } label: {
+                    Label("Site Logins", systemImage: "person.badge.key")
+                }
+            } header: {
+                Text("Privacy")
+            } footer: {
+                Text("Sites you've signed into to read member-only articles. Sign out to clear a site's cookies on this device.")
+            }
+
             Section("Read Aloud") {
                 Picker("Provider", selection: $settings.ttsProvider) {
                     ForEach(TTSProvider.allCases) { p in
