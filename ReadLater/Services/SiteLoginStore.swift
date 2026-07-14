@@ -36,8 +36,13 @@ final class SiteLoginStore {
 
     /// Hosts that currently have at least one stored cookie, normalized and
     /// sorted. Cookie presence is a deliberately coarse proxy for "signed in" —
-    /// good enough to populate a management list without inspecting cookie
-    /// contents. Backs a future "sites you're signed into" screen.
+    /// good enough as a low-level primitive without inspecting cookie contents.
+    ///
+    /// This is intentionally *unfiltered*: the parser's off-screen `WKWebView`
+    /// loads each article's full page, so third-party analytics/CDN domains drop
+    /// cookies here too. That makes this list read as cookie soup, not "sites
+    /// you signed into." The Settings screen uses ``signedInSites()`` instead,
+    /// which filters and groups this raw view into something user-facing.
     func signedInHosts() async -> [String] {
         let cookies = await allCookies()
         var hosts = Set<String>()
@@ -45,6 +50,38 @@ final class SiteLoginStore {
             hosts.insert(Self.normalizedHost(cookie.domain))
         }
         return hosts.sorted()
+    }
+
+    /// Registrable domains the user has a *durable* login for, sorted — the data
+    /// source for the "Site Logins" management screen.
+    ///
+    /// `signedInHosts()` lists every cookie domain in the shared jar, which is
+    /// mostly noise: extracting an article loads its full page, so trackers,
+    /// analytics, and CDNs all leave cookies. Two filters turn that soup into a
+    /// list that reads as "sites":
+    ///
+    /// 1. **Persistent cookies only** (`!isSessionOnly`). A real login writes a
+    ///    cookie with a future expiry so the session survives an app relaunch;
+    ///    session-only cookies are in-memory page state that WebKit never
+    ///    persists to disk, so they can't represent a login you'd want to manage
+    ///    here. This drops a large slice of transient beacon/consent cookies.
+    /// 2. **Group by registrable domain** (eTLD+1). Collapses `www.medium.com`,
+    ///    `.medium.com`, and subdomains like `accounts.medium.com` into a single
+    ///    `medium.com` row, so one site is one entry instead of one-row-per-
+    ///    subdomain.
+    ///
+    /// This is a heuristic, not a guarantee: a tracker that sets a long-lived
+    /// first-party-looking cookie can still slip through, and a login that only
+    /// uses session cookies won't appear. Both are acceptable — the screen's
+    /// explicit per-site Sign Out lets the user prune anything that shouldn't be
+    /// there, and a session-only "login" wouldn't survive relaunch anyway.
+    func signedInSites() async -> [String] {
+        let cookies = await allCookies()
+        var domains = Set<String>()
+        for cookie in cookies where !cookie.isSessionOnly {
+            domains.insert(Self.registrableDomain(cookie.domain))
+        }
+        return domains.sorted()
     }
 
     /// Removes all website data (cookies, cache, local storage) for `host` and
@@ -87,6 +124,37 @@ final class SiteLoginStore {
         let c = normalizedHost(candidate)
         let t = normalizedHost(target)
         return c == t || c.hasSuffix("." + t)
+    }
+
+    /// A small, offline subset of the Public Suffix List: two-label suffixes
+    /// under which registrations happen (so `bbc.co.uk` must not collapse to the
+    /// bare suffix `co.uk`). We deliberately do **not** vendor the full PSL — it
+    /// is a large, frequently-updated data file, and this grouping only drives a
+    /// display list, not any security boundary. Anything not listed falls back
+    /// to last-two-labels, which is correct for the common gTLD case
+    /// (`.com`/`.org`/`.io`/…). Worst case, a site on an unlisted multi-label
+    /// ccTLD shows as two rows instead of one — purely cosmetic, and each row's
+    /// Sign Out still works.
+    private static let twoLevelPublicSuffixes: Set<String> = [
+        "co.uk", "org.uk", "gov.uk", "ac.uk", "me.uk",
+        "com.au", "net.au", "org.au", "gov.au", "edu.au",
+        "co.jp", "or.jp", "ne.jp",
+        "co.nz", "co.za", "co.in", "co.kr",
+        "com.br", "com.mx", "com.sg", "com.hk", "com.tr",
+    ]
+
+    /// Collapses a cookie domain / host to its registrable domain (eTLD+1) so
+    /// subdomains of one site group into a single entry. Uses
+    /// ``twoLevelPublicSuffixes`` to keep country-code registrations intact.
+    nonisolated static func registrableDomain(_ host: String) -> String {
+        let normalized = normalizedHost(host)
+        let labels = normalized.split(separator: ".").map(String.init)
+        guard labels.count > 2 else { return normalized }
+        let lastTwo = labels.suffix(2).joined(separator: ".")
+        if twoLevelPublicSuffixes.contains(lastTwo) {
+            return labels.suffix(3).joined(separator: ".")
+        }
+        return lastTwo
     }
 
     // MARK: - WebKit continuation bridges
