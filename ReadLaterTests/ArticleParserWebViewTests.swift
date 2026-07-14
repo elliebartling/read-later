@@ -110,6 +110,48 @@ final class ArticleParserWebViewTests: XCTestCase {
         let parsed = try await ArticleParser.shared.parse(url: url, prefetchedHTML: body)
         XCTAssertFalse(parsed.plainText.isEmpty)
         XCTAssertTrue(parsed.blocks.contains { $0.type == .paragraph })
+        // A plain article carries no paywall flag.
+        XCTAssertFalse(parsed.isPaywalledPartial)
+    }
+
+    /// End-to-end: a member-only preview whose schema.org JSON-LD ships
+    /// `isAccessibleForFree:false` still parses (the preview is real prose that
+    /// clears the gate) but is flagged partial — the exact shape of the reported
+    /// Medium article.
+    func testPaywalledPreviewParsesButIsFlaggedPartial() async throws {
+        let body = page(body: """
+        <script type="application/ld+json">
+        {"@context":"https://schema.org","@graph":[
+          {"@type":"Article","headline":"Gated","isAccessibleForFree":false}
+        ]}
+        </script>
+        <article>
+        <h1>A member-only story</h1>
+        \(prose)
+        </article>
+        """)
+
+        let parsed = try await ArticleParser.shared.parse(url: url, prefetchedHTML: body)
+        XCTAssertTrue(parsed.isPaywalledPartial, "schema.org isAccessibleForFree:false should flag the article")
+        XCTAssertFalse(parsed.plainText.isEmpty, "the free preview prose should still be saved")
+    }
+
+    /// Detection is additive, not a gate: a free article with matching schema
+    /// stays unflagged and parses normally.
+    func testFreeArticleWithSchemaIsNotFlagged() async throws {
+        let body = page(body: """
+        <script type="application/ld+json">
+        {"@type":"Article","headline":"Open","isAccessibleForFree":true}
+        </script>
+        <article>
+        <h1>An open article</h1>
+        \(prose)
+        </article>
+        """)
+
+        let parsed = try await ArticleParser.shared.parse(url: url, prefetchedHTML: body)
+        XCTAssertFalse(parsed.isPaywalledPartial)
+        XCTAssertFalse(parsed.plainText.isEmpty)
     }
 
     /// Simulates a Medium-style lazy renderer: the page initially contains only

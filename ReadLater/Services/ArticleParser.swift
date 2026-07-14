@@ -30,6 +30,11 @@ final class ArticleParser: NSObject {
         /// document order. Persisted on Article for debugging so a wrong
         /// removal is inspectable; empty when nothing was filtered.
         let removedBlocks: [ArticleBlock]
+        /// True when the page is metered/member-only and only the free preview
+        /// reached the WebView (see `PaywallDetector`). The captured text is
+        /// therefore partial. Additive to the quality gate — a preview is real
+        /// prose and may pass — so it never blocks saving; it just flags it.
+        let isPaywalledPartial: Bool
     }
 
     static let shared = ArticleParser()
@@ -289,6 +294,30 @@ final class ArticleParser: NSObject {
                                 linkChars += (as[i].textContent || "").replace(/\\s+/g, "").length;
                             }
                             return linkChars / total;
+                        })(),
+                        // Raw paywall signals off the LIVE DOM (not the
+                        // extracted/filtered clone) — the Swift PaywallDetector
+                        // interprets these. `jsonLD` is the text of every
+                        // schema.org script; `bodyText` is the visible page text
+                        // (capped) scanned for in-DOM gate CTAs.
+                        jsonLD: (function() {
+                            var out = [];
+                            try {
+                                var s = document.querySelectorAll(
+                                    'script[type="application/ld+json"]');
+                                for (var i = 0; i < s.length; i++) {
+                                    var txt = s[i].textContent || "";
+                                    if (txt) { out.push(txt); }
+                                }
+                            } catch (e) {}
+                            return out;
+                        })(),
+                        bodyText: (function() {
+                            try {
+                                var t = (document.body && document.body.innerText)
+                                    ? document.body.innerText : "";
+                                return t.length > 100000 ? t.slice(0, 100000) : t;
+                            } catch (e) { return ""; }
                         })()
                     };
                 } catch (e) {
@@ -328,6 +357,13 @@ final class ArticleParser: NSObject {
             let rawBlocks = (dict["blocks"] as? [[String: Any]]) ?? []
             let mapped = Self.blocks(fromJS: rawBlocks, baseURL: url)
 
+            // Honest paywall detection (additive — never a gate rejection).
+            // Read off the live DOM signals gathered by the wrapper.
+            let paywall = PaywallDetector.detect(
+                jsonLDBlobs: (dict["jsonLD"] as? [String]) ?? [],
+                bodyText: (dict["bodyText"] as? String) ?? ""
+            )
+
             // Cruft Layer B (docs/parser-cruft-design.md): rule-driven removal
             // of subscribe/sign-in nags, social CTA clusters, and "N min read"
             // metadata. Runs AFTER blocks(fromJS:) (post preformatted
@@ -341,6 +377,11 @@ final class ArticleParser: NSObject {
             guard let refined = Self.gateAndFilter(
                 mapped: mapped, legacyText: legacyText, linkDensity: linkDensity
             ) else {
+                // The gate rejected this pass. If it's a paywall, the "missing"
+                // content is behind a login the retries can't defeat — stop the
+                // loop now instead of burning 40+ seconds re-pumping the same
+                // gated page. Otherwise fall through to the normal retry.
+                if paywall.isPaywalled { throw ParseError.paywalled }
                 throw ParseError.lowQuality
             }
             let blocks = refined.blocks
@@ -371,7 +412,8 @@ final class ArticleParser: NSObject {
                 heroImageURL: hero,
                 estimatedReadingMinutes: max(1, text.split(separator: " ").count / 220),
                 blocks: blocks,
-                removedBlocks: refined.removed
+                removedBlocks: refined.removed,
+                isPaywalledPartial: paywall.isPaywalled
             )
         }
 
@@ -384,6 +426,12 @@ final class ArticleParser: NSObject {
             await pumpFullRender(longSettle: attempt > 0)
             do {
                 return try await runPass()
+            } catch ParseError.paywalled {
+                // Detected a member-only gate on a pass that also failed the
+                // quality gate: retries won't reveal the body. Surface it now.
+                NSLog("ArticleParser: paywall gate detected for %@ — short-circuiting retries",
+                      url.absoluteString)
+                throw ParseError.paywalled
             } catch {
                 lastError = error
                 NSLog("ArticleParser: parse attempt %d/%d rejected for %@: %@",
@@ -738,6 +786,10 @@ final class ArticleParser: NSObject {
         /// Every extract attempt produced a nav shell / near-empty result that
         /// failed the quality gate. Surfaced so the caller records `.failed`.
         case lowQuality
+        /// The page is metered/member-only and served only a gate (no readable
+        /// preview reached us). Distinct from `.lowQuality` so the caller can
+        /// explain *why* there's nothing to show instead of blaming the load.
+        case paywalled
 
         var errorDescription: String? {
             switch self {
@@ -751,6 +803,8 @@ final class ArticleParser: NSObject {
                 return "Another article is still being parsed. Try again in a moment."
             case .lowQuality:
                 return "This page didn't finish loading its article content. Try again."
+            case .paywalled:
+                return "This article is member-only, so only a preview is available without signing in."
             }
         }
     }
@@ -797,6 +851,9 @@ extension Article {
         removedCruftJSON = parsed.removedBlocks.isEmpty
             ? nil
             : try? JSONEncoder().encode(parsed.removedBlocks)
+        // Overwritten on every parse so the flag always describes the current
+        // plainText — a later re-extract that reaches the full article clears it.
+        isPaywalledPartial = parsed.isPaywalledPartial
     }
 }
 

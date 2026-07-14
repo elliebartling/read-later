@@ -35,6 +35,13 @@ final class Article {
     /// future "Show removed content" escape hatch can render these).
     /// CloudKit-safe optional blob.
     var removedCruftJSON: Data?
+    /// True when the most recent parse detected that the source is
+    /// metered/member-only (schema.org `isAccessibleForFree:false` or an
+    /// in-DOM paywall gate) and only the free preview reached our WebView.
+    /// The saved `plainText` is therefore partial, not the full article. Drives
+    /// the reader's "preview only" banner. Inline default keeps the CloudKit
+    /// invariant. Set on every parse so it always describes the current text.
+    var isPaywalledPartial: Bool = false
     /// Last reading position as a UTF-16 character index into `plainText` — the
     /// first character visible at the top of the viewport when the reader was
     /// last closed. Lets the reader resume at the same *word* rather than the
