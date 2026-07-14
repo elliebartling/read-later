@@ -642,7 +642,7 @@ struct HighlightableTextView: UIViewRepresentable {
 /// grows, but we keep using the frozen value, so the text never shifts — the
 /// translucent bar simply overlays it. `contentInsetAdjustmentBehavior` is
 /// `.never` (set by the representable) so UIKit doesn't re-inset either.
-final class ReaderTextView: UITextView {
+final class ReaderTextView: SelectionWashHidingTextView {
     /// Reading padding (top/bottom breathing room + width-based side margins)
     /// supplied by the representable. Safe-area accommodation is layered on top.
     var baseTextInsets: UIEdgeInsets = .zero {
@@ -658,42 +658,11 @@ final class ReaderTextView: UITextView {
     var onLayout: (() -> Void)?
 
     override func layoutSubviews() {
+        // `super` (SelectionWashHidingTextView) lays out the text view and then
+        // re-hides the selection wash; we only need to add the layout callback.
         super.layoutSubviews()
-        hideSelectionHighlight()
         onLayout?()
     }
-
-    /// Suppresses the system's blue selection wash while keeping the drag
-    /// handles and magnifier. Selecting text creates a highlight instantly, so
-    /// the yellow highlight already marks the range — the blue tint on top of
-    /// it just muddies the color. The wash is drawn by the text view's
-    /// `UITextSelectionDisplayInteraction.highlightView` (iOS 17+); UIKit
-    /// re-shows it whenever the selection activates, so this is re-applied from
-    /// `layoutSubviews` and every selection change.
-    func hideSelectionHighlight() {
-        if selectionDisplayInteraction == nil {
-            selectionDisplayInteraction = Self.findSelectionDisplayInteraction(in: self)
-        }
-        selectionDisplayInteraction?.highlightView.isHidden = true
-    }
-
-    /// UIKit attaches the interaction to an internal subview, not necessarily
-    /// the text view itself, so search the whole subtree (it's shallow).
-    private static func findSelectionDisplayInteraction(in root: UIView) -> UITextSelectionDisplayInteraction? {
-        var queue: [UIView] = [root]
-        while !queue.isEmpty {
-            let view = queue.removeLast()
-            for interaction in view.interactions {
-                if let selection = interaction as? UITextSelectionDisplayInteraction {
-                    return selection
-                }
-            }
-            queue.append(contentsOf: view.subviews)
-        }
-        return nil
-    }
-
-    private weak var selectionDisplayInteraction: UITextSelectionDisplayInteraction?
 
     override func safeAreaInsetsDidChange() {
         super.safeAreaInsetsDidChange()
