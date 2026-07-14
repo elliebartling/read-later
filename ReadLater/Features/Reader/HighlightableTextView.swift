@@ -658,6 +658,17 @@ final class ReaderTextView: SelectionWashHidingTextView {
     var onLayout: (() -> Void)?
 
     override func layoutSubviews() {
+        // Re-assert the reader insets on EVERY layout pass, not only when the
+        // safe area changes. UIKit can reset `textContainerInset` and
+        // `lineFragmentPadding` behind our back (most notably when a text view
+        // falls back from TextKit 2 to TextKit 1 and swaps its text container;
+        // also seen around bar/chrome transitions). Before this ran per-pass,
+        // such a reset was STICKY: nothing re-applied the insets until the next
+        // safe-area change, so the article rendered flush against the screen
+        // edge — seen on device during TTS with the audio capsule up. The
+        // equality guards inside applyReaderInsets keep this a no-op on the
+        // (overwhelmingly common) already-correct pass.
+        applyReaderInsets()
         // `super` (SelectionWashHidingTextView) lays out the text view and then
         // re-hides the selection wash; we only need to add the layout callback.
         super.layoutSubviews()
@@ -674,21 +685,60 @@ final class ReaderTextView: SelectionWashHidingTextView {
         applyReaderInsets()
     }
 
+    /// Pure inset math for the frozen-top reader padding, extracted so it can
+    /// be unit-tested without UIKit layout. Returns the container insets to
+    /// apply plus the updated frozen-top value to store.
+    ///
+    /// Rules:
+    /// - left/right come from `base` only — the safe area NEVER moves the text
+    ///   horizontally (portrait phones have no horizontal safe area; the reader
+    ///   opts out of everything else).
+    /// - top freezes at the smallest positive safe-area top ever seen (the
+    ///   immersive, chrome-hidden value), so revealing the nav bar can't push
+    ///   the article down. A transient 0 (mid-transition, detached view) never
+    ///   unfreezes or shrinks it.
+    /// - bottom follows the live safe area.
+    static func frozenReaderInsets(
+        base: UIEdgeInsets,
+        safeAreaTop: CGFloat,
+        safeAreaBottom: CGFloat,
+        frozenTop: CGFloat?
+    ) -> (insets: UIEdgeInsets, frozenTop: CGFloat?) {
+        var frozen = frozenTop
+        if safeAreaTop > 0 {
+            frozen = min(frozen ?? safeAreaTop, safeAreaTop)
+        }
+        let insets = UIEdgeInsets(
+            top: base.top + (frozen ?? safeAreaTop),
+            left: base.left,
+            bottom: base.bottom + safeAreaBottom,
+            right: base.right
+        )
+        return (insets, frozen)
+    }
+
     private func applyReaderInsets() {
         let liveTop = safeAreaInsets.top
-        if liveTop > 0 {
-            immersiveTopInset = min(immersiveTopInset ?? liveTop, liveTop)
-        }
-        let frozenTop = immersiveTopInset ?? liveTop
-
-        let desired = UIEdgeInsets(
-            top: baseTextInsets.top + frozenTop,
-            left: baseTextInsets.left,
-            bottom: baseTextInsets.bottom + safeAreaInsets.bottom,
-            right: baseTextInsets.right
+        let result = Self.frozenReaderInsets(
+            base: baseTextInsets,
+            safeAreaTop: liveTop,
+            safeAreaBottom: safeAreaInsets.bottom,
+            frozenTop: immersiveTopInset
         )
-        if textContainerInset != desired {
-            textContainerInset = desired
+        immersiveTopInset = result.frozenTop
+        if textContainerInset != result.insets {
+            textContainerInset = result.insets
+        }
+        // The representable zeroes lineFragmentPadding once at creation, but a
+        // container swap (TextKit 1 fallback) restores UIKit's default 5pt —
+        // pin it here so the healing pass covers it too.
+        if textContainer.lineFragmentPadding != 0 {
+            textContainer.lineFragmentPadding = 0
+        }
+        // Defensive: UIKit must never re-inset the content for the bars; the
+        // frozen top inset above is the single source of truth.
+        if contentInsetAdjustmentBehavior != .never {
+            contentInsetAdjustmentBehavior = .never
         }
 
         // Scroll indicators should still dodge the *live* bars, not the frozen
