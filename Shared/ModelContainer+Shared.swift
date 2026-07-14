@@ -84,6 +84,10 @@ enum SharedModelContainer {
                     configurations: [synced, localConfig()]
                 )
                 SyncStatus.shared.update(.syncing)
+                // Now that a CloudKit-mirrored store is open, start listening
+                // for NSPersistentCloudKitContainer mirroring events so Settings
+                // can show setup/import/export telemetry (and any export error).
+                SyncEventMonitor.shared.start()
                 return container
             } catch {
                 NSLog("CloudKit-backed store unavailable (%@) — falling back to local-only storage",
