@@ -114,6 +114,7 @@ private struct UnreadBadge: View {
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
                 .background(.quaternary, in: Capsule())
+                .accessibilityLabel("\(count) unread")
         }
     }
 }
@@ -133,6 +134,11 @@ struct AddFeedSheet: View {
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
                     .disabled(isResolving)
+                    .submitLabel(.go)
+                    .onSubmit {
+                        guard !isResolving, normalizedURL != nil else { return }
+                        Task { await subscribe() }
+                    }
                 if let errorMessage {
                     Text(errorMessage)
                         .font(.footnote)

@@ -31,7 +31,16 @@ struct FeedEntriesView: View {
 
     var body: some View {
         List {
-            if let message = emptyStateMessage {
+            if entries.isEmpty, isRefreshing {
+                HStack {
+                    Spacer()
+                    ProgressView()
+                    Spacer()
+                }
+                .padding(.top, 40)
+                .listRowSeparator(.hidden)
+                .accessibilityLabel("Loading")
+            } else if let message = emptyStateMessage {
                 ContentUnavailableView(
                     message.title,
                     systemImage: message.icon,
@@ -50,6 +59,7 @@ struct FeedEntriesView: View {
                     )
                 }
                 .buttonStyle(.plain)
+                .accessibilityValue(entry.isRead ? Text("Read") : Text("Unread"))
                 .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
                 .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
                 .swipeActions(edge: .leading) {
@@ -171,6 +181,7 @@ private struct FeedEntryRow: View {
                 .frame(width: 8, height: 8)
                 .padding(.top, 6)
                 .opacity(entry.isRead ? 0 : 1)
+                .accessibilityHidden(true)
             VStack(alignment: .leading, spacing: 4) {
                 Text(entry.title.isEmpty ? (entry.url?.absoluteString ?? "Untitled") : entry.title)
                     .font(.headline)
