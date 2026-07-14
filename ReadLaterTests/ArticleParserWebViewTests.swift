@@ -114,10 +114,10 @@ final class ArticleParserWebViewTests: XCTestCase {
         XCTAssertFalse(parsed.isPaywalledPartial)
     }
 
-    /// End-to-end: a member-only preview whose schema.org JSON-LD ships
-    /// `isAccessibleForFree:false` still parses (the preview is real prose that
-    /// clears the gate) but is flagged partial — the exact shape of the reported
-    /// Medium article.
+    /// End-to-end: an anonymous member-only preview — schema.org
+    /// `isAccessibleForFree:false` and a sub-preview-scale capture — still
+    /// parses (the preview is real prose that clears the gate) but is flagged
+    /// partial. The exact shape of the reported Medium article.
     func testPaywalledPreviewParsesButIsFlaggedPartial() async throws {
         let body = page(body: """
         <script type="application/ld+json">
@@ -132,8 +132,67 @@ final class ArticleParserWebViewTests: XCTestCase {
         """)
 
         let parsed = try await ArticleParser.shared.parse(url: url, prefetchedHTML: body)
-        XCTAssertTrue(parsed.isPaywalledPartial, "schema.org isAccessibleForFree:false should flag the article")
+        XCTAssertTrue(parsed.isPaywalledPartial,
+                      "schema false + preview-scale capture should flag the article")
         XCTAssertFalse(parsed.plainText.isEmpty, "the free preview prose should still be saved")
+    }
+
+    /// End-to-end build-31 regression: an *authenticated* fetch of a
+    /// member-only article — schema.org still says `isAccessibleForFree:false`
+    /// (it always will) but no gate CTA renders and the capture is substantial
+    /// — must NOT be flagged partial.
+    func testAuthenticatedFullMemberArticleIsNotFlagged() async throws {
+        // Enough paragraphs to clear PaywallRules.substantialWordFloor (500
+        // words) with margin: ~40 words per paragraph x 16 = ~640 words.
+        let longBody = (0 ..< 16).map { i in
+            """
+            <p>Section \(i) of the complete member article, present because the
+            session is authenticated and the wall never rendered on this page.
+            Each of these paragraphs carries genuine long-form prose, the kind a
+            signed-in reader actually receives, with enough words that the whole
+            capture lands comfortably above any preview scale threshold.</p>
+            """
+        }.joined(separator: "\n")
+        let body = page(body: """
+        <script type="application/ld+json">
+        {"@context":"https://schema.org","@graph":[
+          {"@type":"Article","headline":"Gated but fetched signed-in","isAccessibleForFree":false}
+        ]}
+        </script>
+        <article>
+        <h1>A member-only story, fetched with a session</h1>
+        \(longBody)
+        </article>
+        """)
+
+        let parsed = try await ArticleParser.shared.parse(url: url, prefetchedHTML: body)
+        XCTAssertFalse(parsed.isPaywalledPartial,
+                       "substantial capture with no gate CTA must not be flagged despite schema false")
+        XCTAssertTrue(parsed.plainText.contains("Section 15"), "full text should be captured")
+    }
+
+    /// End-to-end: a rendered gate CTA flags the capture even when the page
+    /// also holds enough prose to look substantial — direct truncation
+    /// evidence wins over length.
+    func testGateCTAFlagsEvenSubstantialCapture() async throws {
+        let longBody = (0 ..< 16).map { i in
+            """
+            <p>Chunk \(i) of banked pre-gate content with plenty of prose in it,
+            long enough that the total capture clears the substantial word floor
+            and would otherwise read as a complete article to the heuristic.</p>
+            """
+        }.joined(separator: "\n")
+        let body = page(body: """
+        <article>
+        <h1>A long capture with the wall still on the page</h1>
+        \(longBody)
+        <p>Read the full story with a free account.</p>
+        </article>
+        """)
+
+        let parsed = try await ArticleParser.shared.parse(url: url, prefetchedHTML: body)
+        XCTAssertTrue(parsed.isPaywalledPartial,
+                      "an in-DOM gate CTA is truncation evidence regardless of capture length")
     }
 
     /// Detection is additive, not a gate: a free article with matching schema
