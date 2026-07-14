@@ -204,4 +204,69 @@ final class ArticleParserWebViewTests: XCTestCase {
         let paragraphTexts = parsed.blocks.compactMap { $0.type == .paragraph ? $0.text : nil }
         XCTAssertTrue(paragraphTexts.contains { $0.contains("LAZY-TAIL-MARKER") })
     }
+
+    /// Simulates a VIRTUALIZING renderer: each scroll event mounts the next
+    /// chunk and unmounts everything but the last two — so the full article is
+    /// NEVER in the DOM at one instant, and any single final-DOM snapshot is
+    /// structurally incapable of containing it. Only the incremental harvester,
+    /// which banks blocks as they mount during the pump, can assemble the whole
+    /// text. Early chunks reaching plainText proves the banked stream beat the
+    /// snapshot; ordering proves the stream preserved document order.
+    func testVirtualizedArticleIsAssembledFromHarvestedStream() async throws {
+        let body = page(body: """
+        <article id="story">
+        <h1>The virtualized article</h1>
+        \(prose)
+        <p>Everything below is mounted lazily one chunk per scroll event, and
+        older chunks are unmounted as newer ones arrive, so the document never
+        holds the whole story at once.</p>
+        </article>
+        <script>
+        (function() {
+            var added = 0;
+            var total = 8;
+            var live = [];
+            var filler = "This chunk carries a decent amount of running prose so that " +
+                         "unmounting it visibly shrinks the document and the final " +
+                         "snapshot is clearly missing content that already streamed by. ";
+            function mountNext() {
+                if (added >= total) { return; }
+                added += 1;
+                var p = document.createElement("p");
+                p.textContent = (added === total)
+                    ? "VIRT-TAIL-MARKER the story ends here after everything scrolled past."
+                    : ("VChunk " + added + ". " + filler + filler);
+                document.getElementById("story").appendChild(p);
+                live.push(p);
+                // Virtualization: keep only the two most recent chunks mounted.
+                while (live.length > 2) {
+                    var old = live.shift();
+                    if (old.parentNode) { old.parentNode.removeChild(old); }
+                }
+            }
+            window.addEventListener("scroll", mountNext);
+            document.addEventListener("scroll", mountNext);
+        })();
+        </script>
+        """)
+
+        let parsed = try await ArticleParser.shared.parse(url: url, prefetchedHTML: body)
+
+        // Early chunks were unmounted long before the final snapshot — they can
+        // only come from the harvested stream.
+        XCTAssertTrue(
+            parsed.plainText.contains("VChunk 1."),
+            "harvester failed to bank the virtualized head; plainText starts: \(parsed.plainText.prefix(160))"
+        )
+        XCTAssertTrue(parsed.plainText.contains("VChunk 5."), "middle chunk missing")
+        XCTAssertTrue(parsed.plainText.contains("VIRT-TAIL-MARKER"), "tail missing")
+        // Document order must survive the incremental assembly.
+        let head = parsed.plainText.range(of: "VChunk 1.")
+        let mid = parsed.plainText.range(of: "VChunk 5.")
+        let tail = parsed.plainText.range(of: "VIRT-TAIL-MARKER")
+        if let head, let mid, let tail {
+            XCTAssertTrue(head.lowerBound < mid.lowerBound && mid.lowerBound < tail.lowerBound,
+                          "harvested stream lost document order")
+        }
+    }
 }
