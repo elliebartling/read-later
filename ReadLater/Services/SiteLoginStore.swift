@@ -21,6 +21,13 @@ import Foundation
 ///   deliberately **out of scope for v1** (see the site-login PR); this type is
 ///   the seam it will build on. The queries are unit-tested against an injected
 ///   non-persistent store so the host-matching logic is verified now.
+/// Failures surfaced by `SiteLoginStore`'s data-store queries.
+enum SiteLoginStoreError: Error, Equatable {
+    /// The website-data store never answered within the deadline. Callers must
+    /// show a retryable error/empty state — never an eternal spinner.
+    case timedOut
+}
+
 @MainActor
 final class SiteLoginStore {
     static let shared = SiteLoginStore()
@@ -30,8 +37,43 @@ final class SiteLoginStore {
     /// `.nonPersistent()` store to exercise the host queries in isolation.
     let dataStore: WKWebsiteDataStore
 
-    init(dataStore: WKWebsiteDataStore = .default()) {
+    /// Deadline for every cookie/data-record query. WebKit's completion
+    /// handlers are not contractually guaranteed to fire (see
+    /// `warmUpIfNeeded()`), so every bridge races this timeout instead of
+    /// trusting the callback.
+    let queryTimeout: TimeInterval
+
+    /// Dormant web view that pins the WebKit machinery behind `dataStore`.
+    /// Created by `warmUpIfNeeded()`; retained for the store's lifetime on
+    /// purpose so the machinery never tears back down under us.
+    private var warmupWebView: WKWebView?
+
+    init(dataStore: WKWebsiteDataStore = .default(), queryTimeout: TimeInterval = 5) {
         self.dataStore = dataStore
+        self.queryTimeout = queryTimeout
+    }
+
+    /// Forces WebKit to attach the cookie-store/network machinery behind
+    /// `dataStore` by keeping one dormant `WKWebView` bound to it.
+    ///
+    /// Without this, `WKHTTPCookieStore.getAllCookies` /
+    /// `fetchDataRecords(ofTypes:)` on the persistent `.default()` store can
+    /// simply **never invoke their completion** when no `WKWebView` using the
+    /// store exists in the process — long-standing WebKit behavior that showed
+    /// up on device as an infinite Settings → Site Logins spinner when the app
+    /// cold-launched straight into Settings (no reader, no login sheet, so
+    /// nothing had touched the store yet). Unit tests never caught it because
+    /// `.nonPersistent()` stores are in-memory and answer without that
+    /// machinery. The empty `loadHTMLString` kicks the web-content/network
+    /// processes alive; the view is never installed in a hierarchy and stays
+    /// dormant.
+    private func warmUpIfNeeded() {
+        guard warmupWebView == nil else { return }
+        let configuration = WKWebViewConfiguration()
+        configuration.websiteDataStore = dataStore
+        let webView = WKWebView(frame: .zero, configuration: configuration)
+        webView.loadHTMLString("", baseURL: nil)
+        warmupWebView = webView
     }
 
     /// Hosts that currently have at least one stored cookie, normalized and
@@ -43,8 +85,8 @@ final class SiteLoginStore {
     /// cookies here too. That makes this list read as cookie soup, not "sites
     /// you signed into." The Settings screen uses ``signedInSites()`` instead,
     /// which filters and groups this raw view into something user-facing.
-    func signedInHosts() async -> [String] {
-        let cookies = await allCookies()
+    func signedInHosts() async throws -> [String] {
+        let cookies = try await allCookies()
         var hosts = Set<String>()
         for cookie in cookies {
             hosts.insert(Self.normalizedHost(cookie.domain))
@@ -75,8 +117,8 @@ final class SiteLoginStore {
     /// uses session cookies won't appear. Both are acceptable — the screen's
     /// explicit per-site Sign Out lets the user prune anything that shouldn't be
     /// there, and a session-only "login" wouldn't survive relaunch anyway.
-    func signedInSites() async -> [String] {
-        let cookies = await allCookies()
+    func signedInSites() async throws -> [String] {
+        let cookies = try await allCookies()
         var domains = Set<String>()
         for cookie in cookies where !cookie.isSessionOnly {
             domains.insert(Self.registrableDomain(cookie.domain))
@@ -88,22 +130,26 @@ final class SiteLoginStore {
     /// its subdomains — the "sign out of this site" action. Matching is
     /// registrable-domain aware so a session cookie scoped to `.medium.com`
     /// (or `sub.medium.com`) is cleared when signing out of `medium.com`.
-    func signOut(host: String) async {
+    func signOut(host: String) async throws {
         let target = Self.normalizedHost(host)
 
         // Cookies match by domain, which may be dot-prefixed for subdomains.
         let cookieStore = dataStore.httpCookieStore
-        for cookie in await allCookies() where Self.hostMatches(cookie.domain, target) {
-            await deleteCookie(cookie, from: cookieStore)
+        for cookie in try await allCookies() where Self.hostMatches(cookie.domain, target) {
+            try await deleteCookie(cookie, from: cookieStore)
         }
 
         // Non-cookie records (cache, local/session storage) are keyed by a
         // display name that is the registrable domain.
         let types = WKWebsiteDataStore.allWebsiteDataTypes()
-        let records = await dataStore.dataRecords(ofTypes: types)
+        let records: [WKWebsiteDataRecord] = try await bridgedQuery { done in
+            dataStore.fetchDataRecords(ofTypes: types) { done($0) }
+        }
         let matching = records.filter { Self.hostMatches($0.displayName, target) }
         if !matching.isEmpty {
-            await dataStore.removeData(ofTypes: types, for: matching)
+            try await bridgedQuery { done in
+                dataStore.removeData(ofTypes: types, for: matching) { done(()) }
+            }
         }
     }
 
@@ -157,18 +203,58 @@ final class SiteLoginStore {
         return lastTwo
     }
 
-    // MARK: - WebKit continuation bridges
+    // MARK: - WebKit continuation bridges (timeout-guarded)
 
-    private func allCookies() async -> [HTTPCookie] {
-        let store = dataStore.httpCookieStore
-        return await withCheckedContinuation { continuation in
-            store.getAllCookies { continuation.resume(returning: $0) }
+    /// Bridges a completion-handler WebKit query into async/await with a
+    /// deadline. If `start`'s completion has not fired within `timeout`
+    /// seconds, throws `SiteLoginStoreError.timedOut` instead of suspending
+    /// forever — the defense that turns "WebKit never called back" from an
+    /// infinite spinner into a visible, retryable error. Late or duplicate
+    /// completions are ignored (never a double-resume).
+    ///
+    /// Also performs the warm-up (`warmUpIfNeeded()`), so every query path is
+    /// covered no matter which public method runs first.
+    ///
+    /// Thread-safety of `resumed`: WKHTTPCookieStore and WKWebsiteDataStore
+    /// deliver their completions on the main queue, and the timeout task is
+    /// main-actor — both finish paths run on the main thread, so the flag
+    /// needs no lock. Internal (not private) so tests can exercise the
+    /// timeout/duplicate defenses directly.
+    func bridgedQuery<T>(
+        timeout: TimeInterval? = nil,
+        start: (@escaping (T) -> Void) -> Void
+    ) async throws -> T {
+        warmUpIfNeeded()
+        let deadline = timeout ?? queryTimeout
+        return try await withCheckedThrowingContinuation { (continuation: CheckedContinuation<T, Error>) in
+            var resumed = false
+            func finish(_ result: Result<T, Error>) {
+                guard !resumed else { return }
+                resumed = true
+                continuation.resume(with: result)
+            }
+            let timeoutTask = Task { @MainActor in
+                try? await Task.sleep(nanoseconds: UInt64(deadline * 1_000_000_000))
+                guard !Task.isCancelled else { return }
+                finish(.failure(SiteLoginStoreError.timedOut))
+            }
+            start { value in
+                timeoutTask.cancel()
+                finish(.success(value))
+            }
         }
     }
 
-    private func deleteCookie(_ cookie: HTTPCookie, from store: WKHTTPCookieStore) async {
-        await withCheckedContinuation { continuation in
-            store.delete(cookie) { continuation.resume() }
+    private func allCookies() async throws -> [HTTPCookie] {
+        let store = dataStore.httpCookieStore
+        return try await bridgedQuery { done in
+            store.getAllCookies { done($0) }
+        }
+    }
+
+    private func deleteCookie(_ cookie: HTTPCookie, from store: WKHTTPCookieStore) async throws {
+        try await bridgedQuery { done in
+            store.delete(cookie) { done(()) }
         }
     }
 }
