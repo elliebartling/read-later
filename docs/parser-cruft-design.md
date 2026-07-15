@@ -76,13 +76,67 @@ CTA. A lone social word in running prose survives.
 Whole-block regex: `^\d+\s*min(ute)?s?\s*(read|listen)$`, and "N free stories
 left" counters.
 
+### 5. Label/value metadata stacks (round 2 — press-release furniture)
+
+TestFlight evidence (ScienceDaily / university press releases): a structured
+header stack extracts as separate paragraphs — "Date:", "July 14, 2026",
+"Source:", "University of Michigan", "Summary:" — plus footer furniture
+("Story Source:", "Journal Reference:", "Cite This Page:", "FULL STORY",
+"RELATED STORIES/TERMS/TOPICS"). Verified against a live ScienceDaily page
+(2026-07-14). Rules:
+
+- **Field labels** ("Date:", "Source:", "Updated:"…): whole-block match, ≤ 4
+  words, and the RAW text must end with ":". Removal also consumes the
+  immediately-following block when it reads as a VALUE — ≤ 8 words and
+  non-sentential (no interior ". ", no terminal ./!/?). A long or
+  sentence-like follower survives; only the label falls.
+- **Label-only** ("Summary:", "Story Source:", "Journal Reference:", "Cite
+  This Page:"): the label falls alone. **The "Summary:" decision:**
+  ScienceDaily's summary value duplicates the article abstract — real prose
+  the user may want to read, highlight, and hear in TTS — so we keep the
+  value and drop only the label. "Story Source:"'s boilerplate value falls to
+  new phrase rules ("materials provided by", "content may be edited for style
+  and length"); **journal citations are deliberately kept** (scholarly value,
+  precision over recall).
+- **Section furniture** ("FULL STORY", "RELATED STORIES", "Top highlight",
+  "Advertisement"…): exact whole-block, colon optional, and — unlike the
+  auth/social exact rules — **headings are NOT exempt**, because aggregators
+  emit these as headings.
+- The trailing-colon requirement on the raw text is the precision anchor: a
+  legit colon-less "Summary" section heading, or "Date:" used mid-sentence,
+  can never match.
+
+### 6. Engagement counters (round 2 — Medium clap stacks, cluster+tail-gated)
+
+TestFlight evidence (Medium, post-content zone): standalone paragraphs
+"3.6K", "2", "Top highlight", "1", "1", "1", "1" — clap counts, response
+counts, highlight-engagement furniture. Bare numbers are the most dangerous
+pattern in the whole taxonomy (a listicle paragraph that is just "42" is real
+content), so the gates are the strictest:
+
+- Candidate: whole-block bare number (`^\d{1,4}(,\d{3})*$`) or K/M/B count
+  (`^\d+(\.\d+)?[kmb]$`), **paragraphs only** — numeric list items (lottery
+  numbers, tabular data) and numeric listicle headings ("1.") are exempt.
+- Removed only when **clustered**: adjacent to non-counter cruft anywhere, or
+  adjacent to any cruft when the block sits within the last 12 blocks of the
+  article (the tail zone). A lone "42" survives everywhere; a mid-article
+  "3" / "2" / "1" countdown is a pure-counter run outside the tail and
+  survives; the end-of-article clap stack dies.
+- Counts with the unit attached ("47 responses", "3.6K claps") are
+  unambiguous and fall to whole-block metadata regexes unconditionally.
+
 ### Anti-taxonomy (must survive — counter-fixtures)
 
 - Short paragraphs that merely contain links.
 - A real "sign in" **sentence** inside article prose.
 - A tutorial heading like "Sign in" (headings are exempt from the exact
-  auth/social rules; only phrase + regex rules touch headings).
+  auth/social rules; only phrase + regex + label/furniture rules touch
+  headings).
 - Legitimately short paragraphs ("Yes.", "It worked.").
+- Round 2: "Date:" used inside prose; a colon-less "Summary" heading;
+  definition-list content ("Ingredients:" / "Flour, sugar, and butter");
+  a lone "42" listicle paragraph (even in the tail); a mid-article countdown
+  run; bare-number list items; numeric listicle headings.
 
 ## Where to strip: two conservative layers
 
@@ -156,6 +210,124 @@ overload of `blocksVersion`.
 4. **Legacy fallback text pass — skipped.** Articles whose parse yields no
    typed blocks keep unfiltered legacy text (see Deferred).
 
+## The long tail: on-device model classification (FoundationModels)
+
+Deterministic rules will never enumerate every site's furniture — round 2
+exists because ScienceDaily and Medium each shipped patterns round 1 didn't
+know. Ellen asked for a design for using Apple's on-device LLM as the cruft
+long-tail classifier. Researched against current API reality (July 2026);
+**not implemented yet** — this section is the plan.
+
+### The framework, verified
+
+`FoundationModels` (iOS 26+) exposes the ~3B-parameter Apple Intelligence
+on-device LLM. Key facts that shape this design:
+
+- **Availability is a runtime question, not just an OS check.**
+  `SystemLanguageModel.default.availability` returns `.available` or
+  `.unavailable(reason:)` — reasons include device not eligible (no Apple
+  Intelligence hardware), Apple Intelligence disabled in Settings, and model
+  not ready (still downloading). The app must treat the model as a bonus
+  layer that can vanish; deterministic rules remain the floor. Our deployment
+  target is already iOS 26.0, so no `#available` gate is needed — only the
+  availability check.
+- **Context window is a hard 4,096 tokens per `LanguageModelSession`**
+  (prompt + output combined; exceeding it throws
+  `exceededContextWindowSize`). A full article does not fit and must never be
+  sent whole.
+- **Guided generation via `@Generable`** constrains decoding to a
+  compiler-derived schema — the model *cannot* return malformed output. This
+  is the right shape for classification: a `@Generable struct` of
+  per-block verdicts, not free text.
+- **Latency**: on the order of ~1s per short request on current hardware;
+  fine for a background parse pipeline, unacceptable for anything
+  interactive. Energy cost is nonzero — another reason to send as little as
+  possible.
+
+### Where it slots: the ambiguous middle tier only
+
+The pipeline stays rules-first. The model never sees whole articles and never
+overrides the safety rails:
+
+1. **Deterministic rules run first** (Layers A + B as shipped). High-confidence
+   removals happen without the model.
+2. **Candidate selection**: only *ambiguous* blocks go to the model — short
+   blocks (≤ ~25 words) in the article's head/tail zones that triggered a
+   near-miss signal (counter candidate outside its gate, social candidate
+   without a cluster, label-shaped block not in the tables, link-dense short
+   block). A ~100-block article typically yields **5–15 candidates**, batched
+   into ONE request with a few words of neighbor context each — comfortably
+   inside 4,096 tokens. Never the whole article.
+3. **Verdicts apply only as removals of candidates** — the model can confirm
+   a suspicion, never invent one about a block the rules considered clean.
+   Blocks the model calls content stay, blocks it calls cruft are removed
+   *through the same pipeline* (recorded in `removedCruftJSON`,
+   `wasCruftFiltered`).
+4. **The zero-content backoff and `gateAndFilter` gate-composition run AFTER
+   model filtering, unchanged.** The model can never nuke an article or push
+   one below the quality gate — the same backoff that protects the rules
+   protects it.
+5. On `.unavailable(...)`: skip step 2–3 silently. Identical behavior to
+   today; no UI, no error.
+
+### Prompt + output shape (sketch)
+
+```swift
+@Generable
+struct BlockVerdicts {
+    @Generable
+    struct Verdict {
+        @Guide(description: "Index of the block being classified")
+        var index: Int
+        @Guide(description: "true only when the block is site furniture — subscribe/sign-in prompts, share rows, engagement counts, metadata labels — and NOT article prose")
+        var isCruft: Bool
+    }
+    var verdicts: [Verdict]
+}
+```
+
+Session per parse (Apple's guidance: fresh session per single-turn task), with
+`instructions` framing the task ("You classify reader-view text blocks as
+article content or site furniture. When unsure, answer content.") — the
+"unsure → content" instruction encodes precision-over-recall in the prompt
+itself. Prompt lists numbered candidate blocks with one-line neighbor context.
+
+### Privacy story
+
+Everything stays on-device: the FoundationModels runtime never sends text to
+Apple or anyone else, which means article text — potentially paywalled,
+member-only, or personal — never leaves the phone. This is materially better
+than any server LLM and is the reason to prefer FoundationModels over an
+OpenAI call even though we already have an OpenAI key for TTS. No new privacy
+disclosures needed.
+
+### Testing nondeterministic output
+
+- **The seam is deterministic**: candidate selection and verdict application
+  are pure functions — unit-test them with a scripted `CruftAdvisor` protocol
+  fake (verdicts injected), exactly like `TTSControllerTests` fakes its
+  engine. The model conforms to the protocol in production.
+- **Live-model tests** exist but only as a manually-run, device-only XCTest
+  marked skipped in CI (CI simulators have no Apple Intelligence): a small
+  golden set of cruft/content blocks asserting directional accuracy (e.g.
+  ≥ 90% on the golden set), tolerating individual flips.
+- **Property invariants** hold regardless of model output: never removes a
+  non-candidate, never empties an article, never moves a block, offsets
+  derived post-filter as always.
+
+### v1 recommendation + effort
+
+Ship the middle tier as a Settings-gated experiment ("Smart cruft removal
+(beta)", default OFF initially) in this order: `CruftAdvisor` protocol +
+candidate selection + verdict application with fakes (~1 day), the
+FoundationModels adapter with availability gating (~0.5 day), golden-set
+device test + prompt tuning (~0.5–1 day of iteration on real saves). **Total:
+roughly 2–3 focused days**, no schema changes (reuses `removedCruftJSON`),
+fully removable. Prerequisite: none — the seam (`CruftFilter.Result`,
+`gateAndFilter`) already exists. Recommend building it after one more round
+of deterministic-rule feedback, so the model tier launches against a known
+residue rather than cruft the tables should have caught.
+
 ## Deferred / future work
 
 - **"Show removed content" escape hatch (UI)**: the storage side now exists
@@ -184,3 +356,7 @@ Fixture-driven, pure, fast (no WKWebView):
   and the empty-blocks legacy path (text passes through unfiltered).
 - **Debug persistence**: `Article.apply` records `wasCruftFiltered` +
   `removedCruftJSON` and clears them on a later clean parse.
+- **Round 2**: ScienceDaily header stack (distilled from a live page),
+  story-source boilerplate, citation-labels-fall-citation-stays, share row as
+  a single block, Medium engagement stack — plus the round-2 anti-taxonomy
+  counter-fixtures listed above.

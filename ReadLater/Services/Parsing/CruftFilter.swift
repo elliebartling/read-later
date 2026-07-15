@@ -30,6 +30,17 @@ enum CruftFilter {
     /// Why a block matched. Internal for tests.
     enum Match {
         case phrase, auth, social, metadata
+        /// Standalone label or section furniture ("Summary:", "FULL STORY",
+        /// "RELATED STORIES") — removed alone, headings included.
+        case label
+        /// Field label ("Date:", "Source:") — removed, and the immediately
+        /// following block is consumed too when it is a short, non-sentential
+        /// value (a date, an org name).
+        case fieldLabel
+        /// Bare engagement count ("3.6K", "2") — candidate only; pass 2
+        /// removes it solely when clustered with other cruft, and a
+        /// pure-counter run additionally only in the article's tail.
+        case counter
     }
 
     static func filter(_ blocks: [ArticleBlock]) -> Result {
@@ -42,13 +53,36 @@ enum CruftFilter {
         for (i, match) in matches.enumerated() {
             guard let match else { continue }
             switch match {
-            case .phrase, .auth, .metadata:
+            case .phrase, .auth, .metadata, .label:
                 remove[i] = true
+            case .fieldLabel:
+                remove[i] = true
+                // Consume the immediately following block when it reads as a
+                // short label VALUE (a date, an org name) rather than prose.
+                // Only the direct successor — never skip past images or other
+                // blocks looking for one.
+                if i + 1 < blocks.count, isConsumableValue(blocks[i + 1]) {
+                    remove[i + 1] = true
+                }
             case .social:
                 let isListItem = blocks[i].type == .listItem
                 let prevMatched = i > 0 && matches[i - 1] != nil
                 let nextMatched = i + 1 < matches.count && matches[i + 1] != nil
                 remove[i] = isListItem || prevMatched || nextMatched
+            case .counter:
+                // A counter falls only when clustered: next to NON-counter
+                // cruft anywhere, or next to any cruft when the block sits in
+                // the article's tail (Medium's end-of-article clap stack).
+                // A lone "42" listicle paragraph has no matched neighbors and
+                // survives everywhere; a mid-article "3"/"2"/"1" countdown is
+                // a pure-counter run outside the tail and survives too.
+                let prev = i > 0 ? matches[i - 1] : nil
+                let next = i + 1 < matches.count ? matches[i + 1] : nil
+                let neighborMatched = prev != nil || next != nil
+                let neighborNonCounter = (prev != nil && prev != .counter)
+                    || (next != nil && next != .counter)
+                let inTail = i >= max(0, blocks.count - CruftRules.counterTailBlocks)
+                remove[i] = neighborNonCounter || (inTail && neighborMatched)
             }
         }
 
@@ -96,6 +130,31 @@ enum CruftFilter {
             }
         }
 
+        // Label/value press-release furniture (category 5). Headings are NOT
+        // exempt for this family — aggregators emit "RELATED STORIES" etc. as
+        // headings. Field/standalone labels require the RAW text to end with
+        // ":" so a legit colon-less "Summary" section heading never matches;
+        // section furniture matches with or without the colon.
+        if raw.trimmingCharacters(in: .whitespacesAndNewlines).hasSuffix(":"),
+           words <= CruftRules.labelMaxWords {
+            if CruftRules.fieldLabels.contains(normalized) { return .fieldLabel }
+            if CruftRules.labelOnly.contains(normalized) { return .label }
+        }
+        if CruftRules.sectionFurniture.contains(normalized) { return .label }
+
+        // A block of ≥ socialRowMinWords words that are ALL social tokens is a
+        // share/follow row even as a single paragraph ("Share: Facebook
+        // Twitter Pinterest LinkedIn Email") — it is its own cluster, so it
+        // skips the adjacency gate. Headings stay exempt below.
+        if block.type != .heading, words >= CruftRules.socialRowMinWords {
+            let tokens = normalized.split(separator: " ").map {
+                $0.trimmingCharacters(in: .punctuationCharacters)
+            }
+            if tokens.allSatisfy({ CruftRules.socialTokens.contains($0) }) {
+                return .label
+            }
+        }
+
         // Exact rules never touch headings — "Sign in" can be a legitimate
         // section heading in a tutorial.
         guard block.type != .heading else { return nil }
@@ -106,7 +165,36 @@ enum CruftFilter {
         if CruftRules.socialExact.contains(normalized) {
             return .social
         }
+
+        // Bare engagement counters: PARAGRAPHS only — a "1." listicle heading
+        // normalizes to "1" (heading, already exempt above) and a bare-number
+        // list item (lottery numbers, table-ish data) must never match.
+        if block.type == .paragraph {
+            for pattern in CruftRules.counterPatterns {
+                if normalized.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil {
+                    return .counter
+                }
+            }
+        }
         return nil
+    }
+
+    /// True when `block` reads as a short label VALUE — a date or an org name
+    /// — rather than prose: text-bearing, not a heading, at most
+    /// `CruftRules.valueMaxWords` words, and non-sentential (no interior
+    /// ". ", no terminal ./!/?).
+    static func isConsumableValue(_ block: ArticleBlock) -> Bool {
+        guard block.type.isTextBearing, block.type != .heading,
+              let raw = block.text, !raw.isEmpty else { return false }
+        let normalized = normalize(raw)
+        let words = normalized.split(separator: " ").count
+        guard words > 0, words <= CruftRules.valueMaxWords else { return false }
+        let trimmed = raw.trimmingCharacters(in: .whitespacesAndNewlines)
+        if trimmed.contains(". ") { return false }
+        if trimmed.hasSuffix(".") || trimmed.hasSuffix("!") || trimmed.hasSuffix("?") {
+            return false
+        }
+        return true
     }
 
     /// Lowercases, straightens curly apostrophes, collapses whitespace, and

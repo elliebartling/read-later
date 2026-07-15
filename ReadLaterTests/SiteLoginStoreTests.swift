@@ -49,7 +49,7 @@ final class SiteLoginStoreTests: XCTestCase {
         try await setCookie(in: store, domain: ".medium.com", name: "sid")
         try await setCookie(in: store, domain: "example.org", name: "token")
 
-        let hosts = await store.signedInHosts()
+        let hosts = try await store.signedInHosts()
         XCTAssertEqual(hosts, ["example.org", "medium.com"])
     }
 
@@ -58,9 +58,9 @@ final class SiteLoginStoreTests: XCTestCase {
         try await setCookie(in: store, domain: ".medium.com", name: "sid")
         try await setCookie(in: store, domain: "example.org", name: "token")
 
-        await store.signOut(host: "medium.com")
+        try await store.signOut(host: "medium.com")
 
-        let hosts = await store.signedInHosts()
+        let hosts = try await store.signedInHosts()
         XCTAssertEqual(hosts, ["example.org"], "only medium.com cookies should be purged")
     }
 
@@ -73,7 +73,7 @@ final class SiteLoginStoreTests: XCTestCase {
         try await setCookie(in: store, domain: ".medium.com", name: "sid")
         try await setSessionCookie(in: store, domain: "tracker.example", name: "beacon")
 
-        let sites = await store.signedInSites()
+        let sites = try await store.signedInSites()
         XCTAssertEqual(sites, ["medium.com"], "session-only cookies must not count as a login")
     }
 
@@ -83,8 +83,45 @@ final class SiteLoginStoreTests: XCTestCase {
         try await setCookie(in: store, domain: "accounts.medium.com", name: "auth")
         try await setCookie(in: store, domain: "example.org", name: "token")
 
-        let sites = await store.signedInSites()
+        let sites = try await store.signedInSites()
         XCTAssertEqual(sites, ["example.org", "medium.com"], "subdomains collapse to one site")
+    }
+
+    // MARK: - Timeout defense (bridgedQuery)
+
+    // On device, WKHTTPCookieStore/WKWebsiteDataStore completions on the
+    // persistent default store can silently never fire when no WKWebView has
+    // touched the store yet (the "infinite Settings spinner" bug). These tests
+    // pin the two defenses: a deadline that converts a dead callback into a
+    // thrown error, and single-resume safety against duplicate completions.
+
+    func testBridgedQueryTimesOutWhenCompletionNeverFires() async {
+        let store = SiteLoginStore(dataStore: .nonPersistent())
+        do {
+            let _: Int = try await store.bridgedQuery(timeout: 0.05) { _ in
+                // Simulates WebKit never invoking its completion handler.
+            }
+            XCTFail("query with a dead completion must throw, not hang")
+        } catch {
+            XCTAssertEqual(error as? SiteLoginStoreError, .timedOut)
+        }
+    }
+
+    func testBridgedQueryReturnsValueBeforeDeadline() async throws {
+        let store = SiteLoginStore(dataStore: .nonPersistent())
+        let value: Int = try await store.bridgedQuery(timeout: 5) { done in
+            done(42)
+        }
+        XCTAssertEqual(value, 42)
+    }
+
+    func testBridgedQueryIgnoresDuplicateCompletions() async throws {
+        let store = SiteLoginStore(dataStore: .nonPersistent())
+        let value: Int = try await store.bridgedQuery(timeout: 5) { done in
+            done(1)
+            done(2) // duplicate must be ignored, not double-resume (crash)
+        }
+        XCTAssertEqual(value, 1)
     }
 
     // MARK: - Helpers

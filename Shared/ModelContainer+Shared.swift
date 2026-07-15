@@ -32,11 +32,11 @@ enum SharedModelContainer {
     /// The set of models that live in the CloudKit-mirrored "synced" store.
     /// `AppSettings` is deliberately excluded — it lives in a local-only store.
     private static var syncedModels: [any PersistentModel.Type] {
-        [Article.self, Highlight.self, Tag.self]
+        [Article.self, Highlight.self, Tag.self, Feed.self, FeedEntry.self]
     }
 
     /// Container with two stores:
-    /// - "synced": Article/Highlight/Tag, optionally in the CloudKit private DB
+    /// - "synced": Article/Highlight/Tag/Feed/FeedEntry, optionally in the CloudKit private DB
     /// - "local": AppSettings only — holds a device-specific security-scoped
     ///   bookmark that must never sync between devices
     ///
@@ -52,6 +52,8 @@ enum SharedModelContainer {
             Article.self,
             Highlight.self,
             Tag.self,
+            Feed.self,
+            FeedEntry.self,
             AppSettings.self,
         ])
 
@@ -82,6 +84,10 @@ enum SharedModelContainer {
                     configurations: [synced, localConfig()]
                 )
                 SyncStatus.shared.update(.syncing)
+                // Now that a CloudKit-mirrored store is open, start listening
+                // for NSPersistentCloudKitContainer mirroring events so Settings
+                // can show setup/import/export telemetry (and any export error).
+                SyncEventMonitor.shared.start()
                 return container
             } catch {
                 NSLog("CloudKit-backed store unavailable (%@) — falling back to local-only storage",

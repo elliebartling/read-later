@@ -12,6 +12,17 @@ struct SiteLoginsView: View {
             if model.isLoading, model.sites.isEmpty {
                 ProgressView("Loading…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
+            } else if model.loadFailed {
+                ContentUnavailableView {
+                    Label("Can't Load Site Logins", systemImage: "exclamationmark.triangle")
+                } description: {
+                    Text("The browser data store didn't respond. Try again in a moment.")
+                } actions: {
+                    Button("Retry") {
+                        Task { await model.load() }
+                    }
+                    .buttonStyle(.borderedProminent)
+                }
             } else if model.sites.isEmpty {
                 ContentUnavailableView {
                     Label("No Site Logins", systemImage: "person.badge.key")
@@ -79,6 +90,10 @@ struct SiteLoginsView: View {
 final class SiteLoginsModel {
     private(set) var sites: [String] = []
     private(set) var isLoading = true
+    /// True when the last load threw (e.g. `SiteLoginStoreError.timedOut` —
+    /// the store query is deadline-guarded and can fail instead of hanging).
+    /// Drives the retryable error state; never leaves the user on a spinner.
+    private(set) var loadFailed = false
     /// The site awaiting sign-out confirmation, or `nil` when no dialog is up.
     var pendingSignOut: String?
 
@@ -90,13 +105,21 @@ final class SiteLoginsModel {
 
     func load() async {
         isLoading = true
-        sites = await store.signedInSites()
+        loadFailed = false
+        do {
+            sites = try await store.signedInSites()
+        } catch {
+            sites = []
+            loadFailed = true
+        }
         isLoading = false
     }
 
     func confirmSignOut(_ host: String) async {
         pendingSignOut = nil
-        await store.signOut(host: host)
+        // A failed purge is not silently swallowed: the reload below re-reads
+        // the jar, so any cookies that survived show right back up in the list.
+        try? await store.signOut(host: host)
         await load()
     }
 }

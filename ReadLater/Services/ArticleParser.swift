@@ -30,10 +30,14 @@ final class ArticleParser: NSObject {
         /// document order. Persisted on Article for debugging so a wrong
         /// removal is inspectable; empty when nothing was filtered.
         let removedBlocks: [ArticleBlock]
-        /// True when the page is metered/member-only and only the free preview
-        /// reached the WebView (see `PaywallDetector`). The captured text is
-        /// therefore partial. Additive to the quality gate — a preview is real
-        /// prose and may pass — so it never blocks saving; it just flags it.
+        /// True when the capture is likely a truncated member-only preview —
+        /// truncation evidence required, not merely "the source is metered"
+        /// (see `PaywallDetector.verdict`): an in-DOM gate CTA, or schema.org
+        /// `isAccessibleForFree:false` with sub-preview-scale content. An
+        /// authenticated fetch that returns the full text therefore clears the
+        /// flag even though the schema value stays false forever. Additive to
+        /// the quality gate — a preview is real prose and may pass — so it
+        /// never blocks saving; it just flags it.
         let isPaywalledPartial: Bool
     }
 
@@ -135,148 +139,16 @@ final class ArticleParser: NSObject {
                     // large gaps in the reader. Walking block-level leaf elements
                     // and joining them with blank lines yields deterministic,
                     // gap-free paragraph text — the offset space for highlights.
-                    // Walk block-level leaf elements once, producing BOTH the
-                    // gap-free joined text (legacy offset space) AND an ordered
-                    // typed block array. The two share a single traversal so the
-                    // text and blocks can never drift out of document order.
-                    var walked = (function(html) {
-                        var BLOCK = { P:1, H1:1, H2:1, H3:1, H4:1, H5:1, H6:1,
-                                      LI:1, BLOCKQUOTE:1, PRE:1, FIGCAPTION:1,
-                                      DT:1, DD:1, TD:1, TH:1 };
-                        var HEADING = { H1:1, H2:2, H3:3, H4:4, H5:5, H6:6 };
-                        var container = document.createElement("div");
-                        container.innerHTML = html || "";
-                        var out = [];
-                        var blocks = [];
-                        function normalize(s) {
-                            return (s || "").replace(/\\s+/g, " ").trim();
-                        }
-                        function hasBlockChild(el) {
-                            for (var i = 0; i < el.children.length; i++) {
-                                var c = el.children[i];
-                                if (BLOCK[c.tagName] || hasBlockChild(c)) { return true; }
-                            }
-                            return false;
-                        }
-                        // A <p> whose entire content is a single <code> element.
-                        // Medium marks each line of a multi-line code block this
-                        // way (or as per-line <pre> siblings); classifying these
-                        // as preformatted lets the Swift side coalesce the run
-                        // into one code block instead of inline body text.
-                        function isCodeOnly(el) {
-                            if (el.tagName !== "P") { return false; }
-                            if (el.children.length !== 1) { return false; }
-                            if (el.children[0].tagName !== "CODE") { return false; }
-                            var codeText = normalize(el.children[0].textContent);
-                            return codeText.length > 0 &&
-                                   normalize(el.textContent) === codeText;
-                        }
-                        function nearestListStyle(el) {
-                            var p = el.parentElement;
-                            while (p && p !== container) {
-                                if (p.tagName === "OL") { return "ordered"; }
-                                if (p.tagName === "UL") { return "unordered"; }
-                                p = p.parentElement;
-                            }
-                            return null;
-                        }
-                        function pushImage(img) {
-                            if (!img) { return; }
-                            var raw = img.getAttribute("src")
-                                   || img.getAttribute("data-src") || "";
-                            if (!raw) { return; }
-                            var src;
-                            try { src = new URL(raw, document.baseURI).href; }
-                            catch (e) { return; }
-                            if (src.indexOf("data:") === 0) { return; }
-                            var wAttr = parseInt(img.getAttribute("width"), 10);
-                            var hAttr = parseInt(img.getAttribute("height"), 10);
-                            // Tracking pixels: explicit 1x1-ish dimensions.
-                            if ((!isNaN(wAttr) && wAttr <= 2) ||
-                                (!isNaN(hAttr) && hAttr <= 2)) { return; }
-                            var b = { type: "image", src: src };
-                            var alt = img.getAttribute("alt");
-                            if (alt) { b.alt = alt; }
-                            var w = !isNaN(wAttr) ? wAttr : (img.naturalWidth || 0);
-                            var h = !isNaN(hAttr) ? hAttr : (img.naturalHeight || 0);
-                            if (w > 0) { b.width = w; }
-                            if (h > 0) { b.height = h; }
-                            blocks.push(b);
-                        }
-                        function walk(el) {
-                            for (var i = 0; i < el.children.length; i++) {
-                                var child = el.children[i];
-                                var tag = child.tagName;
-                                if (tag === "HR") {
-                                    blocks.push({ type: "divider" });
-                                    continue;
-                                }
-                                if (tag === "FIGURE") {
-                                    // Image first, then its caption as a separate
-                                    // text-bearing block immediately after.
-                                    pushImage(child.querySelector("img"));
-                                    var cap = child.querySelector("figcaption");
-                                    if (cap) {
-                                        var ct = normalize(cap.textContent);
-                                        if (ct) {
-                                            out.push(ct);
-                                            blocks.push({ type: "caption", text: ct });
-                                        }
-                                    }
-                                    continue;
-                                }
-                                if (tag === "PICTURE") {
-                                    pushImage(child.querySelector("img"));
-                                    continue;
-                                }
-                                if (tag === "IMG") {
-                                    pushImage(child);
-                                    continue;
-                                }
-                                if (BLOCK[tag] && !hasBlockChild(child)) {
-                                    // PRE and code-only <p> keep their internal
-                                    // whitespace; everything else collapses runs
-                                    // of whitespace to a single space.
-                                    var pre = tag === "PRE" || isCodeOnly(child);
-                                    var t = pre
-                                        ? (child.textContent || "").replace(/\\s+$/,"")
-                                        : normalize(child.textContent);
-                                    if (t) {
-                                        out.push(t);
-                                        if (pre) {
-                                            blocks.push({ type: "preformatted", text: t });
-                                        } else if (HEADING[tag]) {
-                                            blocks.push({ type: "heading", text: t, level: HEADING[tag] });
-                                        } else if (tag === "LI") {
-                                            var lb = { type: "listItem", text: t };
-                                            var ls = nearestListStyle(child);
-                                            if (ls) { lb.listStyle = ls; }
-                                            blocks.push(lb);
-                                        } else if (tag === "BLOCKQUOTE") {
-                                            blocks.push({ type: "blockquote", text: t });
-                                        } else if (tag === "FIGCAPTION") {
-                                            blocks.push({ type: "caption", text: t });
-                                        } else {
-                                            blocks.push({ type: "paragraph", text: t });
-                                        }
-                                    }
-                                    // Images nested inside a leaf block — the
-                                    // common <p><img></p> pattern — emit after
-                                    // the block's text, in document order.
-                                    // textContent never includes images, so the
-                                    // legacy text join is unaffected.
-                                    var nested = child.querySelectorAll("img");
-                                    for (var j = 0; j < nested.length; j++) {
-                                        pushImage(nested[j]);
-                                    }
-                                } else {
-                                    walk(child);
-                                }
-                            }
-                        }
-                        walk(container);
-                        return { text: out.join("\\n\\n"), blocks: blocks };
-                    })(article.content);
+                    // __rlWalk (shared with the incremental harvester in the
+                    // render pump) produces BOTH the gap-free joined text (legacy
+                    // offset space) AND an ordered typed block array in a single
+                    // traversal, so text and blocks can never drift out of
+                    // document order — and the harvested stream classifies
+                    // blocks identically to this extraction path.
+                    \(Self.walkFunctionJS)
+                    var walkContainer = document.createElement("div");
+                    walkContainer.innerHTML = article.content || "";
+                    var walked = __rlWalk(walkContainer);
                     return {
                         title: article.title || document.title || "",
                         byline: article.byline || null,
@@ -367,11 +239,30 @@ final class ArticleParser: NSObject {
             let linkDensity = Self.doubleValue(dict["linkDensity"]) ?? 1
 
             let rawBlocks = (dict["blocks"] as? [[String: Any]]) ?? []
-            let mapped = Self.blocks(fromJS: rawBlocks, baseURL: url)
+            let snapshot = Self.blocks(fromJS: rawBlocks, baseURL: url)
+
+            // Incremental-capture assembly: the pump banked article blocks as
+            // they mounted (window.__rlHarvest). If the harvested stream holds
+            // meaningfully more content than the final-DOM Readability snapshot
+            // — because the pump ran out of time mid-mount, or because a
+            // virtualizing renderer unmounted earlier sections as it scrolled —
+            // assemble from the banked stream instead. Same classification
+            // (__rlWalk) on both paths, and the winner flows through the same
+            // cruft-filter + gate seam below.
+            let harvestRaw = ((try? await webView.evaluateJavaScript(Self.collectHarvestJS)) as? [[String: Any]]) ?? []
+            let harvested = Self.blocks(fromJS: harvestRaw, baseURL: url)
+            let assembly = Self.chooseAssembly(snapshot: snapshot, harvested: harvested)
+            let mapped = assembly.blocks
+            if assembly.usedHarvest {
+                NSLog("ArticleParser: assembled from harvested stream (%d blocks) over snapshot (%d blocks) for %@",
+                      harvested.count, snapshot.count, url.absoluteString)
+            }
 
             // Honest paywall detection (additive — never a gate rejection).
-            // Read off the live DOM signals gathered by the wrapper.
-            let paywall = PaywallDetector.detect(
+            // Raw signals come off the live DOM; the truncation *verdict* also
+            // needs the final extracted word count, so it is computed below
+            // once the kept text is known (`PaywallDetector.verdict`).
+            let paywallSignals = PaywallDetector.signals(
                 jsonLDBlobs: (dict["jsonLD"] as? [String]) ?? [],
                 bodyText: (dict["bodyText"] as? String) ?? ""
             )
@@ -389,15 +280,26 @@ final class ArticleParser: NSObject {
             guard let refined = Self.gateAndFilter(
                 mapped: mapped, legacyText: legacyText, linkDensity: linkDensity
             ) else {
-                // The gate rejected this pass. If it's a paywall, the "missing"
-                // content is behind a login the retries can't defeat — stop the
-                // loop now instead of burning 40+ seconds re-pumping the same
-                // gated page. Otherwise fall through to the normal retry.
-                if paywall.isPaywalled { throw ParseError.paywalled }
+                // The gate rejected this pass. If the source is gated at all
+                // (either raw signal), the "missing" content is behind a login
+                // the retries can't defeat — stop the loop now instead of
+                // burning 40+ seconds re-pumping the same gated page.
+                // Otherwise fall through to the normal retry.
+                if paywallSignals.indicatesGatedSource { throw ParseError.paywalled }
                 throw ParseError.lowQuality
             }
             let blocks = refined.blocks
             let text = refined.plainText
+
+            // Truncation verdict over what we are actually about to save (the
+            // post-filter text — the harvester-assembled result when it won).
+            // schema.org `isAccessibleForFree:false` alone does NOT flag a
+            // substantial capture: it stays false forever, even after an
+            // authenticated fetch returns the complete article.
+            let paywall = PaywallDetector.verdict(
+                paywallSignals,
+                extractedWordCount: text.split(whereSeparator: { $0.isWhitespace }).count
+            )
 
             #if DEBUG
             if !refined.removed.isEmpty {
@@ -462,13 +364,168 @@ final class ArticleParser: NSObject {
     /// to swap its app shell for the real article.
     private static let maxParseAttempts = 3
 
+    /// JS source defining `__rlWalk(rootEl)` → `{ text, blocks }`: the single
+    /// block-level DOM walk + classification used by BOTH the Readability
+    /// wrapper (over the extracted-content HTML) and the incremental harvester
+    /// (over the live article container during the pump). One definition means
+    /// the two block streams classify identically and can be interchanged by
+    /// `chooseAssembly` without drift.
+    private static let walkFunctionJS = """
+    function __rlWalk(rootEl) {
+        var BLOCK = { P:1, H1:1, H2:1, H3:1, H4:1, H5:1, H6:1,
+                      LI:1, BLOCKQUOTE:1, PRE:1, FIGCAPTION:1,
+                      DT:1, DD:1, TD:1, TH:1 };
+        var HEADING = { H1:1, H2:2, H3:3, H4:4, H5:5, H6:6 };
+        var out = [];
+        var blocks = [];
+        function normalize(s) {
+            return (s || "").replace(/\\s+/g, " ").trim();
+        }
+        function hasBlockChild(el) {
+            for (var i = 0; i < el.children.length; i++) {
+                var c = el.children[i];
+                if (BLOCK[c.tagName] || hasBlockChild(c)) { return true; }
+            }
+            return false;
+        }
+        // A <p> whose entire content is a single <code> element. Medium marks
+        // each line of a multi-line code block this way (or as per-line <pre>
+        // siblings); classifying these as preformatted lets the Swift side
+        // coalesce the run into one code block instead of inline body text.
+        function isCodeOnly(el) {
+            if (el.tagName !== "P") { return false; }
+            if (el.children.length !== 1) { return false; }
+            if (el.children[0].tagName !== "CODE") { return false; }
+            var codeText = normalize(el.children[0].textContent);
+            return codeText.length > 0 &&
+                   normalize(el.textContent) === codeText;
+        }
+        function nearestListStyle(el) {
+            var p = el.parentElement;
+            while (p && p !== rootEl) {
+                if (p.tagName === "OL") { return "ordered"; }
+                if (p.tagName === "UL") { return "unordered"; }
+                p = p.parentElement;
+            }
+            return null;
+        }
+        function pushImage(img) {
+            if (!img) { return; }
+            var raw = img.getAttribute("src")
+                   || img.getAttribute("data-src") || "";
+            if (!raw) { return; }
+            var src;
+            try { src = new URL(raw, document.baseURI).href; }
+            catch (e) { return; }
+            if (src.indexOf("data:") === 0) { return; }
+            var wAttr = parseInt(img.getAttribute("width"), 10);
+            var hAttr = parseInt(img.getAttribute("height"), 10);
+            // Tracking pixels: explicit 1x1-ish dimensions.
+            if ((!isNaN(wAttr) && wAttr <= 2) ||
+                (!isNaN(hAttr) && hAttr <= 2)) { return; }
+            var b = { type: "image", src: src };
+            var alt = img.getAttribute("alt");
+            if (alt) { b.alt = alt; }
+            var w = !isNaN(wAttr) ? wAttr : (img.naturalWidth || 0);
+            var h = !isNaN(hAttr) ? hAttr : (img.naturalHeight || 0);
+            if (w > 0) { b.width = w; }
+            if (h > 0) { b.height = h; }
+            blocks.push(b);
+        }
+        function walk(el) {
+            for (var i = 0; i < el.children.length; i++) {
+                var child = el.children[i];
+                var tag = child.tagName;
+                if (tag === "HR") {
+                    blocks.push({ type: "divider" });
+                    continue;
+                }
+                if (tag === "FIGURE") {
+                    // Image first, then its caption as a separate
+                    // text-bearing block immediately after.
+                    pushImage(child.querySelector("img"));
+                    var cap = child.querySelector("figcaption");
+                    if (cap) {
+                        var ct = normalize(cap.textContent);
+                        if (ct) {
+                            out.push(ct);
+                            blocks.push({ type: "caption", text: ct });
+                        }
+                    }
+                    continue;
+                }
+                if (tag === "PICTURE") {
+                    pushImage(child.querySelector("img"));
+                    continue;
+                }
+                if (tag === "IMG") {
+                    pushImage(child);
+                    continue;
+                }
+                if (BLOCK[tag] && !hasBlockChild(child)) {
+                    // PRE and code-only <p> keep their internal
+                    // whitespace; everything else collapses runs
+                    // of whitespace to a single space.
+                    var pre = tag === "PRE" || isCodeOnly(child);
+                    var t = pre
+                        ? (child.textContent || "").replace(/\\s+$/,"")
+                        : normalize(child.textContent);
+                    if (t) {
+                        out.push(t);
+                        if (pre) {
+                            blocks.push({ type: "preformatted", text: t });
+                        } else if (HEADING[tag]) {
+                            blocks.push({ type: "heading", text: t, level: HEADING[tag] });
+                        } else if (tag === "LI") {
+                            var lb = { type: "listItem", text: t };
+                            var ls = nearestListStyle(child);
+                            if (ls) { lb.listStyle = ls; }
+                            blocks.push(lb);
+                        } else if (tag === "BLOCKQUOTE") {
+                            blocks.push({ type: "blockquote", text: t });
+                        } else if (tag === "FIGCAPTION") {
+                            blocks.push({ type: "caption", text: t });
+                        } else {
+                            blocks.push({ type: "paragraph", text: t });
+                        }
+                    }
+                    // Images nested inside a leaf block — the
+                    // common <p><img></p> pattern — emit after
+                    // the block's text, in document order.
+                    // textContent never includes images, so the
+                    // legacy text join is unaffected.
+                    var nested = child.querySelectorAll("img");
+                    for (var j = 0; j < nested.length; j++) {
+                        pushImage(nested[j]);
+                    }
+                } else {
+                    walk(child);
+                }
+            }
+        }
+        walk(rootEl);
+        return { text: out.join("\\n\\n"), blocks: blocks };
+    }
+    """
+
     /// One JS pass of the render pump. Steps the scroll position toward the
     /// document bottom (both `scrollTo` and a direct `scrollTop` write — some
-    /// engines ignore one or the other off-screen), then dispatches synthetic
+    /// engines ignore one or the other off-screen), dispatches synthetic
     /// `scroll` events for lazy-loaders that listen for events rather than
-    /// observing positions, and reports the resulting document metrics.
+    /// observing positions, then HARVESTS: walks the live article container
+    /// with `__rlWalk` and banks any block not seen before into
+    /// `window.__rlHarvest` (fresh per navigation — each parse loads a new
+    /// document). Banking during the pump means content that a virtualizing
+    /// renderer later UNMOUNTS is already captured, so the final assembly does
+    /// not depend on the whole article ever being in the DOM at one instant.
+    ///
+    /// Dedupe key is type + content + per-walk occurrence index, so repeated
+    /// identical blocks (dividers, duplicate lines) bank once per occurrence.
+    /// Harvest only engages when a semantic container (`article` / `main` /
+    /// `[role=main]`) exists — never `body`, which would bank nav chrome.
     private static let pumpPassJS = """
     (function() {
+        \(walkFunctionJS)
         var se = document.scrollingElement || document.documentElement;
         var vh = window.innerHeight || 1;
         var maxTop = Math.max(0, se.scrollHeight - vh);
@@ -479,11 +536,43 @@ final class ArticleParser: NSObject {
             window.dispatchEvent(new Event("scroll"));
             document.dispatchEvent(new Event("scroll"));
         } catch (e) {}
+        var hl = 0;
+        try {
+            var container = document.querySelector("article")
+                || document.querySelector("main")
+                || document.querySelector('[role="main"]');
+            if (container) {
+                if (!window.__rlHarvest) {
+                    window.__rlHarvest = { blocks: [], seen: {}, textLen: 0 };
+                }
+                var st = window.__rlHarvest;
+                var res = __rlWalk(container);
+                var occ = {};
+                for (var i = 0; i < res.blocks.length; i++) {
+                    var b = res.blocks[i];
+                    var base = b.type + "|" + (b.text || b.src || "");
+                    var n = occ[base] || 0;
+                    occ[base] = n + 1;
+                    var key = base + "#" + n;
+                    if (!st.seen[key]) {
+                        st.seen[key] = 1;
+                        st.blocks.push(b);
+                        if (b.text) { st.textLen += b.text.length; }
+                    }
+                }
+                hl = st.textLen;
+            }
+        } catch (e) {}
         var t = (document.body && document.body.innerText)
             ? document.body.innerText.length : 0;
         var atBottom = (se.scrollTop + vh) >= (se.scrollHeight - 4);
-        return { h: se.scrollHeight, t: t, bottom: atBottom ? 1 : 0 };
+        return { h: se.scrollHeight, t: t, bottom: atBottom ? 1 : 0, hl: hl };
     })()
+    """
+
+    /// Returns everything the pump banked, in first-seen (document) order.
+    private static let collectHarvestJS = """
+    (window.__rlHarvest && window.__rlHarvest.blocks) ? window.__rlHarvest.blocks : []
     """
 
     /// Drives the page to a full render before extraction. JS-heavy sites fire
@@ -498,34 +587,47 @@ final class ArticleParser: NSObject {
     /// Capped so a page that never settles (tickers, infinite feeds) still
     /// proceeds to extraction — with a log flagging possible truncation.
     private func pumpFullRender(longSettle: Bool) async {
-        let cap: Duration = longSettle ? .seconds(25) : .seconds(20)
         let pollInterval: Duration = .milliseconds(400)
         var tracker = FullRenderTracker(requiredStableSamples: 2)
-        var lastHeight = -1
-        var lastHeightDelta = 0
+        // Adaptive cap: the soft cap alone truncated very long articles whose
+        // chunks were still streaming in when it fired. Keep pumping past the
+        // soft cap while meaningful growth continues, bounded by a hard
+        // ceiling so a genuinely unsettleable page (ticker, infinite feed)
+        // can't hold a parse hostage.
+        var deadline = PumpDeadline(
+            soft: longSettle ? .seconds(25) : .seconds(20),
+            hard: .seconds(60),
+            growthGrace: .seconds(6)
+        )
         let start = ContinuousClock.now
-        while ContinuousClock.now - start < cap {
-            guard let sample = await runPumpPass() else {
-                try? await Task.sleep(for: pollInterval)
-                continue
+        var sawSample = false
+        while true {
+            let elapsed = ContinuousClock.now - start
+            let sample = await runPumpPass()
+            if let sample {
+                sawSample = true
+                if tracker.record(
+                    scrollHeight: sample.scrollHeight,
+                    textLength: sample.textLength,
+                    harvestTextLength: sample.harvestTextLength,
+                    atBottom: sample.atBottom
+                ), sample.textLength > 0 {
+                    return
+                }
             }
-            if lastHeight >= 0 { lastHeightDelta = sample.scrollHeight - lastHeight }
-            lastHeight = sample.scrollHeight
-            if tracker.record(
-                scrollHeight: sample.scrollHeight,
-                textLength: sample.textLength,
-                atBottom: sample.atBottom
-            ), sample.textLength > 0 {
+            // Progress feeds on the banked harvest length when available: it is
+            // monotonic, so a virtualizing page (whose innerText SHRINKS as
+            // content unmounts) still registers genuine forward progress.
+            let progress = max(sample?.textLength ?? 0, sample?.harvestTextLength ?? 0)
+            if !deadline.shouldContinue(elapsed: elapsed, progress: progress) {
+                // Out of time. If content was still arriving, the assembly
+                // below is likely missing the tail — flag it for diagnosis.
+                if sawSample, deadline.grewRecently(at: elapsed) {
+                    NSLog("ArticleParser: render pump hit its ceiling while content was still growing — extraction may be truncated")
+                }
                 return
             }
             try? await Task.sleep(for: pollInterval)
-        }
-        // Cap hit. If the document was still growing on the final pass the
-        // extraction below is likely truncated — flag it for diagnosis. (An
-        // infinite feed also lands here; the quality gate still applies.)
-        if lastHeightDelta > 0 {
-            NSLog("ArticleParser: render pump hit %.0fs cap while scrollHeight was still growing (+%d on last pass) — extraction may be truncated",
-                  Double(cap.components.seconds), lastHeightDelta)
         }
     }
 
@@ -533,6 +635,9 @@ final class ArticleParser: NSObject {
         let scrollHeight: Int
         let textLength: Int
         let atBottom: Bool
+        /// Cumulative UTF-16-ish length of all text banked by the harvester so
+        /// far. Monotonic — unaffected by later unmounts.
+        let harvestTextLength: Int
     }
 
     /// Executes one pump pass and decodes its metrics (nil on any JS failure).
@@ -545,8 +650,51 @@ final class ArticleParser: NSObject {
         return PumpSample(
             scrollHeight: h,
             textLength: t,
-            atBottom: (Self.intValue(dict["bottom"]) ?? 0) == 1
+            atBottom: (Self.intValue(dict["bottom"]) ?? 0) == 1,
+            harvestTextLength: Self.intValue(dict["hl"]) ?? 0
         )
+    }
+
+    /// Pure timing policy for the render pump: always allow pumping until the
+    /// soft cap; between soft cap and hard ceiling, allow it only while
+    /// meaningful growth is recent (within `growthGrace`); never past the hard
+    /// ceiling. "Meaningful growth" is a monotonic high-water mark advancing by
+    /// at least `minGrowth` characters — oscillation (virtualized unmount and
+    /// remount, ticker churn) does not count, so junk motion can't pin the
+    /// pump at 60s. Extracted from the loop so it is unit-testable.
+    struct PumpDeadline {
+        let soft: Duration
+        let hard: Duration
+        let growthGrace: Duration
+        /// Minimum high-water-mark advance (chars) that counts as growth.
+        static let minGrowth = 50
+
+        private var highWater = 0
+        private var lastGrowthAt: Duration = .zero
+
+        init(soft: Duration, hard: Duration, growthGrace: Duration) {
+            self.soft = soft
+            self.hard = hard
+            self.growthGrace = growthGrace
+        }
+
+        /// Feeds the latest progress metric; returns whether the pump may keep
+        /// running at `elapsed`.
+        mutating func shouldContinue(elapsed: Duration, progress: Int) -> Bool {
+            if progress >= highWater + Self.minGrowth {
+                highWater = progress
+                lastGrowthAt = elapsed
+            }
+            if elapsed < soft { return true }
+            if elapsed >= hard { return false }
+            return elapsed - lastGrowthAt < growthGrace
+        }
+
+        /// True when meaningful growth happened within `growthGrace` of
+        /// `elapsed` — used for the honest truncation flag when time runs out.
+        func grewRecently(at elapsed: Duration) -> Bool {
+            highWater > 0 && elapsed - lastGrowthAt < growthGrace
+        }
     }
 
     /// Maps and validates the JS block dictionaries into typed `ArticleBlock`s.
@@ -627,6 +775,36 @@ final class ArticleParser: NSObject {
         flush()
         return out
     }
+
+    /// Picks between the final-DOM Readability snapshot and the incrementally
+    /// harvested block stream. Pure — unit-testable directly.
+    ///
+    /// The snapshot wins by default: Readability's container selection is
+    /// cleaner (harvest necessarily includes in-article chrome like the title
+    /// heading and byline). The harvest wins only when it is MEANINGFULLY
+    /// longer — at least `harvestLengthRatio`× the snapshot's text AND
+    /// `harvestLengthMargin` more UTF-16 units — which is the signature of a
+    /// snapshot that is missing content the pump saw mount (time-capped mounts,
+    /// or a virtualizing renderer that unmounted earlier sections). The margin
+    /// keeps small articles from flapping to harvest over mere chrome.
+    nonisolated static func chooseAssembly(
+        snapshot: [ArticleBlock],
+        harvested: [ArticleBlock]
+    ) -> (blocks: [ArticleBlock], usedHarvest: Bool) {
+        guard !harvested.isEmpty else { return (snapshot, false) }
+        guard !snapshot.isEmpty else { return (harvested, true) }
+        let snapshotLength = ArticleBlocks.derivePlainText(snapshot).utf16.count
+        let harvestLength = ArticleBlocks.derivePlainText(harvested).utf16.count
+        let meaningfullyLonger =
+            Double(harvestLength) >= Double(snapshotLength) * harvestLengthRatio
+            && harvestLength - snapshotLength >= harvestLengthMargin
+        return meaningfullyLonger ? (harvested, true) : (snapshot, false)
+    }
+
+    /// Harvest must be ≥ this multiple of the snapshot's text length…
+    nonisolated static let harvestLengthRatio = 1.15
+    /// …AND at least this many UTF-16 units longer, before it wins.
+    nonisolated static let harvestLengthMargin = 400
 
     /// Robustly coerces a JS-bridged numeric (`NSNumber`, `Int`, `Double`) to `Int`.
     nonisolated static func intValue(_ any: Any?) -> Int? {
@@ -741,27 +919,35 @@ final class ArticleParser: NSObject {
 
     /// Pure settle decision for the full-render pump: the page counts as fully
     /// rendered only when the scroll position has reached the document bottom
-    /// AND both `scrollHeight` and rendered-text length are stable across
-    /// consecutive samples. Requiring all three prevents the lazy-render trap —
-    /// text length going quiet while the still-unscrolled remainder of the
-    /// article has simply never been given a reason to mount. Extracted from
-    /// the polling loop so it is unit-testable without a WKWebView.
+    /// AND `scrollHeight`, rendered-text length, and the harvester's banked
+    /// text length are ALL stable across consecutive samples. Height and text
+    /// stability prevent the lazy-render trap — text going quiet while the
+    /// still-unscrolled remainder has never been given a reason to mount.
+    /// Harvest stability prevents the VIRTUALIZATION trap: a renderer that
+    /// swaps equal-sized chunks in and out keeps height and visible-text
+    /// length constant while the article is still streaming through, and only
+    /// the monotonic banked length reveals that mounting is still in progress.
+    /// Extracted from the polling loop so it is unit-testable without a
+    /// WKWebView.
     struct FullRenderTracker {
         private var heightTracker: StabilityTracker
         private var textTracker: StabilityTracker
+        private var harvestTracker: StabilityTracker
 
         init(requiredStableSamples: Int) {
             heightTracker = StabilityTracker(requiredStableSamples: requiredStableSamples)
             textTracker = StabilityTracker(requiredStableSamples: requiredStableSamples)
+            harvestTracker = StabilityTracker(requiredStableSamples: requiredStableSamples)
         }
 
-        /// Feeds one sample; returns true once the render is settled. Both
+        /// Feeds one sample; returns true once the render is settled. All
         /// sub-trackers record unconditionally (no short-circuit) so their
         /// stability runs stay accurate even on not-at-bottom passes.
-        mutating func record(scrollHeight: Int, textLength: Int, atBottom: Bool) -> Bool {
+        mutating func record(scrollHeight: Int, textLength: Int, harvestTextLength: Int, atBottom: Bool) -> Bool {
             let heightStable = heightTracker.record(scrollHeight)
             let textStable = textTracker.record(textLength)
-            return atBottom && heightStable && textStable
+            let harvestStable = harvestTracker.record(harvestTextLength)
+            return atBottom && heightStable && textStable && harvestStable
         }
     }
 

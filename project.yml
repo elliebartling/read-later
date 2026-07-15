@@ -95,6 +95,11 @@ targets:
           # entitlements) never defines it, so TestFlight builds stay local-only
           # and never attempt .private(...). See SharedModelContainer.
           SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) CLOUDKIT_SYNC"
+          # Explicit Automatic for device Debug builds: Release's Manual style
+          # otherwise bleeds into the target's provisioning mode and blocks
+          # Xcode/xcodebuild from minting dev profiles with the App Group +
+          # iCloud capabilities.
+          CODE_SIGN_STYLE: Automatic
         Release:
           # TestFlight/App Store signing: manual with the human-created
           # Apple Distribution cert + named profiles (cloud/automatic signing
@@ -140,6 +145,10 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.ellenbartling.readlater.ShareExtension
         CODE_SIGN_ENTITLEMENTS: ShareExtension/ShareExtension.entitlements
       configs:
+        Debug:
+          # See ReadLater target: keep device Debug builds on automatic
+          # signing despite Release's manual style.
+          CODE_SIGN_STYLE: Automatic
         Release:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: Apple Distribution
@@ -169,6 +178,10 @@ targets:
         PRODUCT_BUNDLE_IDENTIFIER: com.ellenbartling.readlater.SafariWebExtension
         CODE_SIGN_ENTITLEMENTS: SafariWebExtension/SafariWebExtension.entitlements
       configs:
+        Debug:
+          # See ReadLater target: keep device Debug builds on automatic
+          # signing despite Release's manual style.
+          CODE_SIGN_STYLE: Automatic
         Release:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: Apple Distribution

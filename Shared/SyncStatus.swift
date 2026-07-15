@@ -42,6 +42,66 @@ final class SyncStatus {
 
     private(set) var state: State = .unavailable
 
+    // MARK: - Mirroring-event telemetry
+    //
+    // Populated by `SyncEventMonitor`, which listens for
+    // `NSPersistentCloudKitContainer.eventChangedNotification` (SwiftData's
+    // CloudKit support wraps `NSPersistentCloudKitContainer` and posts that
+    // notification on the default center). These types are plain value types so
+    // `SyncStatus` still compiles on every target — the CloudKit/CoreData
+    // bridging lives entirely in `SyncEventMonitor`.
+
+    /// The three phases `NSPersistentCloudKitContainer` reports. `import` is a
+    /// Swift keyword, hence the `…Event` case names; `rawValue` is the wire word.
+    enum SyncEventKind: String, CaseIterable, Identifiable {
+        case setup
+        case importEvent = "import"
+        case exportEvent = "export"
+
+        var id: String { rawValue }
+
+        /// User-facing row label.
+        var label: String {
+            switch self {
+            case .setup:       return "Setup"
+            case .importEvent: return "Import"
+            case .exportEvent: return "Export"
+            }
+        }
+    }
+
+    /// One mirroring event, flattened to value types. A begin-notification has a
+    /// `nil` `endDate`; the matching end-notification carries `endDate`,
+    /// `succeeded`, and any `error`.
+    struct SyncEventRecord: Equatable {
+        var kind: SyncEventKind
+        var startDate: Date
+        var endDate: Date?
+        var succeeded: Bool
+        /// Localized description of the event's error, if it failed.
+        var errorDescription: String?
+        /// The underlying `CKError` code (raw `Int`) when the error was one.
+        var ckErrorCode: Int?
+
+        /// True once the event has finished (import/export/setup completed).
+        var isFinished: Bool { endDate != nil }
+
+        /// A failed, finished event's human-readable error, if any.
+        var failureText: String? {
+            guard isFinished, !succeeded else { return nil }
+            if let ckErrorCode {
+                return "\(errorDescription ?? "Sync error") (CKError \(ckErrorCode))"
+            }
+            return errorDescription ?? "Sync error"
+        }
+    }
+
+    /// Most recent event seen per kind (begin or end — whichever fired last).
+    private(set) var lastEvents: [SyncEventKind: SyncEventRecord] = [:]
+
+    /// Count of *finished* events per kind observed this launch.
+    private(set) var eventCounts: [SyncEventKind: Int] = [:]
+
     private init() {}
 
     /// Records the outcome of container creation. Call once per launch.
@@ -49,7 +109,24 @@ final class SyncStatus {
         state = newState
     }
 
+    /// Records a mirroring event. Called on the main queue by
+    /// `SyncEventMonitor`. Keeps the latest record per kind and tallies
+    /// finished events for the session counters.
+    func record(_ event: SyncEventRecord) {
+        lastEvents[event.kind] = event
+        if event.isFinished {
+            eventCounts[event.kind, default: 0] += 1
+        }
+    }
+
     var isSyncing: Bool { state == .syncing }
+
+    /// The last export event's failure text, if the most recent export failed.
+    /// This is the signal Ellen watches: a non-nil value here means the export
+    /// engine ran and errored (rendered prominently in Settings).
+    var exportFailureText: String? {
+        lastEvents[.exportEvent]?.failureText
+    }
 
     /// Short, user-facing summary for the Settings screen.
     var summary: String {

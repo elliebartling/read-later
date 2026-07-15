@@ -16,6 +16,7 @@ struct PendingSave: Codable, Identifiable {
         case safariWebExtension
         case urlScheme
         case manual
+        case rss
     }
 
     init(
