@@ -71,6 +71,26 @@ enum PendingSaveIngest {
         }
     }
 
+    /// Re-parses an already-ingested `Article` through the router (`ArticleParsing.parse`)
+    /// on the shared serial parse chain. Used when a feed entry whose article
+    /// previously landed `.failed` is reopened: re-running the parse lets it
+    /// re-route (e.g. a YouTube watch page that hit a transient navigation
+    /// cancel now reaches `VideoArticleParser` and its metadata fallback)
+    /// instead of reopening the failed article with no way forward. Chaining on
+    /// `parseChain` also keeps it from colliding with an in-flight ingest parse
+    /// (which would throw `.busy`). Caller resets `parseStatus` to `.pending`
+    /// first so the reader shows its loading state while this runs.
+    static func reparse(article: Article, context: ModelContext) async {
+        let id = article.id
+        let prior = parseChain
+        let mine = Task { @MainActor in
+            _ = await prior?.value
+            await parseOne(id: id, context: context, prefetchedHTML: nil)
+        }
+        parseChain = mine
+        _ = await mine.value
+    }
+
     private static func parseOne(id: UUID, context: ModelContext, prefetchedHTML: String?) async {
         var descriptor = FetchDescriptor<Article>(predicate: #Predicate { $0.id == id })
         descriptor.fetchLimit = 1

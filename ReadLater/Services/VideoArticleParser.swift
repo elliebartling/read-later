@@ -290,6 +290,26 @@ final class VideoArticleParser: NSObject {
         case .failure(let error): cont.resume(throwing: error)
         }
     }
+
+    /// A navigation failure that resolves the load as failed only when it is a
+    /// *real* failure. A YouTube watch page routinely cancels its first
+    /// provisional navigation and supersedes it with another (consent
+    /// interstitial, `?app=desktop`, m↔www redirect); WebKit reports that as
+    /// `NSURLErrorCancelled`. Treating a cancel as fatal aborted the parse
+    /// before the real page's `didFinish`, dropping a reachable video into
+    /// `.failed` ("couldn't parse www.youtube.com") instead of a metadata save.
+    /// We ignore cancels and let the superseding navigation — or the watchdog
+    /// timeout — resolve the load. Pure so the triage is unit-testable.
+    nonisolated static func isFatalNavigationError(_ error: Error) -> Bool {
+        let ns = error as NSError
+        if ns.domain == NSURLErrorDomain, ns.code == NSURLErrorCancelled { return false }
+        return true
+    }
+
+    private func handleNavigationFailure(_ error: Error) {
+        guard Self.isFatalNavigationError(error) else { return }
+        finishLoad(.failure(ArticleParser.ParseError.loadFailed(error)))
+    }
 }
 
 extension VideoArticleParser: WKNavigationDelegate {
@@ -297,10 +317,10 @@ extension VideoArticleParser: WKNavigationDelegate {
         Task { @MainActor in self.finishLoad(.success(())) }
     }
     nonisolated func webView(_ webView: WKWebView, didFail navigation: WKNavigation!, withError error: Error) {
-        Task { @MainActor in self.finishLoad(.failure(ArticleParser.ParseError.loadFailed(error))) }
+        Task { @MainActor in self.handleNavigationFailure(error) }
     }
     nonisolated func webView(_ webView: WKWebView, didFailProvisionalNavigation navigation: WKNavigation!, withError error: Error) {
-        Task { @MainActor in self.finishLoad(.failure(ArticleParser.ParseError.loadFailed(error))) }
+        Task { @MainActor in self.handleNavigationFailure(error) }
     }
 }
 
