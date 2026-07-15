@@ -54,6 +54,8 @@ enum PendingSaveIngest {
                 savedAt: save.savedAt,
                 parseStatus: .pending
             )
+            // Discussion permalink (Reddit comments URL) carried from the save.
+            article.discussionURL = save.discussionURL
             context.insert(article)
             toParse.append((save.id, save.capturedHTML))
             PendingSave.remove(id: save.id)

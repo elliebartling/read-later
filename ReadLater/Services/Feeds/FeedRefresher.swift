@@ -26,8 +26,12 @@ enum FeedRefresher {
         return true
     }
 
-    /// Refreshes every subscription: feed documents download concurrently,
-    /// merges run on the main actor.
+    /// Refreshes every subscription. Non-Reddit feeds download concurrently;
+    /// reddit.com-family feeds download sequentially with a polite spacing
+    /// (`RedditPolicy`) because Reddit throttles anonymous fetches. A 429 on a
+    /// Reddit fetch backs off and stops the sequential run — the remaining
+    /// Reddit feeds keep their existing entries (non-fatal staleness). Merges
+    /// run on the main actor.
     static func refreshAll(context: ModelContext) async {
         let feeds = (try? context.fetch(FetchDescriptor<Feed>())) ?? []
         guard !feeds.isEmpty else { return }
@@ -35,15 +39,40 @@ enum FeedRefresher {
         let targets = feeds.compactMap { feed in
             feed.feedURL.map { (feed.id, $0) }
         }
+        let (concurrent, sequential) = RedditPolicy.partition(targets.map(\.1))
+
         var parsedByFeedID: [UUID: ParsedFeed] = [:]
+
+        // Concurrent group: everything that isn't Reddit.
+        let concurrentSet = Set(concurrent.map(\.absoluteString))
+        let concurrentTargets = targets.filter { concurrentSet.contains($0.1.absoluteString) }
         await withTaskGroup(of: (UUID, ParsedFeed?).self) { group in
-            for (feedID, url) in targets {
+            for (feedID, url) in concurrentTargets {
                 group.addTask {
                     (feedID, try? await FeedFetcher.fetch(feedURL: url))
                 }
             }
             for await (feedID, parsed) in group {
                 if let parsed { parsedByFeedID[feedID] = parsed }
+            }
+        }
+
+        // Sequential group: Reddit, one at a time with spacing. On 429, stop.
+        let sequentialSet = Set(sequential.map(\.absoluteString))
+        let sequentialTargets = targets.filter { sequentialSet.contains($0.1.absoluteString) }
+        for (index, (feedID, url)) in sequentialTargets.enumerated() {
+            if index > 0 {
+                try? await Task.sleep(for: RedditPolicy.refreshSpacing)
+            }
+            do {
+                parsedByFeedID[feedID] = try await FeedFetcher.fetch(feedURL: url)
+            } catch FeedFetcher.FetchError.rateLimited {
+                NSLog("FeedRefresher: Reddit rate-limited (429) — backing off, %d feeds left stale",
+                      sequentialTargets.count - index)
+                break
+            } catch {
+                // Other failures are per-feed: skip this one, keep going.
+                continue
             }
         }
 
@@ -57,12 +86,15 @@ enum FeedRefresher {
 
     /// Merges parsed items into the feed's persisted entries. Caller saves.
     static func merge(parsed: ParsedFeed, into feed: Feed, context: ModelContext) {
+        let isReddit = RedditFeed.isRedditURL(feed.feedURL)
+
         var existingByGuid: [String: FeedEntry] = [:]
         for entry in feed.allEntries {
             existingByGuid[entry.guid] = entry
         }
 
         for item in parsed.items {
+            let reddit = redditFields(for: item, isReddit: isReddit)
             if let entry = existingByGuid[item.id] {
                 // Feeds edit published posts; refresh content but never touch
                 // read state. Assign only on change to avoid dirtying the row
@@ -73,6 +105,8 @@ enum FeedRefresher {
                     entry.publishedAt = published
                 }
                 if let author = item.author, entry.author != author { entry.author = author }
+                if entry.externalURL != reddit.externalURL { entry.externalURL = reddit.externalURL }
+                if entry.contentHTML != reddit.contentHTML { entry.contentHTML = reddit.contentHTML }
             } else {
                 let entry = FeedEntry(
                     feed: feed,
@@ -81,7 +115,9 @@ enum FeedRefresher {
                     url: item.url,
                     publishedAt: item.publishedAt,
                     summary: item.summary,
-                    author: item.author
+                    author: item.author,
+                    externalURL: reddit.externalURL,
+                    contentHTML: reddit.contentHTML
                 )
                 context.insert(entry)
                 existingByGuid[item.id] = entry
@@ -93,6 +129,30 @@ enum FeedRefresher {
         if feed.siteURL == nil { feed.siteURL = parsed.siteURL }
 
         prune(feed, context: context)
+    }
+
+    /// Cap on persisted Reddit self-post body HTML, so a pathologically long
+    /// post can't bloat a CloudKit record. Comfortably above a normal post.
+    static let maxRedditContentHTMLChars = 100_000
+
+    /// Reddit-only derived fields for an item. For a link post, `externalURL` is
+    /// the post's external destination and no body HTML is stored (the external
+    /// article is parsed instead). For a self post, `externalURL` is nil and the
+    /// body HTML is kept (capped) so it can render through the prefetched-HTML
+    /// path. Non-Reddit feeds get (nil, nil). Pure — unit-testable directly.
+    nonisolated static func redditFields(
+        for item: ParsedFeedItem,
+        isReddit: Bool
+    ) -> (externalURL: URL?, contentHTML: String?) {
+        guard isReddit else { return (nil, nil) }
+        let external = RedditFeed.externalURL(fromContentHTML: item.contentHTML)
+        if external != nil {
+            // Link post: parse the external URL, no body to keep.
+            return (external, nil)
+        }
+        // Self post: keep the (capped) body HTML for the prefetched-HTML render.
+        let body = item.contentHTML.map { String($0.prefix(maxRedditContentHTMLChars)) }
+        return (nil, body)
     }
 
     /// Keeps the newest `maxEntriesPerFeed` entries (by publication date,

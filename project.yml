@@ -68,6 +68,11 @@ targets:
         CFBundleURLTypes:
           - CFBundleURLName: com.ellenbartling.readlater
             CFBundleURLSchemes: [readlater]
+        # Schemes we probe with canOpenURL. Narwhal 2 (Reddit client) registers
+        # `narwhal://`; the reader's "View discussion" affordance uses
+        # narwhal://open-url/<url> when the user picks Narwhal and it's installed.
+        LSApplicationQueriesSchemes:
+          - narwhal
         NSAppTransportSecurity:
           NSAllowsArbitraryLoads: YES # article content may load http assets
         UIRequiredDeviceCapabilities:

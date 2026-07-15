@@ -42,6 +42,14 @@ final class AppSettings {
     /// captions, per-block highlighting). Off falls back to the TextKit reader.
     /// Local-only store, so no CloudKit concern.
     var useBlockReader: Bool = true
+    /// Raw value of RedditDiscussionApp — where "View discussion" opens a
+    /// Reddit comments permalink. Local-only store, so no CloudKit concern.
+    var redditDiscussionAppRaw: String = RedditDiscussionApp.systemDefault.rawValue
+
+    var redditDiscussionApp: RedditDiscussionApp {
+        get { RedditDiscussionApp(rawValue: redditDiscussionAppRaw) ?? .systemDefault }
+        set { redditDiscussionAppRaw = newValue.rawValue }
+    }
 
     var ttsProvider: TTSProvider {
         get { TTSProvider(rawValue: ttsProviderRaw) ?? .apple }
@@ -145,6 +153,26 @@ enum ReaderTheme: String, Codable, CaseIterable, Identifiable {
             return true
         case .light, .sepia, .paper, .mediumGray:
             return false
+        }
+    }
+}
+
+/// Where the reader's "View discussion" affordance opens a Reddit comments
+/// permalink. `systemDefault` hands the reddit.com URL to the OS (official
+/// Reddit app via universal links if installed, else Safari); `narwhal` uses
+/// Narwhal 2's `narwhal://open-url/` scheme when it is installed; `inApp`
+/// presents an in-app Safari view.
+enum RedditDiscussionApp: String, Codable, CaseIterable, Identifiable {
+    case systemDefault
+    case narwhal
+    case inApp
+
+    var id: String { rawValue }
+    var displayName: String {
+        switch self {
+        case .systemDefault: return "System Default"
+        case .narwhal: return "Narwhal"
+        case .inApp: return "In-App Browser"
         }
     }
 }

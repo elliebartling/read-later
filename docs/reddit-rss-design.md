@@ -1,10 +1,32 @@
 # Reddit via RSS — design
 
-Status: **proposed** — doc-only, for Ellen's review. No code on this branch.
-Owner file set (when built): `Shared/Models/FeedEntry.swift`,
-`ReadLater/Services/Feeds/` (parser + fetcher + a new Reddit shim),
-`ReadLater/Features/Feeds/FeedsView.swift`. Builds on the existing Feeds
-feature (branch `claude/features-backlog-priorities-xuhej5`).
+Status: **approved — two-wave plan.** Ellen approved the plan below; **wave 1 is
+built** on branch `claude/reddit-rss-v1`. Wave 2 is scoped here but not built.
+Owner file set (wave 1, built): `Shared/Models/FeedEntry.swift`,
+`Shared/Models/Article.swift`, `Shared/Models/AppSettings.swift`,
+`Shared/PendingSave.swift`, `ReadLater/Services/Feeds/` (parser + fetcher +
+`RedditFeed` shim), `ReadLater/Services/Feeds/FeedRefresher.swift`,
+`ReadLater/Features/Feeds/FeedsView.swift`,
+`ReadLater/Features/Reader/` (discussion affordance),
+`ReadLater/Features/Settings/SettingsView.swift`, `project.yml`. Builds on the
+existing Feeds feature.
+
+## Approved plan (two waves)
+
+Sections 1–4 below capture the original research and recommendations; they
+stand. Ellen's decisions on the open questions (§6) resolved as follows, and
+split the work into two waves:
+
+- **Wave 1 (built):** `FeedEntry.externalURL` + `contentHTML`; the `RedditFeed`
+  shim (external-link extraction, self-post `capturedHTML` routing);
+  `r/name` shorthand (**`r/…` only** for the first cut); **self posts render the
+  feed `<content>` HTML** in-app (no extra fetch); the **discussion link ships
+  now** as `Article.discussionURL` with a reader affordance + an "Open
+  discussions in" setting (System Default / Narwhal / In-app browser); and
+  **429 handled by serializing + spacing reddit.com refreshes** with a
+  descriptive User-Agent (no `user=`/`feed=` escape hatch yet). See
+  "Wave 1 as built" at the bottom for the shipped specifics.
+- **Wave 2 (planned):** "Sign in with Reddit" OAuth. See "Wave 2" at the bottom.
 
 ## Problem
 
@@ -47,7 +69,10 @@ build on `.json`.**
 UAs. Our `FeedFetcher.get()` currently sends **no** explicit UA (URLSession's
 default `ReadLater/… CFNetwork Darwin`) — descriptive enough to not look like a
 scraper, which is what Reddit wants; no need to fake Safari here (that's only
-`ArticleParser`'s WKWebView). Leave it as a real app UA.
+`ArticleParser`'s WKWebView). Leave it as a real app UA. *(Wave 1 update: we
+send an **explicit** descriptive UA on reddit.com requests —
+`ios:com.ellenbartling.readlater:v0.1 (Read Later RSS)` — rather than relying on
+the CFNetwork default, so the identity is unique and stable across OS versions.)*
 
 **Architecture friction:** `FeedRefresher.refreshAll` fans out all feeds
 concurrently via `TaskGroup`. Two+ Reddit subs from one IP = instant 429s. See
@@ -133,15 +158,81 @@ Settings field; sequential (non-concurrent) refresh for reddit.com hosts.
 **Explicitly out:** comment-thread *reading* (rendering the discussion as an
 article), Reddit login/OAuth, `.json` anything.
 
-## 6. Open questions for Ellen
+## 6. Resolved decisions (Ellen)
 
-1. **Self-post rendering** — parse feed `<content>` HTML (my rec, no extra
-   fetch, offline-friendly) vs. just keep a "Open in Reddit" bounce for
-   self-posts in v1? The former is more work but keeps everything in-app.
-2. **429 handling** — accept the throttle in v1 (stale feeds degrade gracefully;
-   existing entries survive a failed fetch) and only serialize/space-out
-   reddit.com refreshes, or build the `user=`/`feed=` param escape hatch now?
-3. **Discussion link in v1 or v2?** It needs an `Article` field; cheap to add
-   now while we're touching the schema, vs. deferring the whole thing.
-4. **Shorthand scope** — `r/…` only, or also `u/…` user feeds and multireddit
-   `r/a+b` in the first cut?
+1. **Self-post rendering** → parse the feed `<content>` HTML in-app (no extra
+   fetch). Persisted on `FeedEntry.contentHTML` for self posts and routed as
+   `PendingSave.capturedHTML`.
+2. **429 handling** → serialize + space reddit.com refreshes and send a
+   descriptive User-Agent; back off (keep existing entries) on 429. The
+   `user=`/`feed=` escape hatch is **not** built (revisit in wave 2 if needed —
+   wave 2's authenticated JSON path largely obviates it).
+3. **Discussion link** → **built in wave 1.** `Article.discussionURL` (generic,
+   not Reddit-named) + a reader affordance + an "Open discussions in" setting.
+4. **Shorthand scope** → **`r/…` only** for wave 1. `u/…` user feeds and
+   multireddit `r/a+b` are deferred (they still work if pasted as full URLs).
+
+---
+
+## Wave 1 as built
+
+- **`FeedEntry.externalURL: URL?`** — CloudKit-safe optional. Populated at merge
+  time for Reddit feeds only, by extracting the `[link]` footer anchor from the
+  entry's content HTML when it differs from the `[comments]` anchor; nil for
+  self posts and every non-Reddit feed. **`FeedEntry.contentHTML: String?`**
+  persists the raw self-post body HTML (capped at 100k chars) so it renders
+  through the prefetched-HTML path without a re-fetch; link posts store nil.
+- **Reddit Atom shape** (distilled from a live `r/swift/.rss`): every `<entry>`
+  has `<link href>` = the comments permalink, `<id>t3_…</id>`, and a
+  `<content type="html">` whose footer carries `<a…>[link]</a>` and
+  `<a…>[comments]</a>`. Link vs self is decided by comparing those two hrefs
+  (equal → self; different → link, and `[link]` is the external URL, which may be
+  an article, an `i.redd.it` image, or a cross-posted reddit thread).
+- **Tap behaviour** (`FeedEntriesView.open`): `entry.url` stays the permalink in
+  both cases. Link post → `PendingSave(url: externalURL, discussionURL:
+  permalink)`, no captured HTML → normal parse of the external article. Self
+  post → `PendingSave(url: permalink, discussionURL: permalink, capturedHTML:
+  contentHTML, title: postTitle)` → Readability over the post body.
+- **Discussion affordance:** `Article.discussionURL` carries the permalink
+  (threaded via `PendingSave.discussionURL` → `PendingSaveIngest`). The reader
+  shows a toolbar button when present; tapping honours the **Open discussions
+  in** setting (System Default → `UIApplication.open` on reddit.com; Narwhal →
+  `narwhal://open-url/<encoded>` when `canOpenURL` finds it, else fall back;
+  In-App Browser → `SFSafariViewController`). Long-press always offers **Open in
+  Browser**.
+  - **Narwhal scheme verdict: confirmed.** Narwhal 2 registers `narwhal://` and
+    opens arbitrary reddit URLs via `narwhal://open-url/<encodeURIComponent(url)>`
+    (verified against the community "Rewrite reddit links to use the Narwhal 2
+    URI scheme" userscript). `narwhal` is added to `LSApplicationQueriesSchemes`
+    via project.yml (never the .xcodeproj).
+- **`r/name` shorthand:** `r/ios`, `/r/ios`, `reddit.com/r/ios`,
+  `www.reddit.com/r/ios` (± trailing slash) → `https://www.reddit.com/r/ios/.rss`.
+  Sort variants, explicit `.rss`, query strings, and full URLs pass through
+  URL-literal.
+- **Refresh serialization:** `FeedRefresher.refreshAll` partitions by host —
+  non-Reddit stays concurrent; reddit.com-family fetch sequentially with
+  `RedditPolicy.refreshSpacing` (2s) between requests and a descriptive
+  `User-Agent`. On HTTP 429 (`FetchError.rateLimited`) the sequential loop backs
+  off and stops; remaining Reddit feeds keep their existing entries.
+
+## Wave 2 (planned, not built) — "Sign in with Reddit"
+
+Approved in principle. Installed-app OAuth (PKCE, no client secret), run
+entirely phone-side:
+
+- **mysubreddits import checklist** — pull the signed-in user's subscriptions and
+  offer them as a subscribe checklist.
+- **Saved-posts IMPORT** — materialize the user's Reddit *saved* history as
+  Articles. Framed as an **escape pod** for that history: get it out of Reddit
+  and into a durable, highlightable, exportable library.
+- **Save-back action in the reader** — save an article's discussion back to the
+  user's Reddit saved list.
+- **JSON listings replace RSS for signed-in refresh** — authenticated `.json`
+  endpoints (higher limits, richer data) supersede the anonymous RSS path once
+  signed in.
+
+**Risk posture.** Per-user OAuth calls made from the user's own phone sit
+squarely in Reddit's free tier (no server, no shared app-wide quota). RSS stays
+the graceful-degradation path if OAuth is unavailable or the user is signed out.
+Keep the Reddit client **thin and isolated behind a protocol** so the RSS and
+JSON backends are swappable and the OAuth surface stays contained.

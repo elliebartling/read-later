@@ -165,10 +165,15 @@ struct AddFeedSheet: View {
         }
     }
 
-    /// Accepts bare domains ("daringfireball.net") by defaulting to https.
+    /// Accepts bare domains ("daringfireball.net") by defaulting to https, and
+    /// the Reddit `r/name` shorthand (→ the subreddit's Atom feed). Sort
+    /// variants and full URLs pass through literally.
     private var normalizedURL: URL? {
         let trimmed = urlString.trimmingCharacters(in: .whitespacesAndNewlines)
         guard !trimmed.isEmpty else { return nil }
+        if let subreddit = RedditFeed.normalizeSubredditShorthand(trimmed) {
+            return subreddit
+        }
         if trimmed.contains("://") {
             return URL(string: trimmed)
         }

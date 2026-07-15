@@ -18,6 +18,16 @@ final class FeedEntry {
     /// When this entry first appeared in a fetch — ordering fallback for
     /// feeds that omit publication dates, and the pruning tiebreaker.
     var fetchedAt: Date = Date.now
+    /// For Reddit link posts: the post's external destination (extracted from
+    /// the entry's content HTML). nil for self posts and every non-Reddit feed.
+    /// Opening a link-post entry saves this URL through the normal parse
+    /// pipeline while `url` stays the comments permalink. CloudKit-safe optional.
+    var externalURL: URL?
+    /// For Reddit self posts: the raw post-body HTML, so the entry can render
+    /// through the prefetched-HTML parse path without a re-fetch. Only populated
+    /// for Reddit self posts (link posts parse `externalURL` instead); nil
+    /// everywhere else. CloudKit-safe optional.
+    var contentHTML: String?
 
     init(
         id: UUID = UUID(),
@@ -28,6 +38,8 @@ final class FeedEntry {
         publishedAt: Date? = nil,
         summary: String? = nil,
         author: String? = nil,
+        externalURL: URL? = nil,
+        contentHTML: String? = nil,
         fetchedAt: Date = .now
     ) {
         self.id = id
@@ -38,6 +50,8 @@ final class FeedEntry {
         self.publishedAt = publishedAt
         self.summary = summary
         self.author = author
+        self.externalURL = externalURL
+        self.contentHTML = contentHTML
         self.isRead = false
         self.fetchedAt = fetchedAt
     }

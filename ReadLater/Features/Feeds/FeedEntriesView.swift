@@ -139,25 +139,38 @@ struct FeedEntriesView: View {
     }
 
     private func open(_ entry: FeedEntry) async {
-        guard let url = entry.url else { return }
+        guard let permalink = entry.url else { return }
         entry.isRead = true
         try? context.save()
 
-        if let existing = savedByURL[url] {
+        // Reddit link posts save (and parse) the EXTERNAL article; self posts
+        // and non-Reddit entries save their own URL. `entry.url` stays the
+        // comments permalink in every case; Reddit entries also carry a
+        // discussion link onto the resulting Article.
+        let isReddit = RedditFeed.isRedditURL(permalink)
+        let saveURL = entry.externalURL ?? permalink
+        // Self post: render the stored post body through the prefetched-HTML
+        // parse path instead of fetching the permalink page.
+        let capturedHTML = (isReddit && entry.externalURL == nil) ? entry.contentHTML : nil
+        let discussionURL = isReddit ? permalink : nil
+
+        if let existing = savedByURL[saveURL] {
             path.append(existing)
             return
         }
         let pending = PendingSave(
-            url: url,
+            url: saveURL,
             title: entry.title.isEmpty ? nil : entry.title,
-            source: .rss
+            capturedHTML: capturedHTML,
+            source: .rss,
+            discussionURL: discussionURL
         )
         try? pending.write()
         await PendingSaveIngest.drain(context: context)
         // drain() returns once the stub Article exists; parsing continues in
         // the background while the reader shows its loading state.
         if let article = fetchArticle(id: pending.id) {
-            savedByURL[url] = article
+            savedByURL[saveURL] = article
             path.append(article)
         }
     }
