@@ -161,8 +161,15 @@ final class YouTubeTests: XCTestCase {
         XCTAssertEqual(parsed.author, "3Blue1Brown")
         XCTAssertEqual(parsed.siteName, "YouTube")
         XCTAssertEqual(parsed.heroImageURL?.absoluteString, "https://i.ytimg.com/vi/aircAruvnKk/hqdefault.jpg")
-        XCTAssertFalse(parsed.blocks.isEmpty)
-        XCTAssertTrue(parsed.blocks.allSatisfy { $0.type == .paragraph })
+        // Metadata card leads: thumbnail image block, title heading, byline.
+        XCTAssertEqual(parsed.blocks.first?.type, .image)
+        XCTAssertEqual(parsed.blocks.first?.src?.absoluteString, "https://i.ytimg.com/vi/aircAruvnKk/hqdefault.jpg")
+        XCTAssertEqual(parsed.blocks[1].type, .heading)
+        XCTAssertEqual(parsed.blocks[1].text, "But what is a neural network?")
+        XCTAssertEqual(parsed.blocks[2].type, .caption)
+        XCTAssertEqual(parsed.blocks[2].text, "3Blue1Brown · YouTube")
+        // Body is transcript paragraphs.
+        XCTAssertTrue(parsed.blocks.dropFirst(3).allSatisfy { $0.type == .paragraph })
         XCTAssertTrue(parsed.plainText.contains("Hello and welcome"))
         XCTAssertFalse(parsed.plainText.contains("ignored when"))
         // plainText is the UTF-16 highlight offset space — must equal the blocks
@@ -178,25 +185,167 @@ final class YouTubeTests: XCTestCase {
             description: "First paragraph.\n\nSecond paragraph line one\nstill second paragraph.",
             cues: []
         )
-        XCTAssertEqual(parsed.blocks.count, 2)
-        XCTAssertEqual(parsed.blocks.first?.text, "First paragraph.")
+        // image + heading + byline + 3 description lines
+        XCTAssertEqual(parsed.blocks.count, 6)
+        XCTAssertEqual(parsed.blocks[0].type, .image)
+        XCTAssertEqual(parsed.blocks[1].text, "Some Talk")
+        XCTAssertEqual(parsed.blocks[2].text, "TED · YouTube")
+        XCTAssertEqual(parsed.blocks[3].text, "First paragraph.")
         XCTAssertTrue(parsed.plainText.contains("still second paragraph"))
         XCTAssertEqual(parsed.plainText, ArticleBlocks.derivePlainText(parsed.blocks))
     }
 
-    func testBuildParsedEmptyEverythingStillProducesABlock() {
+    func testBuildParsedEmptyEverythingStillProducesABody() {
         let parsed = VideoArticleParser.buildParsed(
             videoID: "aircAruvnKk", title: "Silent", author: nil, description: "", cues: []
         )
-        XCTAssertEqual(parsed.blocks.count, 1)
-        XCTAssertEqual(parsed.blocks.first?.text, "No transcript available for this video.")
+        // image + heading + note (no byline — author nil)
+        XCTAssertEqual(parsed.blocks.count, 3)
+        XCTAssertEqual(parsed.blocks.last?.text, "No transcript available for this video.")
         XCTAssertNil(parsed.author)
+    }
+
+    /// The device-save regression: a description whose tail is a link pile must
+    /// keep its prose and shed the trailing links — never the header card.
+    func testBuildParsedTrimsTrailingLinkPile() {
+        let description = """
+        Actual prose about the game and what happened in it.
+
+        SUBSCRIBE: https://youtube.com/gothamchess
+        Follow me on Twitter: https://twitter.com/gothamchess
+        #chess #gothamchess
+        """
+        let parsed = VideoArticleParser.buildParsed(
+            videoID: "bPAZjLF0OPM", title: "Please, Stop! Please!", author: "Gotham Clips",
+            description: description, cues: []
+        )
+        XCTAssertEqual(parsed.blocks[0].type, .image)
+        XCTAssertEqual(parsed.blocks[1].text, "Please, Stop! Please!")
+        XCTAssertEqual(parsed.blocks[2].text, "Gotham Clips · YouTube")
+        XCTAssertEqual(parsed.blocks[3].text, "Actual prose about the game and what happened in it.")
+        XCTAssertEqual(parsed.blocks.count, 4)
+        // Dropped lines are inspectable via removedBlocks (same seam the cruft
+        // filter uses), not silently vanished.
+        XCTAssertEqual(parsed.removedBlocks.count, 3)
+        XCTAssertFalse(parsed.plainText.contains("SUBSCRIBE"))
+        XCTAssertEqual(parsed.plainText, ArticleBlocks.derivePlainText(parsed.blocks))
     }
 
     func testDescriptionParagraphs() {
         XCTAssertEqual(VideoArticleParser.descriptionParagraphs("a\n\nb\n\nc"), ["a", "b", "c"])
         XCTAssertEqual(VideoArticleParser.descriptionParagraphs("line1\nline2"), ["line1", "line2"])
         XCTAssertTrue(VideoArticleParser.descriptionParagraphs("   \n  ").isEmpty)
+        // One paragraph per LINE — footer links stay individually classifiable.
+        XCTAssertEqual(
+            VideoArticleParser.descriptionParagraphs("prose\nhttps://a.example\n#tag"),
+            ["prose", "https://a.example", "#tag"]
+        )
+    }
+
+    // MARK: - Show-transcript UI drive: segment innerText parsing
+
+    /// Fixtures captured live from the mid-2026 `transcript-segment-view-model`
+    /// DOM: "<timestamp>\n[<a11y duration>\n]<cue>". The duration line is absent
+    /// when its div is empty (first segment), and the whole panel is rendered
+    /// TWICE in the DOM, so the raw list arrives with every segment duplicated.
+    func testCuesFromSegmentInnerTexts() {
+        let raw = [
+            "0:00\nno Rosen is playing",
+            "0:05\n5 seconds\nwhat wait am I am I Rosen is completely winning what Rosen just beat a",
+            "0:14\n14 seconds\n3120 yeah they just had like an equal game",
+            "12:14\n12 minutes, 14 seconds\n(Applause)",
+            // duplicate copy of the whole panel (doubled DOM)
+            "0:00\nno Rosen is playing",
+            "0:05\n5 seconds\nwhat wait am I am I Rosen is completely winning what Rosen just beat a",
+            "0:14\n14 seconds\n3120 yeah they just had like an equal game",
+            "12:14\n12 minutes, 14 seconds\n(Applause)",
+        ]
+        let cues = VideoArticleParser.cues(fromSegmentInnerTexts: raw)
+        XCTAssertEqual(cues, [
+            "no Rosen is playing",
+            "what wait am I am I Rosen is completely winning what Rosen just beat a",
+            "3120 yeah they just had like an equal game",
+            "(Applause)",
+        ])
+    }
+
+    /// A legitimately repeated cue at a DIFFERENT timestamp must survive the
+    /// dedupe (only the doubled-DOM copies collapse).
+    func testSegmentDedupeKeepsRepeatedCuesAtDifferentTimes() {
+        let raw = ["1:00\n1 minute\n[Music]", "2:00\n2 minutes\n[Music]", "1:00\n1 minute\n[Music]"]
+        XCTAssertEqual(VideoArticleParser.cues(fromSegmentInnerTexts: raw), ["[Music]", "[Music]"])
+    }
+
+    func testTimestampAndDurationLineDetection() {
+        XCTAssertTrue(VideoArticleParser.isTimestampLine("0:00"))
+        XCTAssertTrue(VideoArticleParser.isTimestampLine("12:14"))
+        XCTAssertTrue(VideoArticleParser.isTimestampLine("1:02:33"))
+        XCTAssertFalse(VideoArticleParser.isTimestampLine("almost 12:14 exactly"))
+        XCTAssertTrue(VideoArticleParser.isDurationLabelLine("5 seconds"))
+        XCTAssertTrue(VideoArticleParser.isDurationLabelLine("1 minute, 5 seconds"))
+        XCTAssertTrue(VideoArticleParser.isDurationLabelLine("1 hour, 2 minutes, 3 seconds"))
+        XCTAssertFalse(VideoArticleParser.isDurationLabelLine("wait 5 seconds before moving"))
+    }
+
+    // MARK: - Trailing link-cruft trim (pure)
+
+    func testIsLinkCruftLine() {
+        XCTAssertTrue(VideoArticleParser.isLinkCruftLine("https://github.com/mnielsen/neural-networks"))
+        XCTAssertTrue(VideoArticleParser.isLinkCruftLine("SUBSCRIBE: https://youtube.com/gothamchess"))
+        XCTAssertTrue(VideoArticleParser.isLinkCruftLine("Follow me on Twitter: https://twitter.com/x"))
+        XCTAssertTrue(VideoArticleParser.isLinkCruftLine("#chess #gothamchess #blitz"))
+        XCTAssertTrue(VideoArticleParser.isLinkCruftLine("@gothamchess @chess"))
+        // Prose that merely contains a link survives.
+        XCTAssertFalse(VideoArticleParser.isLinkCruftLine(
+            "I highly recommend the book by Michael Nielsen that introduces neural networks: https://goo.gl/Zmczdy"))
+        XCTAssertFalse(VideoArticleParser.isLinkCruftLine("Actual prose about the game."))
+    }
+
+    func testTrimTrailingLinkCruftOnlyTrimsTail() {
+        let paragraphs = [
+            "Help fund future projects: https://www.patreon.com/3blue1brown", // link-ish but NOT trailing
+            "There are two neat things about this book.",
+            "https://github.com/mnielsen/neural-networks-and-deep-learning",
+            "#math #neuralnetworks",
+        ]
+        let result = VideoArticleParser.trimTrailingLinkCruft(paragraphs)
+        XCTAssertEqual(result.kept, Array(paragraphs.prefix(2)))
+        XCTAssertEqual(result.removed, Array(paragraphs.suffix(2)))
+    }
+
+    func testTrimTrailingLinkCruftNeverNukesEverything() {
+        let allLinks = ["https://a.example", "#tags only"]
+        let result = VideoArticleParser.trimTrailingLinkCruft(allLinks)
+        XCTAssertEqual(result.kept, allLinks)
+        XCTAssertTrue(result.removed.isEmpty)
+    }
+
+    // MARK: - Adaptive load readiness (pure)
+
+    func testLoadIsReady() {
+        // Ready: target document, player response, interactive DOM.
+        XCTAssertTrue(VideoArticleParser.loadIsReady(
+            documentURL: "https://www.youtube.com/watch?v=aircAruvnKk",
+            readyState: "interactive", hasPlayerResponse: true, videoID: "aircAruvnKk"))
+        XCTAssertTrue(VideoArticleParser.loadIsReady(
+            documentURL: "https://www.youtube.com/watch?v=aircAruvnKk&t=1s",
+            readyState: "complete", hasPlayerResponse: true, videoID: "aircAruvnKk"))
+        // Still the PREVIOUS document (stale player response) — not ready.
+        XCTAssertFalse(VideoArticleParser.loadIsReady(
+            documentURL: "https://www.youtube.com/watch?v=dQw4w9WgXcQ",
+            readyState: "complete", hasPlayerResponse: true, videoID: "aircAruvnKk"))
+        // Player response not there yet.
+        XCTAssertFalse(VideoArticleParser.loadIsReady(
+            documentURL: "https://www.youtube.com/watch?v=aircAruvnKk",
+            readyState: "complete", hasPlayerResponse: false, videoID: "aircAruvnKk"))
+        // DOM still streaming in.
+        XCTAssertFalse(VideoArticleParser.loadIsReady(
+            documentURL: "https://www.youtube.com/watch?v=aircAruvnKk",
+            readyState: "loading", hasPlayerResponse: true, videoID: "aircAruvnKk"))
+        // No video id to verify against — never early-exit.
+        XCTAssertFalse(VideoArticleParser.loadIsReady(
+            documentURL: "https://www.youtube.com/watch?v=aircAruvnKk",
+            readyState: "complete", hasPlayerResponse: true, videoID: ""))
     }
 
     // MARK: - YouTube channel Atom feed → thumbnail + video-URL entries
