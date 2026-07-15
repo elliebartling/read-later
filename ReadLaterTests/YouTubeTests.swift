@@ -42,6 +42,44 @@ final class YouTubeTests: XCTestCase {
                        "https://i.ytimg.com/vi/aircAruvnKk/hqdefault.jpg")
     }
 
+    // MARK: - Failure recovery (build 34 device bug: feed video → "couldn't parse")
+
+    /// The exact watch-URL shape a real `feeds/videos.xml` entry carries
+    /// (`<link rel="alternate" href="https://www.youtube.com/watch?v=<id>">`).
+    /// Video IDs beginning with `_`/`-` are common and must survive routing.
+    private static let realFeedWatchURL = URL(string: "https://www.youtube.com/watch?v=_oRgdlJUD18")!
+
+    /// A YouTube watch page routinely cancels its first provisional navigation
+    /// (consent interstitial, `?app=desktop`, m↔www redirect) and supersedes it
+    /// with another. Treating that `NSURLErrorCancelled` as a fatal load failure
+    /// aborted the parse before `didFinish`, dropping a *reachable* video into
+    /// `.failed` — which renders the generic "couldn't parse www.youtube.com"
+    /// screen. Only genuine load failures (offline) are fatal.
+    func testCancelledNavigationIsNotFatalButOfflineIs() {
+        XCTAssertTrue(YouTubeURL.isVideoURL(Self.realFeedWatchURL),
+                      "the real videos.xml watch URL must route to the video parser")
+        let cancelled = NSError(domain: NSURLErrorDomain, code: NSURLErrorCancelled)
+        XCTAssertFalse(VideoArticleParser.isFatalNavigationError(cancelled))
+        let offline = NSError(domain: NSURLErrorDomain, code: NSURLErrorNotConnectedToInternet)
+        XCTAssertTrue(VideoArticleParser.isFatalNavigationError(offline))
+        let noHost = NSError(domain: NSURLErrorDomain, code: NSURLErrorCannotFindHost)
+        XCTAssertTrue(VideoArticleParser.isFatalNavigationError(noHost))
+    }
+
+    /// Once a video's first parse lands `.failed`, reopening its feed entry must
+    /// re-parse through the router (so it re-routes to the video parser and its
+    /// metadata fallback) rather than silently reopening the failed article —
+    /// which trapped the entry on the "couldn't parse" screen with no way out.
+    func testFailedArticleIsNotReusedOnReopen() {
+        let failed = Article(url: Self.realFeedWatchURL, title: "iOS 27 Hands-On", parseStatus: .failed)
+        XCTAssertFalse(FeedEntriesView.shouldReuseExisting(failed),
+                       "a failed article must re-parse (re-route) on reopen")
+        let ready = Article(url: Self.realFeedWatchURL, title: "iOS 27 Hands-On", parseStatus: .ready)
+        XCTAssertTrue(FeedEntriesView.shouldReuseExisting(ready))
+        let pending = Article(url: Self.realFeedWatchURL, title: "iOS 27 Hands-On", parseStatus: .pending)
+        XCTAssertTrue(FeedEntriesView.shouldReuseExisting(pending))
+    }
+
     // MARK: - Channel reference classification
 
     func testChannelReferenceClassification() {

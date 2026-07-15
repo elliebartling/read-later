@@ -423,9 +423,19 @@ struct ReaderView: View {
         } description: {
             Text("The extractor didn't find readable content on \(article.url?.host ?? "this page").")
         } actions: {
+            // Re-extract routes through ArticleParsing.parse, so a video URL
+            // re-routes to VideoArticleParser (and its metadata fallback) rather
+            // than re-running the article extractor that "couldn't parse" it.
+            Button {
+                reextract()
+            } label: {
+                Text("Try Again")
+            }
+            .buttonStyle(.borderedProminent)
+            .disabled(isReextracting)
             if let url = article.url {
                 Link(destination: url) { Text("Open in Safari") }
-                    .buttonStyle(.borderedProminent)
+                    .buttonStyle(.bordered)
             }
         }
     }

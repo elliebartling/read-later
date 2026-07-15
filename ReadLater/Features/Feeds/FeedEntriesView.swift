@@ -155,7 +155,19 @@ struct FeedEntriesView: View {
         let discussionURL = isReddit ? permalink : nil
 
         if let existing = savedByURL[saveURL] {
+            if Self.shouldReuseExisting(existing) {
+                path.append(existing)
+                return
+            }
+            // A previously-failed article (e.g. a video whose first parse hit a
+            // transient navigation cancel) must re-parse through the router so
+            // it can re-route — reopening the failed article would trap the
+            // entry on the "couldn't parse" screen. Reset to .pending so the
+            // reader shows its spinner, push it, then re-parse in place.
+            existing.parseStatus = .pending
+            try? context.save()
             path.append(existing)
+            await PendingSaveIngest.reparse(article: existing, context: context)
             return
         }
         let pending = PendingSave(
@@ -175,6 +187,15 @@ struct FeedEntriesView: View {
         }
     }
 
+    /// Whether an already-saved article for a re-tapped entry can be reopened
+    /// directly. A `.failed` article must instead re-parse through the router,
+    /// so a transient failure (a YouTube watch page that cancelled its first
+    /// navigation, a flaky fetch) can re-route and recover rather than trapping
+    /// the entry on the "couldn't parse" screen. Pure so it is unit-testable.
+    static func shouldReuseExisting(_ article: Article) -> Bool {
+        article.parseStatus != .failed
+    }
+
     private func fetchArticle(id: UUID) -> Article? {
         var descriptor = FetchDescriptor<Article>(predicate: #Predicate { $0.id == id })
         descriptor.fetchLimit = 1
@@ -188,6 +209,11 @@ private struct FeedEntryRow: View {
     let isSaved: Bool
 
     var body: some View {
+        // Apple News-style layout: unread dot leads, text column always starts
+        // at the same x (so titles line up whether or not the entry has a
+        // thumbnail), and the thumbnail — when present — sits on the trailing
+        // edge. A thumbnail-less row simply omits the trailing image with no
+        // shift to the title's leading edge.
         HStack(alignment: .top, spacing: 10) {
             Circle()
                 .fill(.blue)
@@ -195,10 +221,6 @@ private struct FeedEntryRow: View {
                 .padding(.top, 6)
                 .opacity(entry.isRead ? 0 : 1)
                 .accessibilityHidden(true)
-            if let thumbnailURL = entry.thumbnailURL {
-                FeedThumbnail(url: thumbnailURL)
-                    .padding(.top, 2)
-            }
             VStack(alignment: .leading, spacing: 4) {
                 Text(entry.title.isEmpty ? (entry.url?.absoluteString ?? "Untitled") : entry.title)
                     .font(.headline)
@@ -227,7 +249,11 @@ private struct FeedEntryRow: View {
                 .font(.caption)
                 .foregroundStyle(.secondary)
             }
-            Spacer(minLength: 0)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            if let thumbnailURL = entry.thumbnailURL {
+                FeedThumbnail(url: thumbnailURL)
+                    .padding(.top, 2)
+            }
         }
         .padding(.vertical, 6)
         .contentShape(Rectangle())
