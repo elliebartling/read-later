@@ -215,7 +215,13 @@ article), Reddit login/OAuth, `.json` anything.
   `User-Agent`. On HTTP 429 (`FetchError.rateLimited`) the sequential loop backs
   off and stops; remaining Reddit feeds keep their existing entries.
 
-## Wave 2 (planned, not built) — "Sign in with Reddit"
+## Wave 2 — "Sign in with Reddit"
+
+**Status: built** (branch `claude/reddit-oauth`; see "Wave 2 as built" below).
+Live use is blocked on one step: registering the Reddit installed app at
+reddit.com/prefs/apps (redirect URI `readlater://oauth/reddit`) and pasting the
+client ID into `RedditAuthConfig.clientID` — the single config point. While it
+is empty the entire feature hides itself.
 
 Approved in principle. Installed-app OAuth (PKCE, no client secret), run
 entirely phone-side:
@@ -236,3 +242,42 @@ squarely in Reddit's free tier (no server, no shared app-wide quota). RSS stays
 the graceful-degradation path if OAuth is unavailable or the user is signed out.
 Keep the Reddit client **thin and isolated behind a protocol** so the RSS and
 JSON backends are swappable and the OAuth surface stays contained.
+
+## Wave 2 as built
+
+- **OAuth**: authorization-code + PKCE (S256) for an installed app, via
+  `ASWebAuthenticationSession` (sanctioned OAuth surface, deliberately distinct
+  from the cookie-based site logins — rationale documented in
+  `RedditOAuth.swift`). `duration=permanent` for a refresh token; scopes
+  `identity mysubreddits history save read`. Tokens live in Keychain
+  (`RedditTokenStore`, one JSON blob over `KeychainStore`), refreshed
+  transparently with 60s leeway and once-on-401. Descriptive UA
+  (`ios:com.ellenbartling.readlater:v0.1.0 (personal read-later app)`) on every
+  oauth.reddit.com call.
+- **Client**: `RedditAPIClientProtocol` (account / subscribed subreddits /
+  saved posts / save / revoke) with one concrete `RedditAPIClient` —
+  rate-limit-respectful (honors `x-ratelimit-*`, backs off + retries once on
+  429), pagination capped at 50 pages. Pure transforms live in
+  `RedditParsing` / `RedditImportPlan` (fullname derivation, self-vs-link
+  routing, dedupe) and carry the unit tests, since live OAuth can't be
+  exercised without a client ID.
+- **Subreddit import**: Settings → Reddit Account → Import Subreddits.
+  Checklist (none pre-checked, Select All), subscribes via wave-1 `Feed` rows
+  keyed on the sub's `.rss` URL; entries populate on the next spaced refresh
+  (no burst of reddit.com fetches at import time).
+- **Saved-posts import**: Settings → Reddit Account → Import Saved Posts. Caps
+  at 300 newest; saved comments skipped; link posts `PendingSave` the external
+  URL, self posts route decoded `selftext_html` through the prefetched-HTML
+  path; permalink → `discussionURL`; dedupe by normalized URL against existing
+  Articles and within the batch. Parses queue on the existing single-slot
+  serial parse chain (`PendingSaveIngest`) — stubs appear immediately,
+  parse-on-open covers the long tail. New `PendingSave.Source.reddit`.
+- **Save-back**: reader → discussion button context menu → "Save to Reddit"
+  (only for reddit-host `discussionURL` while signed in); fullname derived from
+  the permalink (`t3_<id>`), `POST /api/save`.
+- **Signed-in surfacing**: Settings → Reddit section shows the account row
+  (`u/name`) with the connected identity, imports, and Sign Out (server-side
+  token revoke + Keychain purge).
+- **Not done (deliberate)**: JSON listings replacing RSS for signed-in feed
+  refresh — the RSS path remains the refresh surface for now; the client
+  protocol is the seam a future listing backend plugs into.
