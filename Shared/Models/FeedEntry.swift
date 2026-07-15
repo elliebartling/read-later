@@ -28,6 +28,10 @@ final class FeedEntry {
     /// for Reddit self posts (link posts parse `externalURL` instead); nil
     /// everywhere else. CloudKit-safe optional.
     var contentHTML: String?
+    /// Optional entry thumbnail (`media:thumbnail`). YouTube channel feeds carry
+    /// one per video; ordinary RSS feeds usually don't, so it stays nil there.
+    /// Rendered in the entry row when present. CloudKit-safe optional.
+    var thumbnailURL: URL?
 
     init(
         id: UUID = UUID(),
@@ -40,6 +44,7 @@ final class FeedEntry {
         author: String? = nil,
         externalURL: URL? = nil,
         contentHTML: String? = nil,
+        thumbnailURL: URL? = nil,
         fetchedAt: Date = .now
     ) {
         self.id = id
@@ -52,6 +57,7 @@ final class FeedEntry {
         self.author = author
         self.externalURL = externalURL
         self.contentHTML = contentHTML
+        self.thumbnailURL = thumbnailURL
         self.isRead = false
         self.fetchedAt = fetchedAt
     }

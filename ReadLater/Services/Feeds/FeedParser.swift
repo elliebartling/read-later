@@ -19,6 +19,9 @@ struct ParsedFeedItem: Identifiable {
     /// the plain-text `summary` so Reddit link/self classification and self-post
     /// rendering have the full markup. nil when the item carried no content.
     var contentHTML: String?
+    /// Entry thumbnail from the Media RSS `media:thumbnail` element (YouTube
+    /// channel feeds carry one per video). nil for feeds without it.
+    var thumbnailURL: URL?
 
     /// Stable identity for SwiftUI lists: guid falls back to URL at parse time.
     var id: String { guid ?? url?.absoluteString ?? title }
@@ -160,6 +163,9 @@ private final class FeedXMLDelegate: NSObject, XMLParserDelegate {
     private var stack: [String] = []
     private var text = ""
     private var item: ParsedFeedItem?
+    /// Width of the currently-chosen `media:thumbnail`, so the widest wins when
+    /// an entry offers several. Reset at each entry boundary.
+    private var lastThumbnailWidth: Int?
 
     private static let feedRoots: Set<String> = ["rss", "feed", "rdf:rdf"]
     private static let channelLevels: Set<String> = ["channel", "feed"]
@@ -181,6 +187,17 @@ private final class FeedXMLDelegate: NSObject, XMLParserDelegate {
         switch name {
         case "item", "entry":
             item = ParsedFeedItem()
+            lastThumbnailWidth = nil
+        case "media:thumbnail":
+            // Media RSS thumbnail (YouTube channel feeds): attributes only.
+            // Keep the widest when several are offered.
+            if item != nil, let urlString = attributes["url"], let url = URL(string: urlString) {
+                let width = attributes["width"].flatMap { Int($0) } ?? 0
+                if item?.thumbnailURL == nil || width >= (lastThumbnailWidth ?? 0) {
+                    item?.thumbnailURL = url
+                    lastThumbnailWidth = width
+                }
+            }
         case "link":
             // Atom-style link: everything lives in attributes. RSS <link> has
             // text content instead and is handled in didEndElement.

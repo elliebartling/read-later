@@ -117,6 +117,14 @@ struct ReaderView: View {
         .statusBarHidden(!showChrome)
         .toolbar(.hidden, for: .bottomBar)
         .toolbar {
+            if article.isVideoArticle {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: watchOnYouTube) {
+                        Image(systemName: "play.rectangle.fill")
+                    }
+                    .accessibilityLabel("Watch on YouTube")
+                }
+            }
             if article.discussionURL != nil {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: openDiscussion) {
@@ -466,6 +474,17 @@ struct ReaderView: View {
         try? context.save()
     }
 
+    /// Opens the video on YouTube via the short `youtu.be/<id>` universal link —
+    /// the YouTube app intercepts it when installed, else it opens in Safari.
+    /// The lead affordance for video articles (transcript reading and TTS stay
+    /// available but are not promoted — see the YouTube save design, decision 2).
+    private func watchOnYouTube() {
+        guard let id = YouTubeURL.videoID(from: article.url),
+              let url = YouTubeURL.shareURL(videoID: id) ?? article.url
+        else { return }
+        UIApplication.shared.open(url)
+    }
+
     /// Opens the article's discussion permalink honouring the user's
     /// "Open discussions in" preference. External hand-offs (System Default /
     /// Narwhal) go straight out; the in-app option presents a Safari sheet.
@@ -496,7 +515,7 @@ struct ReaderView: View {
         Task { @MainActor in
             defer { isReextracting = false }
             do {
-                let parsed = try await ArticleParser.shared.parse(url: url)
+                let parsed = try await ArticleParsing.parse(url: url)
                 article.apply(parsed, updateTitle: false)
                 // Harmless when already ready; recovers an article stuck in
                 // .failed whose re-extract succeeded.

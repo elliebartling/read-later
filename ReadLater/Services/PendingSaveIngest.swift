@@ -81,7 +81,9 @@ enum PendingSaveIngest {
             return
         }
         do {
-            let parsed = try await ArticleParser.shared.parse(url: url, prefetchedHTML: prefetchedHTML)
+            // Routes YouTube video URLs to VideoArticleParser and everything
+            // else to ArticleParser (pure decision: YouTubeURL.isVideoURL).
+            let parsed = try await ArticleParsing.parse(url: url, prefetchedHTML: prefetchedHTML)
             article.apply(parsed, updateTitle: true)
             article.parseStatus = .ready
             try context.save()
