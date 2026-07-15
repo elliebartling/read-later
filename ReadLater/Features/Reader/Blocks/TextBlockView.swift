@@ -64,6 +64,11 @@ struct TextBlockView: View {
     @ViewBuilder
     private var chrome: some View {
         switch block.type {
+        case .listItem where block.markerBaked == true:
+            // Marker is already inline in `block.text` (parse-time baking) — the
+            // same text the plain reader renders. Lay it out as an ordinary
+            // paragraph so the two readers match and the marker isn't doubled.
+            representable
         case .listItem:
             HStack(alignment: .firstTextBaseline, spacing: 8) {
                 Text(listMarker ?? "•")

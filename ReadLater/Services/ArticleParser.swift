@@ -400,14 +400,56 @@ final class ArticleParser: NSObject {
             return codeText.length > 0 &&
                    normalize(el.textContent) === codeText;
         }
-        function nearestListStyle(el) {
-            var p = el.parentElement;
+        // Resolves a list item's marker as PLAIN TEXT baked into the block's
+        // own text — "\\u2022 " for unordered, "N. " for ordered (honouring the
+        // list's `start` attribute and the item's position among its LI
+        // siblings), with two non-breaking spaces of indent per nesting level
+        // beyond the first. Baking the marker into text (rather than composing
+        // it at render time) is what lets the PLAIN reader — which shows only
+        // derivePlainText — render list structure; the block reader skips its
+        // own SwiftUI marker for these via the `markerBaked` flag. Returns
+        // null style when the LI has no OL/UL ancestor (defensive; still marks).
+        function listItemMarker(el) {
+            var list = null, depth = 0, p = el.parentElement;
             while (p && p !== rootEl) {
-                if (p.tagName === "OL") { return "ordered"; }
-                if (p.tagName === "UL") { return "unordered"; }
+                if (p.tagName === "OL" || p.tagName === "UL") {
+                    depth++;
+                    if (!list) { list = p; }
+                }
                 p = p.parentElement;
             }
-            return null;
+            var indent = "";
+            for (var d = 1; d < depth; d++) { indent += "\\u00a0\\u00a0"; }
+            if (list && list.tagName === "OL") {
+                var start = parseInt(list.getAttribute("start"), 10);
+                if (isNaN(start)) { start = 1; }
+                var ordinal = start;
+                var prev = el.previousElementSibling;
+                while (prev) {
+                    if (prev.tagName === "LI") { ordinal++; }
+                    prev = prev.previousElementSibling;
+                }
+                return { prefix: indent + ordinal + ". ", style: "ordered" };
+            }
+            return { prefix: indent + "\\u2022 ", style: list ? "unordered" : null };
+        }
+        // A list item's OWN inline text, excluding any nested block descendants
+        // (sublists, nested <p>, etc.) which the walker emits as their own
+        // blocks. Lets a parent LI in an outline keep its line when it also
+        // holds a sublist, without double-emitting the sublist's text.
+        function ownListItemText(el) {
+            var parts = [];
+            for (var i = 0; i < el.childNodes.length; i++) {
+                var n = el.childNodes[i];
+                if (n.nodeType === 3) {
+                    parts.push(n.textContent);
+                } else if (n.nodeType === 1 && !BLOCK[n.tagName] &&
+                           n.tagName !== "OL" && n.tagName !== "UL" &&
+                           !hasBlockChild(n)) {
+                    parts.push(n.textContent || "");
+                }
+            }
+            return normalize(parts.join(" "));
         }
         function pushImage(img) {
             if (!img) { return; }
@@ -471,21 +513,27 @@ final class ArticleParser: NSObject {
                         ? (child.textContent || "").replace(/\\s+$/,"")
                         : normalize(child.textContent);
                     if (t) {
-                        out.push(t);
                         if (pre) {
+                            out.push(t);
                             blocks.push({ type: "preformatted", text: t });
                         } else if (HEADING[tag]) {
+                            out.push(t);
                             blocks.push({ type: "heading", text: t, level: HEADING[tag] });
                         } else if (tag === "LI") {
-                            var lb = { type: "listItem", text: t };
-                            var ls = nearestListStyle(child);
-                            if (ls) { lb.listStyle = ls; }
+                            var m = listItemMarker(child);
+                            var lt = m.prefix + t;
+                            out.push(lt);
+                            var lb = { type: "listItem", text: lt, markerBaked: true };
+                            if (m.style) { lb.listStyle = m.style; }
                             blocks.push(lb);
                         } else if (tag === "BLOCKQUOTE") {
+                            out.push(t);
                             blocks.push({ type: "blockquote", text: t });
                         } else if (tag === "FIGCAPTION") {
+                            out.push(t);
                             blocks.push({ type: "caption", text: t });
                         } else {
+                            out.push(t);
                             blocks.push({ type: "paragraph", text: t });
                         }
                     }
@@ -499,6 +547,22 @@ final class ArticleParser: NSObject {
                         pushImage(nested[j]);
                     }
                 } else {
+                    // A non-leaf LI: it holds a nested list (or other block)
+                    // and so isn't a leaf, yet may carry its own inline text
+                    // before the sublist. Emit that own text first — with its
+                    // marker — so outline parents never vanish; walk() then
+                    // emits the nested list's items in order below.
+                    if (tag === "LI") {
+                        var own = ownListItemText(child);
+                        if (own) {
+                            var pm = listItemMarker(child);
+                            var pt = pm.prefix + own;
+                            out.push(pt);
+                            var pb = { type: "listItem", text: pt, markerBaked: true };
+                            if (pm.style) { pb.listStyle = pm.style; }
+                            blocks.push(pb);
+                        }
+                    }
                     walk(child);
                 }
             }
@@ -735,7 +799,13 @@ final class ArticleParser: NSObject {
                 result.append(ArticleBlock(type: .heading, text: text, level: level))
             case .listItem:
                 let listStyle = (dict["listStyle"] as? String).flatMap { ListStyle(rawValue: $0) }
-                result.append(ArticleBlock(type: .listItem, text: text, listStyle: listStyle))
+                // `markerBaked` (additive, CloudKit-safe: old decoders ignore
+                // the unknown key) signals that the marker is already inline in
+                // `text`, so the block reader skips its own composed marker.
+                let markerBaked = dict["markerBaked"] as? Bool
+                result.append(ArticleBlock(
+                    type: .listItem, text: text, listStyle: listStyle, markerBaked: markerBaked
+                ))
             case .divider:
                 result.append(ArticleBlock(type: .divider))
             case .paragraph, .blockquote, .preformatted, .caption:

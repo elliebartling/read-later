@@ -391,6 +391,31 @@ final class CruftFilterTests: XCTestCase {
         XCTAssertEqual(CruftFilter.filter(blocks).removed, [])
     }
 
+    func testKeepsListicleWithBakedShortBulletMarkers() {
+        // Regression: list markers are baked into `.listItem` text at parse
+        // ("• Fast", "1. Cheap"). Those leading markers must not tip a short,
+        // legit listicle into the cruft rules — normalize strips the leading
+        // bullet, and ordered items stay list-typed (exempt from the counter
+        // rule), so every item survives.
+        func bakedU(_ text: String) -> ArticleBlock {
+            ArticleBlock(type: .listItem, text: text, listStyle: .unordered, markerBaked: true)
+        }
+        func bakedO(_ text: String) -> ArticleBlock {
+            ArticleBlock(type: .listItem, text: text, listStyle: .ordered, markerBaked: true)
+        }
+        let blocks = [
+            p("Here is why the framework is worth adopting this year."),
+            bakedU("• Fast"),
+            bakedU("• Simple"),
+            bakedU("• Free"),
+            p("And the migration path, in order:"),
+            bakedO("1. Install"),
+            bakedO("2. Configure"),
+            bakedO("3. Ship"),
+        ]
+        XCTAssertEqual(CruftFilter.filter(blocks).removed, [])
+    }
+
     // MARK: - Offset-space parity
 
     func testDerivePlainTextMatchesFilteredJoin() {

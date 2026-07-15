@@ -12,6 +12,14 @@ struct ArticleBlock: Codable, Identifiable, Equatable {
     var width: Int? = nil
     var height: Int? = nil
     var listStyle: ListStyle? = nil
+    /// True when a `.listItem`'s leading marker ("• " / "3. ") is already baked
+    /// into `text` at parse time — the route that lets the PLAIN reader (which
+    /// shows only `derivePlainText`) render list structure. The block reader
+    /// keys off this to skip its own SwiftUI-composed marker so it never
+    /// double-marks. Additive & optional so it is CloudKit-safe: older decoders
+    /// ignore the unknown JSON key, and blocks parsed before this shipped decode
+    /// as `nil` (their markers stay composed at render time, unchanged).
+    var markerBaked: Bool? = nil
 }
 
 enum BlockType: String, Codable {
@@ -94,17 +102,23 @@ enum ArticleBlocks {
         return NSRange(location: start - block.location, length: end - start)
     }
 
-    /// Leading list markers keyed by block index. A run of consecutive
-    /// `.listItem` blocks shares one numbering context; ordered items render
-    /// "1.", "2.", … and reset at the start of each run, while unordered items
-    /// render "•". Only ordered items advance the ordinal, so a run that mixes
-    /// styles keeps ordered numbering contiguous.
+    /// Leading list markers keyed by block index, for blocks whose marker is
+    /// NOT already baked into `text`. A run of consecutive `.listItem` blocks
+    /// shares one numbering context; ordered items render "1.", "2.", … and
+    /// reset at the start of each run, while unordered items render "•". Only
+    /// ordered items advance the ordinal, so a run that mixes styles keeps
+    /// ordered numbering contiguous.
+    ///
+    /// `.listItem` blocks with `markerBaked == true` are skipped entirely: their
+    /// marker already lives in `text` (parse-time baking), so composing another
+    /// here would double it. Such blocks are parsed with markers inline; the
+    /// legacy render-time-marker path serves only pre-baking stored blocks.
     static func listMarkers(_ blocks: [ArticleBlock]) -> [Int: String] {
         var markers: [Int: String] = [:]
         var ordinal = 1
         var inRun = false
         for (i, b) in blocks.enumerated() {
-            guard b.type == .listItem else {
+            guard b.type == .listItem, b.markerBaked != true else {
                 inRun = false
                 continue
             }
