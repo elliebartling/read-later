@@ -1,11 +1,13 @@
 # Save from YouTube (with transcript) — design
 
-Status: **draft for Ellen's review** — this is a design, not an implementation.
-Decision-shaped questions are collected under "Open questions" at the end.
-Touches (when built): a new `ReadLater/Services/Parsing/` sibling to
-`ArticleParser`, a small `Shared/` URL helper, and additive fields on
-`Article`/`ArticleBlock`. Reuses the existing `Parsed` → `Article.apply` seam so
-the reader, highlighting, TTS, and image cache need no changes for v1.
+Status: **approved by Ellen (2026-07-14)** — her answers to the review
+questions are recorded under "Review decisions" below, plus one approved scope
+addition: **channel subscriptions** as a third tenant of the Feeds
+architecture. Touches (when built): a new `ReadLater/Services/Parsing/`
+sibling to `ArticleParser`, a small `Shared/` URL helper, additive fields on
+`Article`/`ArticleBlock`/`FeedEntry`, and the add-feed flow. Reuses the
+existing `Parsed` → `Article.apply` seam so the reader, highlighting, TTS, and
+image cache need no changes for v1.
 
 ## Problem
 
@@ -50,8 +52,8 @@ path is unchanged.
 - **Failure modes & fallback:** no captions on the video, a PoToken-gated empty
   body, or a layout change → **degrade gracefully to a metadata-only save**
   (title + channel + thumbnail + description) with a reader note "No transcript
-  available — watch on YouTube." Never fail the save. (Whether to add a keyed
-  third-party API as a second-tier fallback is Open Q1.)
+  available — watch on YouTube." Never fail the save. Per review decision 3
+  there is **no third-party-API tier** — metadata-only is the floor.
 
 This strategy has one large virtue: it fails *soft* and it fails *offline to
 us* — no keys, no accounts, no data leaving the device, and every piece reuses
@@ -96,11 +98,15 @@ A video fits `Article` cleanly. The transcript is just text-bearing blocks, so
 - **Tap-timestamp-to-seek (v2):** with `startMS` per block, tapping a segment
   opens `https://youtu.be/<id>?t=<seconds>` at that moment. Cheap once v2 stores
   the offsets.
-- **TTS interplay:** reading a transcript aloud in a synthetic voice while the
-  creator's *actual narrated audio* is one tap away is the worse experience.
-  Recommended default: **keep TTS available** (a transcript is just text) but
-  **de-emphasize it for video articles** and foreground "Watch on YouTube"
-  instead. (Confirm — Open Q3.)
+- **TTS interplay (decided):** reading a transcript aloud in a synthetic voice
+  while the creator's *actual narrated audio* is one tap away is the worse
+  experience. Per review decision 2: **TTS stays available** (a transcript is
+  just text) but is **de-emphasized on video articles** — "Watch on YouTube"
+  is the lead action.
+- **Library distinction (decided):** per review decision 4, video articles
+  carry a small badge (play glyph) in Library lists so they scan as video.
+  v1 keeps it minimal; a duration badge can join in v2 once
+  `videoDurationSeconds` is captured.
 
 ## Ingest flow
 
@@ -117,34 +123,97 @@ A video fits `Article` cleanly. The transcript is just text-bearing blocks, so
   invisible to everything downstream.
 - **Serialization:** already handled — `VideoArticleParser` shares the one
   WKWebView, so it inherits the existing single-parse-at-a-time discipline.
+- **Feed entries need no special plumbing:** opening a `FeedEntry` already
+  writes a `PendingSave` (source `.rss`) and drains it. A channel-feed entry's
+  URL *is* a watch URL, so it hits the same `YouTubeURL` detection and routes
+  into `VideoArticleParser` like any other save. The feed→video path is
+  ordinary URL-based routing — nothing to build.
+
+## Channel subscriptions (approved scope addition)
+
+YouTube channels become the **third tenant of the existing Feeds
+architecture** (alongside RSS/Atom sites), because YouTube still publishes a
+free, anonymous, quota-less feed per channel:
+`https://www.youtube.com/feeds/videos.xml?channel_id=UC…` (Atom; parseable by
+the existing `FeedParser`; ~15 most recent videos).
+
+### Wave 1 — subscribe by URL/handle (ships with v1)
+
+- **Add-feed accepts channel URLs and @handles.** `youtube.com/channel/UC…`
+  maps directly to the feed URL. `youtube.com/@handle` (and bare `@handle`)
+  needs a **handle → channel_id resolution**: fetch the channel page and parse
+  the id out of the page metadata (`og:url` / canonical link / the
+  `channelId` meta). This is honest scraping and **will be fragile** — YouTube
+  can reshape that markup any time. Failure mode: the add-feed sheet falls
+  back to asking for the full channel URL, which never needs resolution.
+- **Entry thumbnails.** Channel feeds carry `media:group/media:thumbnail`.
+  Add an optional `thumbnailURL: URL?` to `FeedEntry` (CloudKit-safe) and
+  teach `FeedParser` the `media:` namespace; entry lists render the thumbnail
+  via `ArticleImageCache`. Additive for ordinary RSS feeds (stays `nil`).
+- **Tap-through:** as noted under Ingest, entries flow into
+  `VideoArticleParser` via ordinary URL routing. Zero feed-specific video code.
+
+### Wave 2 — one-time subscription import
+
+Two import paths, shipped together; **no ongoing sync, no OAuth** in either:
+
+- **Site-login scrape:** the user signs into YouTube in the existing
+  `SiteLoginView` sheet; we then load `youtube.com/feed/channels` off-screen
+  with the shared cookie store (`SiteLoginStore` — same contract the paywall
+  path uses), parse the subscribed-channel list, and present a checkbox picker;
+  selected channels are subscribed via their RSS feed URLs. This is **scraping
+  logged-in markup and is the most brittle thing in this design** — it can
+  break silently on any YouTube redesign. It is acceptable *only because it is
+  a one-time import*: if it breaks, nothing already-imported is lost.
+- **Google Takeout CSV (the robust fallback, ships alongside):** Takeout's
+  YouTube export includes `subscriptions.csv` with channel ids — a stable,
+  documented format. Import via the Files picker into the same checkbox picker.
+- **Google OAuth: explicitly rejected.** The verification gauntlet (scopes
+  audit, demo video, annual re-review) is disproportionate for a personal app,
+  and it would be the only Google-account credential in the app.
+
+### Risk posture
+
+Mirrors the Reddit design: **RSS is the foundation** — anonymous, free,
+unauthenticated, and the only piece that runs continuously. Anything derived
+from the user's *account* is a one-time import with a file-based fallback. So
+YouTube can only take away what YouTube itself provides (the channel feeds);
+a markup change breaks an import flow, never the subscriptions themselves.
 
 ## Scope cut
 
-**v1 — smallest lovable (moderate effort).** URL detection + `VideoArticleParser`
-+ desktop-UA load + `captionTracks` scrape → title, channel (`author`),
-thumbnail (`heroImageURL`), description, and transcript as plain `.paragraph`
-blocks. No timestamps, no speaker turns. Graceful metadata-only fallback when no
-transcript. Reuses `Parsed`/`apply`/blocks/reader/highlight/TTS untouched. The
-bulk of the work is one new service and getting the scrape robust.
+Channels reframe this feature: YouTube isn't just a URL type the parser
+tolerates, it's a **first-class source** feeding the river — which raises the
+stakes on the metadata fallback (a subscribed channel's videos must *always*
+save cleanly, transcript or not). The transcript scrape is unchanged as the
+hard part.
 
-**v2 — timestamps & seek (larger effort).** Add optional `startMS` to
-`ArticleBlock`, tap-to-seek deep links, coalescing tuning, video badge in the
-Library, and (if chosen) a keyed third-party fallback. The schema and reader
-touches make this the heavier cut; keep it separate.
+**v1 — smallest lovable (moderate effort).** URL detection +
+`VideoArticleParser` + desktop-UA load + `captionTracks` scrape → title,
+channel (`author`), thumbnail (`heroImageURL`), description, and transcript as
+plain `.paragraph` blocks — no timestamps, no speaker turns (review decision
+1). Metadata-only fallback when no transcript. Library play-glyph badge.
+**Plus Wave 1 channels:** add-feed accepts channel URLs/@handles,
+`FeedEntry.thumbnailURL`, `media:` parsing. Reuses
+`Parsed`/`apply`/blocks/reader/highlight/TTS untouched. The bulk of the work
+is one new service, scrape robustness, and the add-feed/parser touches.
 
-## Open questions for Ellen
+**v2 — timestamps, seek, import (larger effort).** Optional `startMS` on
+`ArticleBlock`, tap-to-seek deep links, coalescing tuning, duration badge.
+**Plus Wave 2 import:** site-login `feed/channels` scrape + checkbox picker +
+Takeout CSV fallback. The schema, reader, and login-scrape touches make this
+the heavier cut; keep it separate.
 
-1. **Fallback tier.** When the in-app scrape yields nothing (no captions or a
-   PoToken-gated empty body), do we (a) save metadata-only with a "no
-   transcript" note — fully local, or (b) also allow a keyed third-party
-   transcript API that sends saved video IDs off-device? (a) is the privacy
-   default; (b) recovers more videos at the cost of a key + data leaving the
+## Review decisions (Ellen, 2026-07-14)
+
+1. **Timestamps: v2, not v1.** Plain `.paragraph` blocks in v1 exactly as
+   recommended — zero schema change, no CloudKit decode hazard.
+2. **TTS on video articles: de-emphasized.** "Watch on YouTube" is the primary
+   affordance; TTS stays available but is not the lead action.
+3. **Fallback tier: metadata-only, fully on-device.** No third-party
+   transcript APIs — a privacy decision. Saved video IDs never leave the
    device.
-2. **Timestamps: v1 or v2?** Deferring keeps v1 to zero schema change. Pulling
-   `startMS` into v1 means adding the optional field now (safe) but tuning
-   coalescing/seek up front. How much do you want tap-to-seek on day one?
-3. **TTS default for videos.** Keep TTS a co-equal action, or de-emphasize it in
-   favor of "Watch on YouTube" as recommended above?
-4. **Library distinction.** Should video articles read as normal articles in the
-   Library, or carry a play glyph / duration badge / channel-as-author so
-   they're scannable as video?
+4. **Library distinction: yes, small badge.** Video articles get a play-glyph
+   badge in Library lists.
+5. **Scope addition: channel subscriptions** (section above) — Wave 1 RSS
+   subscribe in v1, Wave 2 one-time import in v2.
