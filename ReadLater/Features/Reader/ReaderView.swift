@@ -43,6 +43,10 @@ struct ReaderView: View {
     /// Non-nil presents the in-app browser for a discussion permalink (the
     /// "In-App Browser" option of the Open-discussions-in setting).
     @State private var inAppDiscussion: IdentifiableURL?
+    /// Reddit sign-in state, for the "Save to Reddit" overflow action on posts
+    /// that carry a Reddit discussion permalink. Shared singleton so signing in
+    /// from Settings is reflected here.
+    @State private var reddit = RedditAuthController.shared
 
     /// Color for instantly-created highlights; updated whenever the user picks
     /// a color, so new highlights reuse the last choice.
@@ -138,6 +142,19 @@ struct ReaderView: View {
                             }
                         } label: {
                             Label("Open in Browser", systemImage: "safari")
+                        }
+                        // Save-back to Reddit — only for Reddit discussions when
+                        // signed in (wave 2). Subtle placement in the discussion
+                        // overflow, per the design.
+                        if reddit.isSignedIn,
+                           let url = article.discussionURL,
+                           RedditFeed.isRedditURL(url)
+                        {
+                            Button {
+                                saveToReddit(url)
+                            } label: {
+                                Label("Save to Reddit", systemImage: "bookmark")
+                            }
                         }
                     }
                 }
@@ -502,6 +519,22 @@ struct ReaderView: View {
         guard let url = article.discussionURL else { return }
         if let inApp = DiscussionOpener.open(permalink: url, preference: settings.redditDiscussionApp) {
             inAppDiscussion = IdentifiableURL(url: inApp)
+        }
+    }
+
+    /// Saves the post backing this article to the user's Reddit saved list.
+    /// Reuses the reader's existing transient toast / error alert plumbing for
+    /// feedback. The fullname is derived from the discussion permalink inside
+    /// `RedditAuthController.savePost`.
+    private func saveToReddit(_ discussionURL: URL) {
+        Task { @MainActor in
+            do {
+                try await reddit.savePost(discussionURL: discussionURL)
+                withAnimation(Self.chromeAnimation) { chromeVisible = true }
+                showReextractToast("Saved to Reddit")
+            } catch {
+                reextractError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
+            }
         }
     }
 

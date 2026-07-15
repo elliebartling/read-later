@@ -21,6 +21,9 @@ struct PendingSave: Codable, Identifiable {
         case urlScheme
         case manual
         case rss
+        /// Materialized from the user's Reddit saved-posts import (wave 2).
+        /// Routed through the same ingest pipeline as `.rss`.
+        case reddit
     }
 
     init(

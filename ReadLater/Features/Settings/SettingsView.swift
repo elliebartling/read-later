@@ -30,6 +30,7 @@ private struct SettingsForm: View {
     @State private var hasStoredKey = false
     @State private var showingFolderPicker = false
     @State private var lastExportStatus: String?
+    @State private var reddit = RedditAuthController.shared
     private let syncStatus = SyncStatus.shared
 
     var body: some View {
@@ -171,6 +172,28 @@ private struct SettingsForm: View {
             }
 
             Section {
+                // "Sign in with Reddit" (wave 2). Only shown once a client ID is
+                // configured (RedditAuthConfig.clientID); an unconfigured build
+                // hides the whole account row so there's no dead button.
+                if reddit.isConfigured {
+                    NavigationLink {
+                        RedditAccountView()
+                    } label: {
+                        HStack {
+                            Label("Reddit Account", systemImage: "person.crop.circle.badge.checkmark")
+                            Spacer()
+                            if let account = reddit.account {
+                                Text("u/\(account.name)")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            } else {
+                                Text("Sign In")
+                                    .font(.footnote)
+                                    .foregroundStyle(.secondary)
+                            }
+                        }
+                    }
+                }
                 Picker("Open discussions in", selection: .init(
                     get: { settings.redditDiscussionApp },
                     set: { settings.redditDiscussionApp = $0 }
