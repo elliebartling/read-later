@@ -10,6 +10,10 @@ struct PendingSave: Codable, Identifiable {
     let capturedHTML: String?
     let source: Source
     let savedAt: Date
+    /// Optional discussion-thread permalink carried onto the resulting Article
+    /// (Reddit comments URL for feed saves). Optional so decoding older JSONs —
+    /// and the extensions, which never set it — stays backward compatible.
+    let discussionURL: URL?
 
     enum Source: String, Codable {
         case shareExtension
@@ -25,7 +29,8 @@ struct PendingSave: Codable, Identifiable {
         title: String? = nil,
         capturedHTML: String? = nil,
         source: Source,
-        savedAt: Date = .now
+        savedAt: Date = .now,
+        discussionURL: URL? = nil
     ) {
         self.id = id
         self.url = url
@@ -33,6 +38,7 @@ struct PendingSave: Codable, Identifiable {
         self.capturedHTML = capturedHTML
         self.source = source
         self.savedAt = savedAt
+        self.discussionURL = discussionURL
     }
 
     /// Writes this pending save to the shared container as `<uuid>.json`.

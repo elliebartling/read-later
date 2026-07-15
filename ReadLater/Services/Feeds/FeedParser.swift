@@ -14,6 +14,11 @@ struct ParsedFeedItem: Identifiable {
     var publishedAt: Date?
     var summary: String?
     var author: String?
+    /// Raw (entity-decoded) content HTML from the richest content element
+    /// (`content:encoded` / Atom `<content>` / `<description>`). Kept alongside
+    /// the plain-text `summary` so Reddit link/self classification and self-post
+    /// rendering have the full markup. nil when the item carried no content.
+    var contentHTML: String?
 
     /// Stable identity for SwiftUI lists: guid falls back to URL at parse time.
     var id: String { guid ?? url?.absoluteString ?? title }
@@ -235,6 +240,16 @@ private final class FeedXMLDelegate: NSObject, XMLParserDelegate {
                 if current.publishedAt == nil { current.publishedAt = FeedParser.parseDate(value) }
             case "description", "summary", "content:encoded", "content":
                 if current.summary == nil { current.summary = FeedParser.plainSummary(value) }
+                // Keep the raw markup too. Prefer the rich content elements
+                // (`content:encoded` / Atom `<content>`) over `description` /
+                // `summary`, which are often just an excerpt.
+                if !value.isEmpty {
+                    if name == "content:encoded" || name == "content" {
+                        current.contentHTML = value
+                    } else if current.contentHTML == nil {
+                        current.contentHTML = value
+                    }
+                }
             case "dc:creator":
                 if !value.isEmpty { current.author = value }
             case "name":

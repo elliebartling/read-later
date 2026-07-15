@@ -40,6 +40,9 @@ struct ReaderView: View {
     /// reading and written back to the article on disappear so reopening resumes
     /// at the same word instead of jumping to the top.
     @State private var latestTopOffset: Int?
+    /// Non-nil presents the in-app browser for a discussion permalink (the
+    /// "In-App Browser" option of the Open-discussions-in setting).
+    @State private var inAppDiscussion: IdentifiableURL?
 
     /// Color for instantly-created highlights; updated whenever the user picks
     /// a color, so new highlights reuse the last choice.
@@ -114,6 +117,23 @@ struct ReaderView: View {
         .statusBarHidden(!showChrome)
         .toolbar(.hidden, for: .bottomBar)
         .toolbar {
+            if article.discussionURL != nil {
+                ToolbarItem(placement: .topBarTrailing) {
+                    Button(action: openDiscussion) {
+                        Image(systemName: "bubble.left.and.bubble.right")
+                    }
+                    .accessibilityLabel("View discussion")
+                    .contextMenu {
+                        Button {
+                            if let url = article.discussionURL {
+                                DiscussionOpener.openInBrowser(url)
+                            }
+                        } label: {
+                            Label("Open in Browser", systemImage: "safari")
+                        }
+                    }
+                }
+            }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
                     showingTypographyControls = true
@@ -132,6 +152,10 @@ struct ReaderView: View {
         }
         .sheet(isPresented: $showingTagSheet) {
             TagAssignmentSheet(article: article)
+        }
+        .sheet(item: $inAppDiscussion) { item in
+            SafariView(url: item.url)
+                .ignoresSafeArea()
         }
         .sheet(isPresented: $showingSiteLogin, onDismiss: reextract) {
             if let url = article.url {
@@ -442,6 +466,16 @@ struct ReaderView: View {
         try? context.save()
     }
 
+    /// Opens the article's discussion permalink honouring the user's
+    /// "Open discussions in" preference. External hand-offs (System Default /
+    /// Narwhal) go straight out; the in-app option presents a Safari sheet.
+    private func openDiscussion() {
+        guard let url = article.discussionURL else { return }
+        if let inApp = DiscussionOpener.open(permalink: url, preference: settings.redditDiscussionApp) {
+            inAppDiscussion = IdentifiableURL(url: inApp)
+        }
+    }
+
     /// Re-runs the extractor over the article's URL and refreshes its derived
     /// fields (plainText, extractedHTML, blocks, reading time) via the shared
     /// `Article.apply` helper — the same parse path used on first ingest. The
@@ -652,6 +686,12 @@ struct ReaderView: View {
             }
         }
     }
+}
+
+/// Identifiable wrapper so a bare `URL` can drive `.sheet(item:)`.
+struct IdentifiableURL: Identifiable {
+    let url: URL
+    var id: String { url.absoluteString }
 }
 
 extension View {

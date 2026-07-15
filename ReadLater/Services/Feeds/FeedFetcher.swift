@@ -12,6 +12,10 @@ enum FeedFetcher {
         case badResponse
         case notAFeed
         case noFeedFound
+        /// HTTP 429 — the host is throttling us (Reddit does this to anonymous
+        /// fetches). Distinct so the refresher can back off and keep existing
+        /// entries rather than treating it as a hard failure.
+        case rateLimited
 
         var errorDescription: String? {
             switch self {
@@ -21,6 +25,8 @@ enum FeedFetcher {
                 return "That URL isn't an RSS or Atom feed."
             case .noFeedFound:
                 return "Couldn't find a feed on that site. Try pasting the feed URL directly."
+            case .rateLimited:
+                return "The server is rate-limiting requests. Try again in a minute."
             }
         }
     }
@@ -68,8 +74,14 @@ enum FeedFetcher {
     private static func get(_ url: URL) async throws -> Data {
         var request = URLRequest(url: url)
         request.timeoutInterval = 20
+        // Reddit 429s the default URLSession token far more aggressively than a
+        // unique, app-identifying agent — set one for reddit.com-family hosts.
+        if RedditFeed.isRedditURL(url) {
+            request.setValue(RedditPolicy.userAgent, forHTTPHeaderField: "User-Agent")
+        }
         let (data, response) = try await URLSession.shared.data(for: request)
         if let http = response as? HTTPURLResponse, !(200 ... 299).contains(http.statusCode) {
+            if http.statusCode == 429 { throw FetchError.rateLimited }
             throw FetchError.badResponse
         }
         return data

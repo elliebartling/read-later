@@ -169,6 +169,21 @@ private struct SettingsForm: View {
                 }
                 Toggle("Block reader (beta)", isOn: $settings.useBlockReader)
             }
+
+            Section {
+                Picker("Open discussions in", selection: .init(
+                    get: { settings.redditDiscussionApp },
+                    set: { settings.redditDiscussionApp = $0 }
+                )) {
+                    ForEach(RedditDiscussionApp.allCases) { app in
+                        Text(app.displayName).tag(app)
+                    }
+                }
+            } header: {
+                Text("Reddit")
+            } footer: {
+                Text("Where the reader's \u{201C}View discussion\u{201D} button opens a Reddit comments link. System Default uses the official Reddit app if installed, otherwise Safari.")
+            }
         }
         .navigationTitle("Settings")
         .onAppear(perform: refreshStoredKeyState)

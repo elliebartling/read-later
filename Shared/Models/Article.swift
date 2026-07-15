@@ -51,6 +51,11 @@ final class Article {
     /// (the character doesn't move even though its pixel offset does). Uses the
     /// same offset space as highlight anchors.
     var readingCharacterOffset: Int = 0
+    /// Optional link to a discussion thread this article came from — the Reddit
+    /// comments permalink for articles saved from a Reddit feed entry. Named
+    /// generically (not Reddit-specific) so other sources can reuse it. Drives
+    /// the reader's "View discussion" affordance. CloudKit-safe optional.
+    var discussionURL: URL?
     private var parseStatusRaw: Int = ParseStatus.pending.rawValue
 
     var parseStatus: ParseStatus {
