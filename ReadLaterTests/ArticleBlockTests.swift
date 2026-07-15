@@ -104,6 +104,21 @@ final class ArticleBlockTests: XCTestCase {
         XCTAssertEqual(blocks[8].type, .divider)
     }
 
+    func testBlocksFromJSReadsMarkerBakedFlag() {
+        // The JS walk now bakes list markers into `text` and flags the block so
+        // the block reader skips its composed marker. The mapper must carry the
+        // flag through; blocks without the key decode as nil (pre-baking blocks).
+        let raw: [[String: Any]] = [
+            ["type": "listItem", "text": "• Baked bullet", "listStyle": "unordered", "markerBaked": true],
+            ["type": "listItem", "text": "Legacy bullet", "listStyle": "unordered"],
+        ]
+        let blocks = ArticleParser.blocks(fromJS: raw, baseURL: base)
+        XCTAssertEqual(blocks.count, 2)
+        XCTAssertEqual(blocks[0].markerBaked, true)
+        XCTAssertEqual(blocks[0].text, "• Baked bullet")
+        XCTAssertNil(blocks[1].markerBaked)
+    }
+
     func testBlocksFromJSResolvesRelativeImageURL() {
         let raw: [[String: Any]] = [
             ["type": "image", "src": "img/pic.png"],
@@ -294,6 +309,16 @@ final class ArticleBlockTests: XCTestCase {
         XCTAssertEqual(markers[4], "1.")   // ordinal resets at the run start
         XCTAssertEqual(markers[5], "2.")
         XCTAssertEqual(markers[6], "3.")
+    }
+
+    func testListMarkersSkipsBakedItemsToAvoidDoubleMarking() {
+        // Blocks whose marker is baked into text get NO composed marker — the
+        // block reader renders them like paragraphs, so it never double-marks.
+        let blocks: [ArticleBlock] = [
+            ArticleBlock(type: .listItem, text: "• a", listStyle: .unordered, markerBaked: true),
+            ArticleBlock(type: .listItem, text: "1. b", listStyle: .ordered, markerBaked: true),
+        ]
+        XCTAssertTrue(ArticleBlocks.listMarkers(blocks).isEmpty)
     }
 
     func testParagraphBlockIndicesMapMultilinePreformattedToOneBlock() {
