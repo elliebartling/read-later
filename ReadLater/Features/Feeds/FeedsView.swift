@@ -10,6 +10,7 @@ struct FeedsView: View {
     @Query(filter: #Predicate<FeedEntry> { $0.isRead == false })
     private var unreadEntries: [FeedEntry]
     @State private var showingAddSheet = false
+    @State private var showingImportSheet = false
     @State private var path = NavigationPath()
 
     var body: some View {
@@ -50,7 +51,18 @@ struct FeedsView: View {
             .navigationTitle("Feeds")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button { showingAddSheet = true } label: {
+                    Menu {
+                        Button {
+                            showingAddSheet = true
+                        } label: {
+                            Label("Add Feed…", systemImage: "link")
+                        }
+                        Button {
+                            showingImportSheet = true
+                        } label: {
+                            Label("Import subscriptions…", systemImage: "square.and.arrow.down")
+                        }
+                    } label: {
                         Image(systemName: "plus")
                     }
                 }
@@ -66,6 +78,9 @@ struct FeedsView: View {
             }
             .sheet(isPresented: $showingAddSheet) {
                 AddFeedSheet()
+            }
+            .sheet(isPresented: $showingImportSheet) {
+                YouTubeImportView()
             }
         }
     }
