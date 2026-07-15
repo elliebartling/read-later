@@ -107,6 +107,7 @@ enum FeedRefresher {
                 if let author = item.author, entry.author != author { entry.author = author }
                 if entry.externalURL != reddit.externalURL { entry.externalURL = reddit.externalURL }
                 if entry.contentHTML != reddit.contentHTML { entry.contentHTML = reddit.contentHTML }
+                if entry.thumbnailURL != item.thumbnailURL { entry.thumbnailURL = item.thumbnailURL }
             } else {
                 let entry = FeedEntry(
                     feed: feed,
@@ -117,7 +118,8 @@ enum FeedRefresher {
                     summary: item.summary,
                     author: item.author,
                     externalURL: reddit.externalURL,
-                    contentHTML: reddit.contentHTML
+                    contentHTML: reddit.contentHTML,
+                    thumbnailURL: item.thumbnailURL
                 )
                 context.insert(entry)
                 existingByGuid[item.id] = entry

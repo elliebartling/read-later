@@ -136,7 +136,7 @@ struct AddFeedSheet: View {
                     .disabled(isResolving)
                     .submitLabel(.go)
                     .onSubmit {
-                        guard !isResolving, normalizedURL != nil else { return }
+                        guard !isResolving, canSubscribe else { return }
                         Task { await subscribe() }
                     }
                 if let errorMessage {
@@ -158,7 +158,7 @@ struct AddFeedSheet: View {
                         Button("Subscribe") {
                             Task { await subscribe() }
                         }
-                        .disabled(normalizedURL == nil)
+                        .disabled(!canSubscribe)
                     }
                 }
             }
@@ -180,13 +180,24 @@ struct AddFeedSheet: View {
         return URL(string: "https://\(trimmed)")
     }
 
+    /// The Subscribe button is enabled for a normal URL/shorthand OR a YouTube
+    /// channel reference (a `@handle` has no dot/scheme, so `normalizedURL`
+    /// alone wouldn't recognise it).
+    private var canSubscribe: Bool {
+        normalizedURL != nil || YouTubeChannel.reference(from: urlString) != nil
+    }
+
     private func subscribe() async {
-        guard let url = normalizedURL else { return }
         isResolving = true
         errorMessage = nil
         defer { isResolving = false }
 
         do {
+            // YouTube channel URLs / @handles resolve to the channel's Atom feed
+            // (videos.xml?channel_id=…) before the normal feed resolver runs.
+            // Returns nil for non-channel input, which falls through untouched.
+            let channelFeedURL = try await YouTubeChannel.resolveFeedURL(from: urlString)
+            guard let url = channelFeedURL ?? normalizedURL else { return }
             let resolved = try await FeedFetcher.resolve(url: url)
 
             let existing = (try? context.fetch(FetchDescriptor<Feed>())) ?? []

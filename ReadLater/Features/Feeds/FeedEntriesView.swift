@@ -195,6 +195,10 @@ private struct FeedEntryRow: View {
                 .padding(.top, 6)
                 .opacity(entry.isRead ? 0 : 1)
                 .accessibilityHidden(true)
+            if let thumbnailURL = entry.thumbnailURL {
+                FeedThumbnail(url: thumbnailURL)
+                    .padding(.top, 2)
+            }
             VStack(alignment: .leading, spacing: 4) {
                 Text(entry.title.isEmpty ? (entry.url?.absoluteString ?? "Untitled") : entry.title)
                     .font(.headline)
@@ -227,5 +231,39 @@ private struct FeedEntryRow: View {
         }
         .padding(.vertical, 6)
         .contentShape(Rectangle())
+    }
+}
+
+/// Small 16:9 entry thumbnail (YouTube channel videos), loaded and downsampled
+/// through the shared `ArticleImageCache` so scrolling doesn't re-fetch.
+private struct FeedThumbnail: View {
+    let url: URL
+    @State private var image: UIImage?
+
+    private static let width: CGFloat = 88
+    private static let height: CGFloat = 49 // 16:9
+
+    var body: some View {
+        ZStack {
+            if let image {
+                Image(uiImage: image)
+                    .resizable()
+                    .scaledToFill()
+            } else {
+                Rectangle()
+                    .fill(.quaternary)
+                    .overlay {
+                        Image(systemName: "play.rectangle")
+                            .foregroundStyle(.secondary)
+                            .font(.caption)
+                    }
+            }
+        }
+        .frame(width: Self.width, height: Self.height)
+        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .accessibilityHidden(true)
+        .task(id: url) {
+            image = await ArticleImageCache.shared.image(for: url, targetWidth: Self.width)
+        }
     }
 }

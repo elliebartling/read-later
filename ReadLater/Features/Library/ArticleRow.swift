@@ -16,6 +16,10 @@ struct ArticleRow: View {
                         .foregroundStyle(.secondary)
                 }
                 HStack(spacing: 10) {
+                    if article.isVideoArticle {
+                        Label("Video", systemImage: "play.rectangle.fill")
+                            .accessibilityLabel("Video")
+                    }
                     if article.estimatedReadingMinutes > 0 {
                         Label("\(article.estimatedReadingMinutes) min", systemImage: "clock")
                     }
