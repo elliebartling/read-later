@@ -20,6 +20,23 @@ struct ArticleBlock: Codable, Identifiable, Equatable {
     /// ignore the unknown JSON key, and blocks parsed before this shipped decode
     /// as `nil` (their markers stay composed at render time, unchanged).
     var markerBaked: Bool? = nil
+    /// True when the block's text came from inside a `<blockquote>`. Set at
+    /// parse time on EVERY block the quote contains — a multi-paragraph quote
+    /// yields several flagged blocks, and a quoted list item stays a
+    /// `.listItem` that is also quoted — so quote membership is orthogonal to
+    /// block type and no new `BlockType` case is needed. (A new enum case would
+    /// be a cross-version hazard: an older device decoding an unknown `type`
+    /// string drops the block, see docs/youtube-save-design.md.) Additive and
+    /// optional, so it is CloudKit-safe the same way `markerBaked` is: older
+    /// decoders ignore the unknown JSON key and blocks parsed before this
+    /// shipped decode as `nil`.
+    var isQuote: Bool? = nil
+
+    /// Whether this block should render as quoted. Reads the additive flag and
+    /// falls back to the legacy `.blockquote` type, so blocks stored before
+    /// `isQuote` existed (leaf `<blockquote>`s, which were the only quotes the
+    /// walker recognised) keep their quote treatment.
+    var isQuoted: Bool { isQuote == true || type == .blockquote }
 }
 
 enum BlockType: String, Codable {
@@ -83,6 +100,36 @@ enum ArticleBlocks {
             let len = (t as NSString).length
             result[i] = NSRange(location: cursor, length: len)
             cursor += len + 2 // "\n\n"
+        }
+        return result
+    }
+
+    /// GLOBAL UTF-16 ranges of every quoted block within `plainText` — the
+    /// PLAIN reader's route to quote styling, since it renders `plainText`
+    /// alone and has no per-block views.
+    ///
+    /// Each candidate range is verified to actually hold that block's text
+    /// before it is returned. `plainText` is stored on the article and blocks
+    /// are decoded from a separate blob; for anything parsed before the block
+    /// pipeline (or by the legacy text join) the two can disagree, and styling
+    /// an unverified range would tint the wrong paragraph. Verification makes a
+    /// drifted pair degrade to "no quote styling" instead of mis-styling.
+    ///
+    /// Purely presentational: the text is never mutated, so the UTF-16
+    /// highlight offset space is untouched.
+    static func quoteRanges(_ blocks: [ArticleBlock], in plainText: String) -> [NSRange] {
+        let ns = plainText as NSString
+        var result: [NSRange] = []
+        var cursor = 0
+        for b in blocks where b.type.isTextBearing {
+            guard let t = b.text, !t.isEmpty else { continue }
+            let len = (t as NSString).length
+            defer { cursor += len + 2 } // "\n\n"
+            guard b.isQuoted else { continue }
+            guard cursor >= 0, cursor + len <= ns.length else { continue }
+            let range = NSRange(location: cursor, length: len)
+            guard ns.substring(with: range) == t else { continue }
+            result.append(range)
         }
         return result
     }

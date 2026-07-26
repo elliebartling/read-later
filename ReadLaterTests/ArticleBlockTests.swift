@@ -341,4 +341,109 @@ final class ArticleBlockTests: XCTestCase {
             .count
         XCTAssertEqual(ArticleBlocks.paragraphBlockIndices(blocks).count, paragraphCount)
     }
+
+    // MARK: - Blockquote preservation (isQuote)
+
+    func testIsQuotedCoversFlagAndLegacyBlockquoteType() {
+        // The additive flag is the new signal…
+        XCTAssertTrue(ArticleBlock(type: .paragraph, text: "q", isQuote: true).isQuoted)
+        XCTAssertTrue(ArticleBlock(type: .listItem, text: "• q", isQuote: true).isQuoted)
+        // …and the legacy `.blockquote` type still reads as quoted, so blocks
+        // stored before `isQuote` existed keep their treatment.
+        XCTAssertTrue(ArticleBlock(type: .blockquote, text: "q").isQuoted)
+        // Everything else is not.
+        XCTAssertFalse(ArticleBlock(type: .paragraph, text: "p").isQuoted)
+        XCTAssertFalse(ArticleBlock(type: .paragraph, text: "p", isQuote: false).isQuoted)
+    }
+
+    func testBlocksDecodeWhenIsQuoteKeyIsAbsent() throws {
+        // CloudKit cross-version safety: JSON written by a build that predates
+        // `isQuote` must still decode — the whole array, not a partial one.
+        let json = """
+        [{"id":"\(UUID().uuidString)","type":"paragraph","text":"Old block"},
+         {"id":"\(UUID().uuidString)","type":"blockquote","text":"Old quote"}]
+        """
+        let blocks = try XCTUnwrap(ArticleBlocks.decode(Data(json.utf8)))
+        XCTAssertEqual(blocks.count, 2)
+        XCTAssertNil(blocks[0].isQuote)
+        XCTAssertFalse(blocks[0].isQuoted)
+        XCTAssertTrue(blocks[1].isQuoted, "legacy blockquote type still reads as quoted")
+    }
+
+    func testBlocksFromJSReadsIsQuoteFlag() {
+        let raw: [[String: Any]] = [
+            ["type": "paragraph", "text": "Body"],
+            ["type": "paragraph", "text": "Quoted one", "isQuote": true],
+            ["type": "listItem", "text": "• q", "listStyle": "unordered",
+             "markerBaked": true, "isQuote": true],
+            ["type": "heading", "text": "Quoted head", "level": 3, "isQuote": true],
+            ["type": "blockquote", "text": "Leaf quote", "isQuote": true],
+        ]
+        let blocks = ArticleParser.blocks(fromJS: raw, baseURL: base)
+        XCTAssertEqual(blocks.map(\.isQuoted), [false, true, true, true, true])
+        // Type survives the flag: a quoted list item is still a list item.
+        XCTAssertEqual(blocks[2].type, .listItem)
+        XCTAssertEqual(blocks[3].type, .heading)
+        XCTAssertEqual(blocks[3].level, 3)
+    }
+
+    func testQuoteRangesLocateQuotedBlocksInPlainText() {
+        let blocks: [ArticleBlock] = [
+            block(.paragraph, "Intro paragraph."),
+            ArticleBlock(type: .paragraph, text: "First quoted line.", isQuote: true),
+            ArticleBlock(type: .paragraph, text: "Second quoted line.", isQuote: true),
+            block(.paragraph, "Closing paragraph."),
+        ]
+        let plainText = ArticleBlocks.derivePlainText(blocks)
+        let ranges = ArticleBlocks.quoteRanges(blocks, in: plainText)
+        XCTAssertEqual(ranges.count, 2)
+        let ns = plainText as NSString
+        XCTAssertEqual(ns.substring(with: ranges[0]), "First quoted line.")
+        XCTAssertEqual(ns.substring(with: ranges[1]), "Second quoted line.")
+        // Base offsets agree with the block-reader's own offset math.
+        XCTAssertEqual(ranges.map(\.location),
+                       [ArticleBlocks.textBlockBaseOffsets(blocks)[1],
+                        ArticleBlocks.textBlockBaseOffsets(blocks)[2]])
+    }
+
+    func testQuoteRangesAreUTF16StableAcrossEmoji() {
+        // Offsets are UTF-16 code units, so an emoji ahead of the quote must
+        // shift the range by 2, not 1.
+        let blocks: [ArticleBlock] = [
+            block(.paragraph, "Hi 👋"),
+            ArticleBlock(type: .blockquote, text: "Quoted 🎉 line", isQuote: true),
+        ]
+        let plainText = ArticleBlocks.derivePlainText(blocks)
+        let ranges = ArticleBlocks.quoteRanges(blocks, in: plainText)
+        XCTAssertEqual(ranges.count, 1)
+        XCTAssertEqual(ranges[0].location, ("Hi 👋" as NSString).length + 2)
+        XCTAssertEqual((plainText as NSString).substring(with: ranges[0]), "Quoted 🎉 line")
+    }
+
+    func testQuoteRangesSkipBlocksThatDoNotMatchStoredPlainText() {
+        // Legacy article: plainText was NOT derived from these blocks. Styling
+        // an unverified range would tint the wrong paragraph, so the mismatched
+        // range is dropped instead.
+        let blocks: [ArticleBlock] = [
+            ArticleBlock(type: .blockquote, text: "A quote that is not in the text", isQuote: true),
+        ]
+        XCTAssertTrue(ArticleBlocks.quoteRanges(blocks, in: "Completely different text").isEmpty)
+    }
+
+    func testQuoteRangesEmptyWhenNothingIsQuoted() {
+        let blocks: [ArticleBlock] = [block(.paragraph, "One"), block(.paragraph, "Two")]
+        XCTAssertTrue(ArticleBlocks.quoteRanges(blocks, in: ArticleBlocks.derivePlainText(blocks)).isEmpty)
+    }
+
+    func testQuotedPreformattedRunsDoNotCoalesceWithBodyCode() {
+        // A quoted <pre> and a body <pre> are different containers.
+        let blocks: [ArticleBlock] = [
+            ArticleBlock(type: .preformatted, text: "quoted line", isQuote: true),
+            ArticleBlock(type: .preformatted, text: "body line"),
+        ]
+        let out = ArticleParser.coalescePreformatted(blocks)
+        XCTAssertEqual(out.count, 2)
+        XCTAssertTrue(out[0].isQuoted)
+        XCTAssertFalse(out[1].isQuoted)
+    }
 }

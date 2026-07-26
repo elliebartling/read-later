@@ -385,6 +385,9 @@ struct ReaderView: View {
                     paragraphSpacing: CGFloat(settings.readerParagraphSpacing),
                     width: settings.readerWidth,
                     defaultColor: lastHighlightColor,
+                    // Quotes are styled by attribute over these ranges — the
+                    // flowed reader's counterpart to the block reader's bar.
+                    quoteRanges: blocksCache.quoteRanges(for: article),
                     editingHighlightID: editingHighlight?.id,
                     onCreateHighlight: createHighlight,
                     onUpdateHighlight: updateHighlight,
@@ -777,13 +780,32 @@ extension UIColor {
 final class DecodedBlocksCache {
     private var lastJSON: Data?
     private var decoded: [ArticleBlock]?
+    private var quoteKey: String?
+    private var quotes: [NSRange] = []
 
     func blocks(for article: Article) -> [ArticleBlock]? {
         let json = article.blocksJSON
         if json != lastJSON {
             lastJSON = json
             decoded = json.flatMap { ArticleBlocks.decode($0) }
+            // Any block change invalidates the derived quote ranges.
+            quoteKey = nil
+            quotes = []
         }
         return decoded
+    }
+
+    /// Quote ranges over the article's `plainText`, for the PLAIN reader (which
+    /// has no per-block views). Memoized alongside the decoded blocks so the
+    /// verification walk doesn't re-run on every `body` pass.
+    func quoteRanges(for article: Article) -> [NSRange] {
+        guard let blocks = blocks(for: article), !blocks.isEmpty else { return [] }
+        let text = article.plainText
+        let key = "\(text.utf16.count)"
+        if key != quoteKey {
+            quoteKey = key
+            quotes = ArticleBlocks.quoteRanges(blocks, in: text)
+        }
+        return quotes
     }
 }
