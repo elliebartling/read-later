@@ -498,4 +498,168 @@ final class ArticleParserWebViewTests: XCTestCase {
         XCTAssertFalse(parsed.plainText.contains("\u{2022}"), "stray bullet in prose: \(parsed.plainText)")
         XCTAssertTrue(parsed.plainText.contains("no bullet or number ever prepended"))
     }
+
+    // MARK: - Blockquote preservation
+
+    /// Every quoted block, in document order, as (type, text).
+    private func quoted(_ parsed: ArticleParser.Parsed) -> [(BlockType, String)] {
+        parsed.blocks.filter(\.isQuoted).map { ($0.type, $0.text ?? "") }
+    }
+
+    func testSimpleBlockquoteIsFlaggedAndKept() async throws {
+        let body = page(body: """
+        <article>
+        <h1>On simplicity</h1>
+        \(prose)
+        <blockquote>Everything should be made as simple as possible, but no simpler.</blockquote>
+        <p>The point survives every retelling, which is part of why it is quoted so often.</p>
+        </article>
+        """)
+
+        let parsed = try await ArticleParser.shared.parse(url: url, prefetchedHTML: body)
+        let q = quoted(parsed)
+        XCTAssertEqual(q.count, 1, "blocks: \(parsed.blocks.map { "\($0.type):\($0.text ?? "")" })")
+        XCTAssertEqual(q[0].0, .blockquote, "a leaf <blockquote> keeps the legacy type")
+        XCTAssertTrue(q[0].1.hasPrefix("Everything should be made as simple"), "got: \(q[0].1)")
+        // The quote is part of plainText — the highlight offset space.
+        XCTAssertTrue(parsed.plainText.contains("but no simpler"))
+    }
+
+    func testMultiParagraphBlockquoteBecomesSeveralFlaggedBlocks() async throws {
+        // The bug: <blockquote> wrapping <p>s was not a leaf, so the walker
+        // recursed and emitted anonymous paragraphs — the quote was flattened.
+        let body = page(body: """
+        <article>
+        <h1>The interview</h1>
+        \(prose)
+        <blockquote>
+          <p>We tried it the obvious way first and it did not work at all.</p>
+          <p>So we started over, and the second attempt is what shipped.</p>
+        </blockquote>
+        <p>That answer set the tone for the rest of the conversation that afternoon.</p>
+        </article>
+        """)
+
+        let parsed = try await ArticleParser.shared.parse(url: url, prefetchedHTML: body)
+        let q = quoted(parsed)
+        XCTAssertEqual(q.count, 2, "each quoted paragraph is its own flagged block; got: \(q)")
+        XCTAssertTrue(q[0].1.hasPrefix("We tried it the obvious way"), "got: \(q[0].1)")
+        XCTAssertTrue(q[1].1.hasPrefix("So we started over"), "got: \(q[1].1)")
+        // Regression guard: the quote must not read as ordinary body text.
+        XCTAssertFalse(
+            parsed.blocks.contains { !$0.isQuoted && ($0.text ?? "").contains("So we started over") },
+            "quoted paragraph leaked out as unquoted body text"
+        )
+        // Ranges derived for the plain reader land on the quote's own text.
+        let ranges = ArticleBlocks.quoteRanges(parsed.blocks, in: parsed.plainText)
+        XCTAssertEqual(ranges.count, 2)
+        let ns = parsed.plainText as NSString
+        XCTAssertTrue(ns.substring(with: ranges[0]).hasPrefix("We tried it"))
+    }
+
+    func testNestedBlockquoteKeepsAllContent() async throws {
+        let body = page(body: """
+        <article>
+        <h1>Quoting a quote</h1>
+        \(prose)
+        <blockquote>
+          <p>She opened with a line she had clearly used before.</p>
+          <blockquote><p>The best time to plant a tree was twenty years ago.</p></blockquote>
+          <p>Then she moved on without waiting for anyone to react.</p>
+        </blockquote>
+        <p>The whole exchange lasted less than a minute from start to finish.</p>
+        </article>
+        """)
+
+        let parsed = try await ArticleParser.shared.parse(url: url, prefetchedHTML: body)
+        let q = quoted(parsed)
+        XCTAssertEqual(q.count, 3, "no content may be lost to nesting; got: \(q)")
+        XCTAssertTrue(q[1].1.contains("plant a tree"), "inner quote text: \(q[1].1)")
+        // v1: single-level flagging — the inner quote reads like the outer one.
+        XCTAssertTrue(q.allSatisfy { !$0.1.isEmpty })
+    }
+
+    func testBlockquoteWithCiteKeepsAttributionAsFlaggedText() async throws {
+        let body = page(body: """
+        <article>
+        <h1>Attribution</h1>
+        \(prose)
+        <blockquote>
+          <p>A language that does not affect the way you think is not worth knowing.</p>
+          <cite>Alan Perlis</cite>
+        </blockquote>
+        <p>The epigram is repeated so often that its source is frequently forgotten.</p>
+        </article>
+        """)
+
+        let parsed = try await ArticleParser.shared.parse(url: url, prefetchedHTML: body)
+        let q = quoted(parsed)
+        XCTAssertEqual(q.count, 2, "the <cite> attribution must survive; got: \(q)")
+        XCTAssertTrue(q[1].1.contains("Alan Perlis"), "attribution: \(q[1].1)")
+        XCTAssertTrue(parsed.plainText.contains("Alan Perlis"))
+    }
+
+    func testTweetEmbedStyleQuoteKeepsTrailingCreditLine() async throws {
+        // Twitter's embed shape: a <p> plus a bare text node and a trailing
+        // <a>, all siblings inside the blockquote.
+        let body = page(body: """
+        <article>
+        <h1>What people said</h1>
+        \(prose)
+        <blockquote class="twitter-tweet">
+          <p lang="en" dir="ltr">Shipping is a feature. Your product must have it.</p>
+          &mdash; Joel Spolsky (@spolsky)
+          <a href="https://twitter.com/spolsky/status/1">March 3, 2019</a>
+        </blockquote>
+        <p>The line has been repeated in engineering blogs ever since it was posted.</p>
+        </article>
+        """)
+
+        let parsed = try await ArticleParser.shared.parse(url: url, prefetchedHTML: body)
+        let q = quoted(parsed)
+        XCTAssertGreaterThanOrEqual(q.count, 2, "credit line must survive; got: \(q)")
+        XCTAssertTrue(q[0].1.contains("Shipping is a feature"), "quote: \(q[0].1)")
+        let credit = q.dropFirst().map(\.1).joined(separator: " ")
+        XCTAssertTrue(credit.contains("Joel Spolsky"), "credit line: \(credit)")
+        XCTAssertTrue(credit.contains("March 3, 2019"), "credit line: \(credit)")
+    }
+
+    func testQuotedListItemsStayListItemsAndKeepMarkers() async throws {
+        let body = page(body: """
+        <article>
+        <h1>Quoted list</h1>
+        \(prose)
+        <blockquote>
+          <p>The charter named three obligations:</p>
+          <ul><li>Publish the data</li><li>Answer questions</li><li>Correct mistakes</li></ul>
+        </blockquote>
+        <p>All three were dropped from the final version that was actually adopted.</p>
+        </article>
+        """)
+
+        let parsed = try await ArticleParser.shared.parse(url: url, prefetchedHTML: body)
+        let items = parsed.blocks.filter { $0.type == .listItem }
+        XCTAssertEqual(items.count, 3, "quoted list items keep their type")
+        XCTAssertTrue(items.allSatisfy(\.isQuoted), "quoted list items are flagged")
+        XCTAssertTrue(items.allSatisfy { ($0.text ?? "").hasPrefix("\u{2022} ") },
+                      "baked bullet markers survive inside a quote: \(items.map { $0.text ?? "" })")
+    }
+
+    func testNormalParagraphsAreNotFlaggedAsQuotes() async throws {
+        // Counter-fixture: an article with no <blockquote> must be byte-for-byte
+        // what it was before — no block flagged, no quote ranges derived.
+        let body = page(body: """
+        <article>
+        <h1>A normal article</h1>
+        \(prose)
+        <p>A closing paragraph with enough prose to clear the content quality gate
+        on the very first extraction pass without any trouble at all.</p>
+        </article>
+        """)
+
+        let parsed = try await ArticleParser.shared.parse(url: url, prefetchedHTML: body)
+        XCTAssertFalse(parsed.blocks.contains(where: \.isQuoted))
+        XCTAssertTrue(parsed.blocks.allSatisfy { $0.isQuote == nil })
+        XCTAssertTrue(ArticleBlocks.quoteRanges(parsed.blocks, in: parsed.plainText).isEmpty)
+    }
 }

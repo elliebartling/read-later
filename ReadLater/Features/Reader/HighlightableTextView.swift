@@ -46,6 +46,13 @@ struct HighlightableTextView: UIViewRepresentable {
     let width: ReaderWidth
     /// Color applied to instantly-created highlights (the last-used color).
     let defaultColor: HighlightColor
+    /// GLOBAL UTF-16 ranges of `text` that came from inside a `<blockquote>`
+    /// (`ArticleBlocks.quoteRanges`). This reader shows `plainText` as one text
+    /// view, so quotes get their distinction from paragraph-style ATTRIBUTES
+    /// over these ranges — never from injected marker characters, which would
+    /// shift every highlight offset after the quote. Empty for articles with no
+    /// blocks (legacy parses), which then render exactly as before.
+    var quoteRanges: [NSRange] = []
     /// When non-nil, the matching highlight's range is kept selected so the
     /// user can drag the system handles to resize it (e.g. while the edit
     /// sheet is open). Cleared when editing ends.
@@ -150,6 +157,11 @@ struct HighlightableTextView: UIViewRepresentable {
 
     func makeCoordinator() -> Coordinator { Coordinator() }
 
+    /// Horizontal inset applied to both edges of a quoted paragraph. Roughly
+    /// matches the block reader's bar + gap so the two readers set quotes in by
+    /// a similar amount.
+    static let quoteIndent: CGFloat = 20
+
     private static func inset(for width: ReaderWidth) -> UIEdgeInsets {
         UIEdgeInsets(top: 24, left: width.horizontalInset, bottom: 40, right: width.horizontalInset)
     }
@@ -159,7 +171,8 @@ struct HighlightableTextView: UIViewRepresentable {
             .map { "\($0.id.uuidString):\($0.startOffset):\($0.endOffset):\($0.colorRaw)" }
             .joined(separator: "|")
         let spoken = currentSpokenRange.map { "\($0.location)-\($0.length)" } ?? ""
-        return "\(text.utf16.count)|\(theme.rawValue)|\(fontSize)|\(fontRaw)|\(lineSpacing)|\(paragraphSpacing)|\(width.rawValue)|\(highlightSig)|\(spoken)"
+        let quoteSig = quoteRanges.map { "\($0.location)-\($0.length)" }.joined(separator: ",")
+        return "\(text.utf16.count)|\(theme.rawValue)|\(fontSize)|\(fontRaw)|\(lineSpacing)|\(paragraphSpacing)|\(width.rawValue)|\(highlightSig)|\(spoken)|\(quoteSig)"
     }
 
     // MARK: - Rendering
@@ -200,6 +213,36 @@ struct HighlightableTextView: UIViewRepresentable {
             .paragraphStyle: paragraphStyle,
         ]
         let str = NSMutableAttributedString(string: text, attributes: attrs)
+
+        // Quote distinction in the flowed reader. This view renders `plainText`
+        // as ONE text view, so there is no per-block chrome to hang a bar off
+        // — and the text itself is the UTF-16 highlight offset space, so
+        // injecting "> " markers here would silently move every highlight after
+        // a quote. (List markers could be baked in only because that happened
+        // at PARSE time, before any offset existed.) The distinction is
+        // therefore attribute-only: indent both edges of the quote's paragraphs
+        // and drop the text to the same secondary tone the block reader uses,
+        // which reads as a set-in quote without touching a single character.
+        if !quoteRanges.isEmpty {
+            let quoteStyle = NSMutableParagraphStyle()
+            quoteStyle.lineSpacing = lineSpacing
+            quoteStyle.paragraphSpacing = paragraphSpacing
+            quoteStyle.firstLineHeadIndent = Self.quoteIndent
+            quoteStyle.headIndent = Self.quoteIndent
+            // Negative tailIndent measures in from the trailing margin, so the
+            // quote is inset symmetrically.
+            quoteStyle.tailIndent = -Self.quoteIndent
+            let quoteAttrs: [NSAttributedString.Key: Any] = [
+                .paragraphStyle: quoteStyle,
+                .foregroundColor: theme.foreground.withAlphaComponent(0.7),
+            ]
+            let length = (text as NSString).length
+            for range in quoteRanges {
+                guard range.location >= 0, range.length > 0,
+                      range.location + range.length <= length else { continue }
+                str.addAttributes(quoteAttrs, range: range)
+            }
+        }
 
         // The parser separates paragraphs with a blank line ("\n\n"). Rendered
         // literally, that empty paragraph adds a full line box plus a second

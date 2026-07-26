@@ -169,7 +169,14 @@ enum CruftFilter {
         // Bare engagement counters: PARAGRAPHS only — a "1." listicle heading
         // normalizes to "1" (heading, already exempt above) and a bare-number
         // list item (lottery numbers, table-ish data) must never match.
-        if block.type == .paragraph {
+        //
+        // QUOTED paragraphs are exempt too. Quote content now reaches this
+        // filter as `.paragraph` blocks flagged `isQuote` (a multi-paragraph
+        // <blockquote> is several such blocks), and a short quoted line — a
+        // pull quote of a single number, a quoted score — is authored content,
+        // never Medium's post-content clap stack, which is never inside a
+        // <blockquote>.
+        if block.type == .paragraph, !block.isQuoted {
             for pattern in CruftRules.counterPatterns {
                 if normalized.range(of: pattern, options: [.regularExpression, .caseInsensitive]) != nil {
                     return .counter

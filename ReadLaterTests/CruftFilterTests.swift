@@ -521,4 +521,59 @@ final class CruftFilterTests: XCTestCase {
         // Curly apostrophe straightens so phrase tables stay ASCII.
         XCTAssertEqual(CruftFilter.normalize("Jane\u{2019}s stories"), "jane's stories")
     }
+
+    // MARK: - Counter-fixtures: blockquote content survives
+
+    func testShortPullQuoteSurvivesBesideCruft() {
+        // A quote now reaches the filter as flagged `.paragraph` blocks. A very
+        // short pull quote sitting next to a real nag must NOT be swept up with
+        // it — the quote is the author's content.
+        let quote = ArticleBlock(type: .paragraph, text: "It just works.", isQuote: true)
+        let blocks = [
+            p("The interview opened with a question about reliability."),
+            quote,
+            p("Sign in"),
+            p("The conversation moved on to distribution."),
+        ]
+        XCTAssertEqual(keptTexts(blocks), [
+            "The interview opened with a question about reliability.",
+            "It just works.",
+            "The conversation moved on to distribution.",
+        ])
+    }
+
+    func testBareNumberPullQuoteIsExemptFromCounterRule() {
+        // A quoted bare number is content (a quoted score, a pull-quote stat),
+        // never Medium's clap stack — which is never inside a <blockquote>.
+        let blocks = [
+            p("Prose leading into the quote."),
+            ArticleBlock(type: .paragraph, text: "40", isQuote: true),
+            p("Share"),
+            p("Prose after."),
+        ]
+        XCTAssertNil(CruftFilter.classify(ArticleBlock(type: .paragraph, text: "40", isQuote: true)))
+        XCTAssertTrue(keptTexts(blocks).contains("40"))
+    }
+
+    func testMultiParagraphQuoteSurvivesIntact() {
+        let blocks = [
+            p("He explained the decision at length."),
+            ArticleBlock(type: .paragraph, text: "We started over.", isQuote: true),
+            ArticleBlock(type: .paragraph, text: "Twice, in fact.", isQuote: true),
+            ArticleBlock(type: .paragraph, text: "— Jane Doe", isQuote: true),
+            p("The rewrite shipped a year later."),
+        ]
+        XCTAssertEqual(keptTexts(blocks).count, 5)
+    }
+
+    func testUnquotedBareCounterStackStillFalls() {
+        // Regression guard for the exemption above: the real clap stack (no
+        // quote flag, in the article's tail, clustered) must still be removed.
+        let blocks = [
+            p("The article body ends here with a normal closing sentence."),
+            p("Sign in"),
+            p("3.6K"),
+        ]
+        XCTAssertEqual(keptTexts(blocks), ["The article body ends here with a normal closing sentence."])
+    }
 }

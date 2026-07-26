@@ -474,100 +474,187 @@ final class ArticleParser: NSObject {
             if (h > 0) { b.height = h; }
             blocks.push(b);
         }
-        function walk(el) {
+        // Text carried by a non-block element (a <cite>, <footer> or <a>
+        // attribution line, or a wrapper <div>/<span>) reached UNDER a
+        // blockquote. Such an element is not in BLOCK, so the walker would
+        // otherwise recurse into it, find no block children, and silently drop
+        // the text — which is how <cite> attributions lost their credit line.
+        // Returns "" when the element holds block descendants (those get
+        // walked normally).
+        function looseQuoteText(el) {
+            if (BLOCK[el.tagName] || hasBlockChild(el)) { return ""; }
+            return normalize(el.textContent);
+        }
+        // Banks a text-bearing block, flagging it as quoted when the walk is
+        // inside a blockquote. One choke point so no emission site can forget.
+        function pushText(b, q) {
+            if (q > 0) { b.isQuote = true; }
+            blocks.push(b);
+        }
+        // `q` is the blockquote nesting depth: > 0 means every block emitted
+        // here lives inside a quote and is flagged `isQuote`. Depth is tracked
+        // (rather than a bool) so a nested quote still recurses correctly;
+        // flagging stays single-level in v1 — an inner quote reads exactly like
+        // the outer one, and no content is lost either way.
+        function walk(el, q) {
             for (var i = 0; i < el.children.length; i++) {
-                var child = el.children[i];
-                var tag = child.tagName;
-                if (tag === "HR") {
-                    blocks.push({ type: "divider" });
-                    continue;
-                }
-                if (tag === "FIGURE") {
-                    // Image first, then its caption as a separate
-                    // text-bearing block immediately after.
-                    pushImage(child.querySelector("img"));
-                    var cap = child.querySelector("figcaption");
-                    if (cap) {
-                        var ct = normalize(cap.textContent);
-                        if (ct) {
-                            out.push(ct);
-                            blocks.push({ type: "caption", text: ct });
-                        }
-                    }
-                    continue;
-                }
-                if (tag === "PICTURE") {
-                    pushImage(child.querySelector("img"));
-                    continue;
-                }
-                if (tag === "IMG") {
-                    pushImage(child);
-                    continue;
-                }
-                if (BLOCK[tag] && !hasBlockChild(child)) {
-                    // PRE and code-only <p> keep their internal
-                    // whitespace; everything else collapses runs
-                    // of whitespace to a single space.
-                    var pre = tag === "PRE" || isCodeOnly(child);
-                    var t = pre
-                        ? (child.textContent || "").replace(/\\s+$/,"")
-                        : normalize(child.textContent);
-                    if (t) {
-                        if (pre) {
-                            out.push(t);
-                            blocks.push({ type: "preformatted", text: t });
-                        } else if (HEADING[tag]) {
-                            out.push(t);
-                            blocks.push({ type: "heading", text: t, level: HEADING[tag] });
-                        } else if (tag === "LI") {
-                            var m = listItemMarker(child);
-                            var lt = m.prefix + t;
-                            out.push(lt);
-                            var lb = { type: "listItem", text: lt, markerBaked: true };
-                            if (m.style) { lb.listStyle = m.style; }
-                            blocks.push(lb);
-                        } else if (tag === "BLOCKQUOTE") {
-                            out.push(t);
-                            blocks.push({ type: "blockquote", text: t });
-                        } else if (tag === "FIGCAPTION") {
-                            out.push(t);
-                            blocks.push({ type: "caption", text: t });
-                        } else {
-                            out.push(t);
-                            blocks.push({ type: "paragraph", text: t });
-                        }
-                    }
-                    // Images nested inside a leaf block — the
-                    // common <p><img></p> pattern — emit after
-                    // the block's text, in document order.
-                    // textContent never includes images, so the
-                    // legacy text join is unaffected.
-                    var nested = child.querySelectorAll("img");
-                    for (var j = 0; j < nested.length; j++) {
-                        pushImage(nested[j]);
-                    }
-                } else {
-                    // A non-leaf LI: it holds a nested list (or other block)
-                    // and so isn't a leaf, yet may carry its own inline text
-                    // before the sublist. Emit that own text first — with its
-                    // marker — so outline parents never vanish; walk() then
-                    // emits the nested list's items in order below.
-                    if (tag === "LI") {
-                        var own = ownListItemText(child);
-                        if (own) {
-                            var pm = listItemMarker(child);
-                            var pt = pm.prefix + own;
-                            out.push(pt);
-                            var pb = { type: "listItem", text: pt, markerBaked: true };
-                            if (pm.style) { pb.listStyle = pm.style; }
-                            blocks.push(pb);
-                        }
-                    }
-                    walk(child);
-                }
+                walkChild(el.children[i], q);
             }
         }
-        walk(rootEl);
+        // The children of a NON-LEAF blockquote, in document order, walking
+        // childNodes rather than children so raw text nodes survive. Runs of
+        // inline content (text nodes, <cite>, <footer>, the trailing <a> of a
+        // tweet embed) coalesce into one flagged attribution block; anything
+        // block-shaped goes down the normal path. Without this, a tweet
+        // embed's "— Author (@handle) date" — a bare text node plus a link,
+        // siblings of the quote's <p> — vanished entirely.
+        function walkQuoteChildren(el, q) {
+            var pending = [];
+            function flushPending() {
+                var t = normalize(pending.join(" "));
+                pending = [];
+                if (t) {
+                    out.push(t);
+                    pushText({ type: "paragraph", text: t }, q);
+                }
+            }
+            for (var i = 0; i < el.childNodes.length; i++) {
+                var n = el.childNodes[i];
+                if (n.nodeType === 3) { pending.push(n.textContent); continue; }
+                if (n.nodeType !== 1) { continue; }
+                var isMedia = n.tagName === "HR" || n.tagName === "FIGURE"
+                    || n.tagName === "PICTURE" || n.tagName === "IMG";
+                if (!isMedia && !BLOCK[n.tagName] && !hasBlockChild(n)) {
+                    pending.push(n.textContent || "");
+                    continue;
+                }
+                flushPending();
+                walkChild(n, q);
+            }
+            flushPending();
+        }
+        // Classifies and emits ONE element child. Split out of walk() so a
+        // non-leaf blockquote can hand it individual nodes (see
+        // walkQuoteChildren) without duplicating the classification rules.
+        function walkChild(child, q) {
+            var tag = child.tagName;
+            if (tag === "HR") {
+                blocks.push({ type: "divider" });
+                return;
+            }
+            if (tag === "FIGURE") {
+                // Image first, then its caption as a separate
+                // text-bearing block immediately after.
+                pushImage(child.querySelector("img"));
+                var cap = child.querySelector("figcaption");
+                if (cap) {
+                    var ct = normalize(cap.textContent);
+                    if (ct) {
+                        out.push(ct);
+                        pushText({ type: "caption", text: ct }, q);
+                    }
+                }
+                return;
+            }
+            if (tag === "PICTURE") {
+                pushImage(child.querySelector("img"));
+                return;
+            }
+            if (tag === "IMG") {
+                pushImage(child);
+                return;
+            }
+            if (BLOCK[tag] && !hasBlockChild(child)) {
+                // PRE and code-only <p> keep their internal
+                // whitespace; everything else collapses runs
+                // of whitespace to a single space.
+                var pre = tag === "PRE" || isCodeOnly(child);
+                var t = pre
+                    ? (child.textContent || "").replace(/\\s+$/,"")
+                    : normalize(child.textContent);
+                if (t) {
+                    if (pre) {
+                        out.push(t);
+                        pushText({ type: "preformatted", text: t }, q);
+                    } else if (HEADING[tag]) {
+                        out.push(t);
+                        pushText({ type: "heading", text: t, level: HEADING[tag] }, q);
+                    } else if (tag === "LI") {
+                        var m = listItemMarker(child);
+                        var lt = m.prefix + t;
+                        out.push(lt);
+                        var lb = { type: "listItem", text: lt, markerBaked: true };
+                        if (m.style) { lb.listStyle = m.style; }
+                        pushText(lb, q);
+                    } else if (tag === "BLOCKQUOTE") {
+                        // A LEAF blockquote (no block children): the whole
+                        // quote is one block. Keeps the legacy type AND
+                        // carries the flag, so both readers can key off the
+                        // single `isQuoted` predicate.
+                        out.push(t);
+                        pushText({ type: "blockquote", text: t }, q + 1);
+                    } else if (tag === "FIGCAPTION") {
+                        out.push(t);
+                        pushText({ type: "caption", text: t }, q);
+                    } else {
+                        out.push(t);
+                        pushText({ type: "paragraph", text: t }, q);
+                    }
+                }
+                // Images nested inside a leaf block — the
+                // common <p><img></p> pattern — emit after
+                // the block's text, in document order.
+                // textContent never includes images, so the
+                // legacy text join is unaffected.
+                var nested = child.querySelectorAll("img");
+                for (var j = 0; j < nested.length; j++) {
+                    pushImage(nested[j]);
+                }
+            } else {
+                // A non-leaf LI: it holds a nested list (or other block)
+                // and so isn't a leaf, yet may carry its own inline text
+                // before the sublist. Emit that own text first — with its
+                // marker — so outline parents never vanish; walk() then
+                // emits the nested list's items in order below.
+                if (tag === "LI") {
+                    var own = ownListItemText(child);
+                    if (own) {
+                        var pm = listItemMarker(child);
+                        var pt = pm.prefix + own;
+                        out.push(pt);
+                        var pb = { type: "listItem", text: pt, markerBaked: true };
+                        if (pm.style) { pb.listStyle = pm.style; }
+                        pushText(pb, q);
+                    }
+                }
+                // A NON-LEAF blockquote: multi-paragraph quote, quote with
+                // a nested list, quote + attribution, tweet embed. Every
+                // block inside becomes its own block flagged `isQuote`, so
+                // the quote survives as structured content instead of
+                // being flattened into anonymous paragraphs.
+                if (tag === "BLOCKQUOTE") {
+                    walkQuoteChildren(child, q + 1);
+                    return;
+                }
+                // Attribution / credit lines deeper inside a quote (a
+                // <cite> wrapped in a <div>, say). Emitted as flagged text
+                // so they stay with the quote instead of being dropped by
+                // the recursion — they hold no blocks, so there is nothing
+                // below them to walk.
+                if (q > 0) {
+                    var loose = looseQuoteText(child);
+                    if (loose) {
+                        out.push(loose);
+                        pushText({ type: "paragraph", text: loose }, q);
+                        var li = child.querySelectorAll("img");
+                        for (var k = 0; k < li.length; k++) { pushImage(li[k]); }
+                        return;
+                    }
+                }
+                walk(child, q);
+            }
+        }
+        walk(rootEl, 0);
         return { text: out.join("\\n\\n"), blocks: blocks };
     }
     """
@@ -780,6 +867,12 @@ final class ArticleParser: NSObject {
             let level = intValue(dict["level"])
             let width = intValue(dict["width"])
             let height = intValue(dict["height"])
+            // `isQuote` (additive, CloudKit-safe: old decoders ignore the
+            // unknown key) marks a block that came from inside a
+            // <blockquote> — set on EVERY block the quote contains, so a
+            // multi-paragraph quote keeps its paragraphs and a quoted list
+            // item stays a list item.
+            let isQuote = dict["isQuote"] as? Bool
 
             switch type {
             case .image:
@@ -796,7 +889,7 @@ final class ArticleParser: NSObject {
                     height: height
                 ))
             case .heading:
-                result.append(ArticleBlock(type: .heading, text: text, level: level))
+                result.append(ArticleBlock(type: .heading, text: text, level: level, isQuote: isQuote))
             case .listItem:
                 let listStyle = (dict["listStyle"] as? String).flatMap { ListStyle(rawValue: $0) }
                 // `markerBaked` (additive, CloudKit-safe: old decoders ignore
@@ -804,12 +897,13 @@ final class ArticleParser: NSObject {
                 // `text`, so the block reader skips its own composed marker.
                 let markerBaked = dict["markerBaked"] as? Bool
                 result.append(ArticleBlock(
-                    type: .listItem, text: text, listStyle: listStyle, markerBaked: markerBaked
+                    type: .listItem, text: text, listStyle: listStyle,
+                    markerBaked: markerBaked, isQuote: isQuote
                 ))
             case .divider:
                 result.append(ArticleBlock(type: .divider))
             case .paragraph, .blockquote, .preformatted, .caption:
-                result.append(ArticleBlock(type: type, text: text))
+                result.append(ArticleBlock(type: type, text: text, isQuote: isQuote))
             }
         }
         return coalescePreformatted(result)
@@ -830,12 +924,16 @@ final class ArticleParser: NSObject {
                 out.append(run[0])
             } else if run.count > 1 {
                 let joined = run.map { $0.text ?? "" }.joined(separator: "\n")
-                out.append(ArticleBlock(type: .preformatted, text: joined))
+                out.append(ArticleBlock(type: .preformatted, text: joined,
+                                        isQuote: run[0].isQuote))
             }
             run.removeAll()
         }
         for block in blocks {
             if block.type == .preformatted {
+                // A run must agree on quote membership: a quoted <pre> and a
+                // body <pre> are different containers and must not merge.
+                if let open = run.first, open.isQuoted != block.isQuoted { flush() }
                 run.append(block)
             } else {
                 flush()

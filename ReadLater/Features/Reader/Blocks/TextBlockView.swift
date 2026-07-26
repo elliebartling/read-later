@@ -56,9 +56,39 @@ struct TextBlockView: View {
     var onTap: (() -> Void)? = nil
 
     var body: some View {
-        chrome
+        quoted
             .background(isSpoken ? Color(uiColor: Self.spokenTint(darkBackground: theme.isDark)) : Color.clear)
     }
+
+    /// Quote treatment, applied AROUND the per-type chrome so it composes with
+    /// it: a multi-paragraph quote is several flagged blocks that each get the
+    /// bar, and a quoted list item keeps its marker inside the bar. Keyed on
+    /// `isQuoted` (the additive flag OR the legacy `.blockquote` type) rather
+    /// than the type alone, which is what makes the flattened-quote fix visible
+    /// here. The text tone is dropped to secondary in `foreground(for:)`.
+    @ViewBuilder
+    private var quoted: some View {
+        if block.isQuoted {
+            HStack(alignment: .top, spacing: Self.quoteGap) {
+                RoundedRectangle(cornerRadius: 2, style: .continuous)
+                    .fill(Color(uiColor: theme.foreground).opacity(0.25))
+                    .frame(width: Self.quoteBarWidth)
+                    .frame(maxHeight: .infinity)
+                    .accessibilityHidden(true)
+                chrome
+            }
+            .padding(.leading, Self.quoteInset)
+        } else {
+            chrome
+        }
+    }
+
+    /// Leading vertical quote bar, and the inset that sets the quote in from
+    /// the body column. Sized against the code container's own padding scale
+    /// so the two reader "containers" read as one family.
+    private static let quoteBarWidth: CGFloat = 4
+    private static let quoteGap: CGFloat = 12
+    private static let quoteInset: CGFloat = 4
 
     /// Per-type SwiftUI layout wrapped around the selectable text.
     @ViewBuilder
@@ -79,14 +109,6 @@ struct TextBlockView: View {
                     // Report the first-line baseline so the marker aligns with
                     // the text baseline rather than the view's bottom edge.
                     .alignmentGuide(.firstTextBaseline) { _ in bodyFont.ascender }
-            }
-        case .blockquote:
-            HStack(alignment: .top, spacing: 12) {
-                RoundedRectangle(cornerRadius: 2, style: .continuous)
-                    .fill(Color(uiColor: theme.foreground).opacity(0.25))
-                    .frame(width: 4)
-                    .frame(maxHeight: .infinity)
-                representable
             }
         case .preformatted:
             codeBlock
@@ -309,7 +331,7 @@ private struct BlockTextRepresentable: UIViewRepresentable {
         let highlightSig = locatedRanges
             .map { "\($0.id.uuidString):\($0.range.location):\($0.range.length):\($0.color.rawValue)" }
             .joined(separator: "|")
-        return "\(textLength)|\(block.type.rawValue)|\(block.level ?? 0)|\(theme.rawValue)|\(fontSize)|\(fontRaw)|\(lineSpacing)|\(highlightSig)"
+        return "\(textLength)|\(block.type.rawValue)|\(block.level ?? 0)|\(block.isQuoted)|\(theme.rawValue)|\(fontSize)|\(fontRaw)|\(lineSpacing)|\(highlightSig)"
     }
 
     // MARK: - Rendering
@@ -333,7 +355,7 @@ private struct BlockTextRepresentable: UIViewRepresentable {
 
         let attrs: [NSAttributedString.Key: Any] = [
             .font: font(for: block),
-            .foregroundColor: foreground(for: block.type),
+            .foregroundColor: foreground(for: block),
             .paragraphStyle: paragraphStyle,
         ]
         let str = NSMutableAttributedString(string: text, attributes: attrs)
@@ -377,13 +399,14 @@ private struct BlockTextRepresentable: UIViewRepresentable {
         }
     }
 
-    private func foreground(for type: BlockType) -> UIColor {
-        switch type {
-        case .blockquote, .caption:
+    /// Quoted text and captions render in a secondary tone. `isQuoted` covers
+    /// both the legacy `.blockquote` type and the flag now set on every block
+    /// inside a quote, so a multi-paragraph quote is uniformly toned.
+    private func foreground(for block: ArticleBlock) -> UIColor {
+        if block.isQuoted || block.type == .caption {
             return theme.foreground.withAlphaComponent(0.7)
-        default:
-            return theme.foreground
         }
+        return theme.foreground
     }
 
     // MARK: - Coordinator
