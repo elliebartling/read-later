@@ -5,25 +5,21 @@ struct RootView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AppModel.self) private var appModel
+    @Query private var settingsRows: [AppSettings]
+
+    /// PROTOTYPE flag (local-only AppSettings). Off — the default and the state
+    /// of every existing install — renders the untouched TabView below.
+    private var usesSidebar: Bool {
+        settingsRows.first?.useSidebarNavigation ?? false
+    }
 
     var body: some View {
-        @Bindable var appModel = appModel
-        TabView(selection: $appModel.selectedTab) {
-            LibraryView()
-                .tabItem { Label("Library", systemImage: "books.vertical") }
-                .tag(AppModel.Tab.library)
-
-            FeedsView()
-                .tabItem { Label("Feeds", systemImage: "dot.radiowaves.up.forward") }
-                .tag(AppModel.Tab.feeds)
-
-            HighlightsView()
-                .tabItem { Label("Highlights", systemImage: "highlighter") }
-                .tag(AppModel.Tab.highlights)
-
-            SearchView()
-                .tabItem { Label("Search", systemImage: "magnifyingglass") }
-                .tag(AppModel.Tab.search)
+        Group {
+            if usesSidebar {
+                SidebarShell()
+            } else {
+                tabs
+            }
         }
         .task {
             seedSettingsIfNeeded()
@@ -39,6 +35,27 @@ struct RootView: View {
         }
         .onOpenURL { url in
             Task { await handleDeepLink(url) }
+        }
+    }
+
+    private var tabs: some View {
+        @Bindable var appModel = appModel
+        return TabView(selection: $appModel.selectedTab) {
+            LibraryView()
+                .tabItem { Label("Library", systemImage: "books.vertical") }
+                .tag(AppModel.Tab.library)
+
+            FeedsView()
+                .tabItem { Label("Feeds", systemImage: "dot.radiowaves.up.forward") }
+                .tag(AppModel.Tab.feeds)
+
+            HighlightsView()
+                .tabItem { Label("Highlights", systemImage: "highlighter") }
+                .tag(AppModel.Tab.highlights)
+
+            SearchView()
+                .tabItem { Label("Search", systemImage: "magnifyingglass") }
+                .tag(AppModel.Tab.search)
         }
     }
 
