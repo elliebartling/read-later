@@ -78,7 +78,7 @@ Ellen runs several Claude/Cursor sessions on this repo in parallel. One dedicate
 4. **Declare file ownership early.** If your task touches hot files (`HighlightableTextView.swift`, `ReaderView.swift`, `project.yml`, `AGENTS.md`), say so in your first status report so overlapping sessions get serialized instead of colliding.
 5. **One simulator at a time.** Concurrent sessions stomp each other's simulator installs. If you need the sim and can't confirm it's free, ask before installing/launching.
 6. **Stay in your own worktree.** Never edit files in the main checkout or another session's worktree unless the orchestrator hands that work to you.
-6. **Don't merge your own PR** unless Ellen or the orchestrator says to. Merges are sequenced so downstream rebases cascade in the right order.
+7. **Don't merge your own PR** unless Ellen or the orchestrator says to. Merges are sequenced so downstream rebases cascade in the right order.
 
 ## Sub-agent model policy
 
