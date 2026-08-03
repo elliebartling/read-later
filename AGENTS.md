@@ -73,10 +73,11 @@ Skills in `.agents/skills/` are vendored from [dpearson2699/swift-ios-skills](ht
 Ellen runs several Claude/Cursor sessions on this repo in parallel. One dedicated session acts as the **Orchestrator** (her "Senior Dev Manager") — it sequences merges, assigns file ownership, and tracks every branch in flight. If you are a working session (not the orchestrator), follow these rules:
 
 1. **Check merge order before starting or rebasing.** Cross-cutting changes (deployment target, `project.yml`, signing, CI) land before feature branches; everything else rebases after them. If you're unsure whether another in-flight branch gates yours, ask Ellen or the orchestrator before building on stale `main`.
-2. **Report back at milestones.** When you open a PR, go CI-green, hit a merge conflict, get blocked, or finish, report to the orchestrator session (message it directly if you have session-messaging tools, otherwise end your reply with a clearly-labeled "Status for orchestrator" block so Ellen can relay): branch name, worktree path, files touched, PR number + state, and anything blocking you.
-3. **Declare file ownership early.** If your task touches hot files (`HighlightableTextView.swift`, `ReaderView.swift`, `project.yml`, `AGENTS.md`), say so in your first status report so overlapping sessions get serialized instead of colliding.
-4. **One simulator at a time.** Concurrent sessions stomp each other's simulator installs. If you need the sim and can't confirm it's free, ask before installing/launching.
-5. **Stay in your own worktree.** Never edit files in the main checkout or another session's worktree unless the orchestrator hands that work to you.
+2. **UI-touching PRs embed their screenshots.** Commit evidence screenshots on the branch and EMBED them in the PR body with raw.githubusercontent URLs (before/after pairs where relevant) — Ellen reviews from her phone and should never have to hunt through the file tree.
+3. **Report back at milestones.** When you open a PR, go CI-green, hit a merge conflict, get blocked, or finish, report to the orchestrator session (message it directly if you have session-messaging tools, otherwise end your reply with a clearly-labeled "Status for orchestrator" block so Ellen can relay): branch name, worktree path, files touched, PR number + state, and anything blocking you.
+4. **Declare file ownership early.** If your task touches hot files (`HighlightableTextView.swift`, `ReaderView.swift`, `project.yml`, `AGENTS.md`), say so in your first status report so overlapping sessions get serialized instead of colliding.
+5. **One simulator at a time.** Concurrent sessions stomp each other's simulator installs. If you need the sim and can't confirm it's free, ask before installing/launching.
+6. **Stay in your own worktree.** Never edit files in the main checkout or another session's worktree unless the orchestrator hands that work to you.
 6. **Don't merge your own PR** unless Ellen or the orchestrator says to. Merges are sequenced so downstream rebases cascade in the right order.
 
 ## Sub-agent model policy
