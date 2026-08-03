@@ -1,112 +1,78 @@
 import SwiftUI
 import SwiftData
 
+/// Layer 1 — the Library group. The shell owns the `NavigationStack` and the
+/// Article destination; this view is only ever its root.
 struct LibraryView: View {
     @Environment(\.modelContext) private var context
-    @Environment(AppModel.self) private var appModel
     @Query(sort: \Article.savedAt, order: .reverse) private var articles: [Article]
     @State private var showingAddSheet = false
-    @State private var showingSettings = false
-    @State private var path = NavigationPath()
 
     var body: some View {
-        NavigationStack(path: $path) {
-            List {
-                if !AppGroup.hasSharedContainer {
-                    Label(
-                        "Sharing is unavailable: the App Group isn't active for Read Later, so links shared from Safari can't reach the app. Enable the App Groups capability (group.com.ellenbartling.readlater) on the app target.",
-                        systemImage: "exclamationmark.triangle.fill"
-                    )
-                    .font(.footnote)
-                    .foregroundStyle(Ink.secondary)
-                    .listRowSeparator(.hidden)
-                    .containerRow()
+        List {
+            if !AppGroup.hasSharedContainer {
+                Label(
+                    "Sharing is unavailable: the App Group isn't active for Read Later, so links shared from Safari can't reach the app. Enable the App Groups capability (group.com.ellenbartling.readlater) on the app target.",
+                    systemImage: "exclamationmark.triangle.fill"
+                )
+                .font(.footnote)
+                .foregroundStyle(Ink.secondary)
+                .listRowSeparator(.hidden)
+                .containerRow()
+            }
+            if articles.isEmpty {
+                ContentUnavailableView(
+                    "No articles yet",
+                    systemImage: "books.vertical",
+                    description: Text("Share links from Safari, or tap + to paste one.")
+                )
+                .listRowSeparator(.hidden)
+                .containerRow()
+            }
+            ForEach(articles) { article in
+                ZStack {
+                    NavigationLink(value: article) { EmptyView() }.opacity(0)
+                    ArticleRow(article: article)
                 }
-                if articles.isEmpty {
-                    ContentUnavailableView(
-                        "No articles yet",
-                        systemImage: "books.vertical",
-                        description: Text("Share links from Safari, or tap + to paste one.")
-                    )
-                    .listRowSeparator(.hidden)
-                    .containerRow()
-                }
-                ForEach(articles) { article in
-                    ZStack {
-                        NavigationLink(value: article) { EmptyView() }.opacity(0)
-                        ArticleRow(article: article)
+                .listRowInsets(EdgeInsets(
+                    top: Metric.rowVerticalPadding, leading: Metric.containerPadding,
+                    bottom: Metric.rowVerticalPadding, trailing: Metric.containerPadding
+                ))
+                .containerRow()
+                .swipeActions(edge: .trailing) {
+                    Button(role: .destructive) { delete(article) } label: {
+                        Label("Delete", systemImage: "trash")
                     }
-                    .listRowInsets(EdgeInsets(
-                        top: Metric.rowVerticalPadding, leading: Metric.containerPadding,
-                        bottom: Metric.rowVerticalPadding, trailing: Metric.containerPadding
-                    ))
-                    .containerRow()
-                    .swipeActions(edge: .trailing) {
-                        Button(role: .destructive) { delete(article) } label: {
-                            Label("Delete", systemImage: "trash")
-                        }
-                        // No tint: the audit found archive wearing an ad-hoc
-                        // orange that answers no question (N3). The system's
-                        // neutral swipe fill is the right weight.
-                        Button {
-                            article.isArchived.toggle()
-                        } label: {
-                            Label(article.isArchived ? "Unarchive" : "Archive",
-                                  systemImage: "archivebox")
-                        }
+                    // No tint: the audit found archive wearing an ad-hoc
+                    // orange that answers no question (N3). The system's
+                    // neutral swipe fill is the right weight.
+                    Button {
+                        article.isArchived.toggle()
+                    } label: {
+                        Label(article.isArchived ? "Unarchive" : "Archive",
+                              systemImage: "archivebox")
                     }
                 }
-            }
-            .pageList()
-            .navigationTitle("Library")
-            .toolbar {
-                ToolbarItem(placement: .topBarLeading) {
-                    Button { showingSettings = true } label: {
-                        Image(systemName: "gearshape")
-                    }
-                }
-                ToolbarItem(placement: .topBarTrailing) {
-                    Button { showingAddSheet = true } label: {
-                        Image(systemName: "plus")
-                    }
-                }
-            }
-            .navigationDestination(for: Article.self) { article in
-                ReaderView(article: article)
-            }
-            .sheet(isPresented: $showingAddSheet) {
-                AddArticleSheet()
-            }
-            .sheet(isPresented: $showingSettings) {
-                SettingsView()
             }
         }
-        .task(id: appModel.pendingArticleToOpen) {
-            await handlePendingOpen()
-        }
-    }
-
-    private func handlePendingOpen() async {
-        guard let id = appModel.pendingArticleToOpen else { return }
-        // Poll briefly — the deep link handler drains PendingSaves before
-        // setting this ID, but SwiftData's fetch may take a beat to surface
-        // the freshly-inserted row.
-        for _ in 0..<40 {
-            if let target = fetchArticle(id: id) {
-                if path.count > 0 { path.removeLast(path.count) }
-                path.append(target)
-                appModel.pendingArticleToOpen = nil
-                return
+        .pageList()
+        .navigationTitle("Library")
+        // Leading slot is the back-to-sidebar affordance now; the Settings
+        // gear that used to live here moved into the sidebar (#57).
+        .sidebarBackToolbarItem()
+        .toolbar {
+            ToolbarItem(placement: .topBarTrailing) {
+                Button { showingAddSheet = true } label: {
+                    Image(systemName: "plus")
+                        .imageScale(.medium)
+                        .fontWeight(.medium)
+                }
+                .accessibilityLabel("Add link")
             }
-            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
         }
-        appModel.pendingArticleToOpen = nil
-    }
-
-    private func fetchArticle(id: UUID) -> Article? {
-        var descriptor = FetchDescriptor<Article>(predicate: #Predicate { $0.id == id })
-        descriptor.fetchLimit = 1
-        return try? context.fetch(descriptor).first
+        .sheet(isPresented: $showingAddSheet) {
+            AddArticleSheet()
+        }
     }
 
     private func delete(_ article: Article) {

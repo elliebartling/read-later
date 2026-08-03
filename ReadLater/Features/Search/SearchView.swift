@@ -1,41 +1,39 @@
 import SwiftUI
 import SwiftData
 
+/// Layer 1 — the Search group. The shell owns the `NavigationStack` and the
+/// Article destination.
 struct SearchView: View {
     @Environment(\.modelContext) private var context
     @State private var query = ""
     @State private var results: [Article] = []
 
     var body: some View {
-        NavigationStack {
-            List {
-                ForEach(results) { article in
-                    NavigationLink(value: article) {
-                        ArticleRow(article: article)
-                    }
-                    .listRowInsets(EdgeInsets(
-                        top: Metric.rowVerticalPadding, leading: Metric.containerPadding,
-                        bottom: Metric.rowVerticalPadding, trailing: Metric.containerPadding
-                    ))
-                    .containerRow()
+        List {
+            ForEach(results) { article in
+                NavigationLink(value: article) {
+                    ArticleRow(article: article)
                 }
+                .listRowInsets(EdgeInsets(
+                    top: Metric.rowVerticalPadding, leading: Metric.containerPadding,
+                    bottom: Metric.rowVerticalPadding, trailing: Metric.containerPadding
+                ))
+                .containerRow()
             }
-            .pageList()
-            .searchable(text: $query, prompt: "Search articles and highlights")
-            .onChange(of: query) { _, new in
-                runSearch(new)
-            }
-            .navigationTitle("Search")
-            .navigationDestination(for: Article.self) { article in
-                ReaderView(article: article)
-            }
-            .overlay {
-                if query.isEmpty {
-                    ContentUnavailableView("Search", systemImage: "magnifyingglass",
-                                           description: Text("Full-text search across saved articles."))
-                } else if results.isEmpty {
-                    ContentUnavailableView.search
-                }
+        }
+        .pageList()
+        .searchable(text: $query, prompt: "Search articles and highlights")
+        .onChange(of: query) { _, new in
+            runSearch(new)
+        }
+        .navigationTitle("Search")
+        .sidebarBackToolbarItem()
+        .overlay {
+            if query.isEmpty {
+                ContentUnavailableView("Search", systemImage: "magnifyingglass",
+                                       description: Text("Full-text search across saved articles."))
+            } else if results.isEmpty {
+                ContentUnavailableView.search
             }
         }
     }

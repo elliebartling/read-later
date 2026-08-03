@@ -1,8 +1,8 @@
 import SwiftUI
 
-/// What the sidebar shell is currently showing. Prototype-only (see
-/// `AppSettings.useSidebarNavigation`) — the shipping UX is still the TabView
-/// in `RootView`.
+/// What layer 1 — the group/list card — is currently showing. This is the
+/// app's whole top-level navigation; there is no tab bar behind it any more
+/// (issue #57).
 enum SidebarDestination: Hashable {
     case library
     case allItems

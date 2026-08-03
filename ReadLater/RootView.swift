@@ -1,62 +1,31 @@
 import SwiftUI
 import SwiftData
 
+/// The app's root. Navigation is the layered sidebar shell — there is no tab
+/// bar and no experiment flag any more (issue #57: "adopt the sidebar as the
+/// default UX").
 struct RootView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.scenePhase) private var scenePhase
     @Environment(AppModel.self) private var appModel
-    @Query private var settingsRows: [AppSettings]
-
-    /// PROTOTYPE flag (local-only AppSettings). Off — the default and the state
-    /// of every existing install — renders the untouched TabView below.
-    private var usesSidebar: Bool {
-        settingsRows.first?.useSidebarNavigation ?? false
-    }
 
     var body: some View {
-        Group {
-            if usesSidebar {
-                SidebarShell()
-            } else {
-                tabs
+        SidebarShell()
+            .task {
+                seedSettingsIfNeeded()
+                await PendingSaveIngest.drain(context: context)
             }
-        }
-        .task {
-            seedSettingsIfNeeded()
-            await PendingSaveIngest.drain(context: context)
-        }
-        .onChange(of: scenePhase) { _, newPhase in
-            // Shares saved while we were backgrounded ingest on return —
-            // without this they'd sit in the App Group container until the
-            // next cold start or deep link.
-            if newPhase == .active {
-                Task { await PendingSaveIngest.drain(context: context) }
+            .onChange(of: scenePhase) { _, newPhase in
+                // Shares saved while we were backgrounded ingest on return —
+                // without this they'd sit in the App Group container until the
+                // next cold start or deep link.
+                if newPhase == .active {
+                    Task { await PendingSaveIngest.drain(context: context) }
+                }
             }
-        }
-        .onOpenURL { url in
-            Task { await handleDeepLink(url) }
-        }
-    }
-
-    private var tabs: some View {
-        @Bindable var appModel = appModel
-        return TabView(selection: $appModel.selectedTab) {
-            LibraryView()
-                .tabItem { Label("Library", systemImage: "books.vertical") }
-                .tag(AppModel.Tab.library)
-
-            FeedsView()
-                .tabItem { Label("Feeds", systemImage: "dot.radiowaves.up.forward") }
-                .tag(AppModel.Tab.feeds)
-
-            HighlightsView()
-                .tabItem { Label("Highlights", systemImage: "highlighter") }
-                .tag(AppModel.Tab.highlights)
-
-            SearchView()
-                .tabItem { Label("Search", systemImage: "magnifyingglass") }
-                .tag(AppModel.Tab.search)
-        }
+            .onOpenURL { url in
+                Task { await handleDeepLink(url) }
+            }
     }
 
     /// AppSettings lives in the local-only store and is accessed via
@@ -80,6 +49,10 @@ struct RootView: View {
         }
     }
 
+    /// Both deep links land on the same layer stack: `SidebarShell` watches
+    /// `pendingArticleToOpen`, selects Library at layer 1, brings the card over
+    /// the sidebar and pushes the article at layer 2 — so back-swiping out of
+    /// the reader reaches Library, and peeling again reaches the sidebar.
     private func handleDeepLink(_ url: URL) async {
         guard url.scheme == AppGroup.urlScheme else { return }
         let comps = URLComponents(url: url, resolvingAgainstBaseURL: false)
@@ -94,18 +67,16 @@ struct RootView: View {
                 let pending = PendingSave(url: targetURL, source: .urlScheme)
                 try? pending.write()
                 await PendingSaveIngest.drain(context: context)
-                appModel.selectedTab = .library
                 appModel.pendingArticleToOpen = pending.id
             }
 
         case AppGroup.openDeepLinkHost:
             // readlater://open?id=<uuid> — fired by the Share Extension after
             // it writes the pending save; we drain first (which inserts the
-            // stub Article using the SAME uuid) and then hand the id off to
-            // LibraryView for navigation.
+            // stub Article using the SAME uuid) and then hand the id to the
+            // shell for navigation.
             guard let idStr = comps?.queryItems?.first(where: { $0.name == "id" })?.value,
                   let id = UUID(uuidString: idStr) else { return }
-            appModel.selectedTab = .library
             await PendingSaveIngest.drain(context: context)
             appModel.pendingArticleToOpen = id
 
