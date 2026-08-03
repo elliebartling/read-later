@@ -18,8 +18,9 @@ struct LibraryView: View {
                         systemImage: "exclamationmark.triangle.fill"
                     )
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Ink.secondary)
                     .listRowSeparator(.hidden)
+                    .containerRow()
                 }
                 if articles.isEmpty {
                     ContentUnavailableView(
@@ -28,29 +29,35 @@ struct LibraryView: View {
                         description: Text("Share links from Safari, or tap + to paste one.")
                     )
                     .listRowSeparator(.hidden)
+                    .containerRow()
                 }
                 ForEach(articles) { article in
                     ZStack {
                         NavigationLink(value: article) { EmptyView() }.opacity(0)
                         ArticleRow(article: article)
                     }
-                    .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                    .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+                    .listRowInsets(EdgeInsets(
+                        top: Metric.rowVerticalPadding, leading: Metric.containerPadding,
+                        bottom: Metric.rowVerticalPadding, trailing: Metric.containerPadding
+                    ))
+                    .containerRow()
                     .swipeActions(edge: .trailing) {
                         Button(role: .destructive) { delete(article) } label: {
                             Label("Delete", systemImage: "trash")
                         }
+                        // No tint: the audit found archive wearing an ad-hoc
+                        // orange that answers no question (N3). The system's
+                        // neutral swipe fill is the right weight.
                         Button {
                             article.isArchived.toggle()
                         } label: {
                             Label(article.isArchived ? "Unarchive" : "Archive",
                                   systemImage: "archivebox")
                         }
-                        .tint(.orange)
                     }
                 }
             }
-            .listStyle(.plain)
+            .pageList()
             .navigationTitle("Library")
             .toolbar {
                 ToolbarItem(placement: .topBarLeading) {
@@ -121,6 +128,7 @@ struct AddArticleSheet: View {
                     .autocorrectionDisabled()
                     .textInputAutocapitalization(.never)
             }
+            .pageForm()
             .navigationTitle("Add URL")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

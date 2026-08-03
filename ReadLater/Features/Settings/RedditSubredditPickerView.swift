@@ -66,14 +66,14 @@ struct RedditSubredditPickerView: View {
                     } label: {
                         HStack {
                             Image(systemName: model.selected.contains(sub.id) ? "checkmark.circle.fill" : "circle")
-                                .foregroundStyle(model.selected.contains(sub.id) ? Color.accentColor : Color.secondary)
+                                .foregroundStyle(model.selected.contains(sub.id) ? Accent.primary : Ink.secondary)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("r/\(sub.name)")
-                                    .foregroundStyle(.primary)
+                                    .foregroundStyle(Ink.primary)
                                 if let subs = sub.subscribers {
                                     Text("\(subs.formatted(.number.notation(.compactName))) members")
                                         .font(.caption)
-                                        .foregroundStyle(.secondary)
+                                        .foregroundStyle(Ink.secondary)
                                 }
                             }
                         }
@@ -84,6 +84,7 @@ struct RedditSubredditPickerView: View {
                 Text("Selected subreddits are added to Feeds. Their posts appear on the next feed refresh (Reddit fetches are spaced to respect rate limits).")
             }
         }
+        .pageList()
         .safeAreaInset(edge: .bottom) {
             Button {
                 model.subscribe(context: context)
@@ -94,7 +95,7 @@ struct RedditSubredditPickerView: View {
             .buttonStyle(.borderedProminent)
             .disabled(model.selected.isEmpty || model.isSubscribing)
             .padding()
-            .background(.bar)
+            .background(Surface.raised)
         }
     }
 }

@@ -43,7 +43,7 @@ struct TypographyControls: View {
                         if !fonts.isEmpty {
                             Text(group.title)
                                 .font(.caption.weight(.semibold))
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Ink.secondary)
                             ForEach(fonts) { font in
                                 FontRow(
                                     font: font,
@@ -63,19 +63,19 @@ struct TypographyControls: View {
                         Text("A").font(.title3)
                     }
                     Text("\(Int(settings.readerFontSize)) pt")
-                        .font(.footnote).foregroundStyle(.secondary)
+                        .font(.footnote).foregroundStyle(Ink.secondary)
                 }
 
                 Section("Line Spacing") {
                     Slider(value: $settings.readerLineSpacing, in: 0...16, step: 1)
                     Text("\(Int(settings.readerLineSpacing)) pt")
-                        .font(.footnote).foregroundStyle(.secondary)
+                        .font(.footnote).foregroundStyle(Ink.secondary)
                 }
 
                 Section("Paragraph Spacing") {
                     Slider(value: $settings.readerParagraphSpacing, in: 0...28, step: 1)
                     Text("\(Int(settings.readerParagraphSpacing)) pt")
-                        .font(.footnote).foregroundStyle(.secondary)
+                        .font(.footnote).foregroundStyle(Ink.secondary)
                 }
 
                 Section("Width") {
@@ -113,6 +113,7 @@ struct TypographyControls: View {
                     }
                 }
             }
+            .pageForm()
             .navigationTitle("Typography")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
@@ -160,7 +161,7 @@ struct TypographyControls: View {
     private func paletteLabel(_ title: String) -> some View {
         Text(title)
             .font(.caption.weight(.semibold))
-            .foregroundStyle(.secondary)
+            .foregroundStyle(Ink.secondary)
     }
 
     private func swatchGrid(_ themes: [ReaderTheme], selection: Binding<ReaderTheme>) -> some View {
@@ -194,14 +195,21 @@ private struct ThemeSwatch: View {
                         .foregroundStyle(Color(uiColor: theme.foreground))
                 }
                 .frame(height: 48)
-                .overlay(
-                    RoundedRectangle(cornerRadius: 12, style: .continuous)
-                        .strokeBorder(selected ? Color.accentColor : Color.primary.opacity(0.12),
-                                      lineWidth: selected ? 2.5 : 1)
-                )
+                // No ring (S2). Selection is a filled `Accent.fill` mark with
+                // an `Accent.onFill` check — one idiom app-wide (SH2).
+                .overlay(alignment: .topTrailing) {
+                    if selected {
+                        Image(systemName: "checkmark")
+                            .font(.caption2.weight(.bold))
+                            .foregroundStyle(Accent.onFill)
+                            .frame(width: 18, height: 18)
+                            .background(Accent.fill, in: Circle())
+                            .padding(6)
+                    }
+                }
                 Text(theme.displayName)
                     .font(.caption2)
-                    .foregroundStyle(selected ? .primary : .secondary)
+                    .foregroundStyle(selected ? Ink.primary : Ink.secondary)
                     .lineLimit(1)
             }
         }
@@ -225,7 +233,7 @@ private struct FontRow: View {
                 Spacer()
                 if selected {
                     Image(systemName: "checkmark")
-                        .foregroundStyle(.tint)
+                        .foregroundStyle(Accent.primary)
                         .font(.body.weight(.semibold))
                 }
             }

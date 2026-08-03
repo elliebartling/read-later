@@ -13,6 +13,8 @@ struct HighlightsView: View {
                         systemImage: "highlighter",
                         description: Text("Select text in the reader to highlight.")
                     )
+                    .listRowSeparator(.hidden)
+                    .containerRow()
                 }
                 ForEach(highlights) { h in
                     VStack(alignment: .leading, spacing: 6) {
@@ -20,27 +22,33 @@ struct HighlightsView: View {
                             Circle().fill(h.color.swiftUIColor).frame(width: 8, height: 8)
                             Text(h.article?.title ?? "Unknown")
                                 .font(.caption)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Ink.tertiary)
                             Spacer()
                             if h.exportedAt != nil {
                                 Image(systemName: "arrow.up.doc.fill")
                                     .font(.caption2)
-                                    .foregroundStyle(.tertiary)
+                                    .foregroundStyle(Ink.quaternary)
                             }
                         }
                         Text(h.quotedText)
                             .font(.callout)
+                            .foregroundStyle(Ink.primary)
                             .lineLimit(6)
                         if let note = h.note {
                             Text(note)
                                 .font(.footnote)
-                                .foregroundStyle(.secondary)
+                                .foregroundStyle(Ink.secondary)
                                 .padding(.top, 4)
                         }
                     }
-                    .padding(.vertical, 4)
+                    .listRowInsets(EdgeInsets(
+                        top: Metric.rowVerticalPadding, leading: Metric.containerPadding,
+                        bottom: Metric.rowVerticalPadding, trailing: Metric.containerPadding
+                    ))
+                    .containerRow()
                 }
             }
+            .pageList()
             .navigationTitle("Highlights")
         }
     }

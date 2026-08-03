@@ -88,12 +88,14 @@ struct SidebarShell: View {
         Button {
             setOpen(true)
         } label: {
+            // Glass circle, Standard tier (§8.3, §7.1). No stroke (S2) — the
+            // material and its shadow are the separation.
             Image(systemName: "line.3.horizontal")
-                .font(.title3.weight(.semibold))
-                .frame(width: 48, height: 48)
-                .background(.regularMaterial, in: Circle())
-                .overlay(Circle().strokeBorder(.quaternary))
-                .shadow(color: .black.opacity(0.15), radius: 8, y: 2)
+                .font(.system(size: ControlTier.standard.glyph, weight: .medium))
+                .foregroundStyle(Ink.primary)
+                .frame(width: ControlTier.standard.height,
+                       height: ControlTier.standard.height)
+                .floatingChrome(in: Circle())
         }
         .accessibilityLabel("Show navigation")
     }

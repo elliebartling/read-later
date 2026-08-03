@@ -15,6 +15,13 @@ struct ReadLaterApp: App {
         WindowGroup {
             RootView()
                 .environment(appModel)
+                // §2.3 — the accent binding, in one place. Every system
+                // control that reads the tint (toggles, sliders, tab-bar
+                // selection, `Link`, prominent buttons) now resolves through
+                // `Accent.primary` instead of Apple's default blue, which the
+                // audit found doing accent duty by omission. v1 binds it to
+                // ink; a later accent is a rebind here, not a repaint (A3).
+                .tint(Accent.primary)
         }
         .modelContainer(SharedModelContainer.make(inMemory: Self.isRunningUnitTests))
     }

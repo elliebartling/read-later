@@ -13,9 +13,14 @@ struct SearchView: View {
                     NavigationLink(value: article) {
                         ArticleRow(article: article)
                     }
+                    .listRowInsets(EdgeInsets(
+                        top: Metric.rowVerticalPadding, leading: Metric.containerPadding,
+                        bottom: Metric.rowVerticalPadding, trailing: Metric.containerPadding
+                    ))
+                    .containerRow()
                 }
             }
-            .listStyle(.plain)
+            .pageList()
             .searchable(text: $query, prompt: "Search articles and highlights")
             .onChange(of: query) { _, new in
                 runSearch(new)

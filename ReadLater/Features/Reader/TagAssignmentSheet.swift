@@ -32,11 +32,11 @@ struct TagAssignmentSheet: View {
                             } label: {
                                 HStack {
                                     Text(tag.name)
-                                        .foregroundStyle(.primary)
+                                        .foregroundStyle(Ink.primary)
                                     Spacer()
                                     if isAssigned(tag) {
                                         Image(systemName: "checkmark")
-                                            .foregroundStyle(.tint)
+                                            .foregroundStyle(Accent.primary)
                                     }
                                 }
                             }
@@ -44,6 +44,7 @@ struct TagAssignmentSheet: View {
                     }
                 }
             }
+            .pageList()
             .navigationTitle("Tags")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

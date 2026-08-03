@@ -38,7 +38,7 @@ private struct SettingsForm: View {
             Section {
                 HStack {
                     Image(systemName: syncStatus.isSyncing ? "checkmark.icloud" : "icloud.slash")
-                        .foregroundStyle(syncStatus.isSyncing ? .green : .secondary)
+                        .foregroundStyle(syncStatus.isSyncing ? Semantic.success : Ink.secondary)
                     Text(syncStatus.summary)
                     Spacer()
                 }
@@ -101,7 +101,7 @@ private struct SettingsForm: View {
                         Spacer()
                         Text("sk-••••••••")
                             .font(.body.monospaced())
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Ink.secondary)
                             .accessibilityLabel("Key stored")
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -119,7 +119,7 @@ private struct SettingsForm: View {
                 if let apiKeyStatus {
                     Text(apiKeyStatus)
                         .font(.footnote)
-                        .foregroundStyle(apiKeyStatusIsError ? .red : .secondary)
+                        .foregroundStyle(apiKeyStatusIsError ? Semantic.destructive : Ink.secondary)
                 }
             } header: {
                 Text("OpenAI API Key")
@@ -139,7 +139,7 @@ private struct SettingsForm: View {
                         Text("Choose Vault Folder…")
                         Spacer()
                         if settings.obsidianBookmarkData != nil {
-                            Image(systemName: "checkmark.circle.fill").foregroundStyle(.green)
+                            Image(systemName: "checkmark.circle.fill").foregroundStyle(Semantic.success)
                         }
                     }
                 }
@@ -147,7 +147,7 @@ private struct SettingsForm: View {
                     .autocorrectionDisabled()
                 Button("Export All Articles") { exportAll() }
                 if let status = lastExportStatus {
-                    Text(status).font(.footnote).foregroundStyle(.secondary)
+                    Text(status).font(.footnote).foregroundStyle(Ink.secondary)
                 }
             } header: {
                 Text("Obsidian Export")
@@ -193,11 +193,11 @@ private struct SettingsForm: View {
                             if let account = reddit.account {
                                 Text("u/\(account.name)")
                                     .font(.footnote)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(Ink.secondary)
                             } else {
                                 Text("Sign In")
                                     .font(.footnote)
-                                    .foregroundStyle(.secondary)
+                                    .foregroundStyle(Ink.secondary)
                             }
                         }
                     }
@@ -216,6 +216,7 @@ private struct SettingsForm: View {
                 Text("Where the reader's \u{201C}View discussion\u{201D} button opens a Reddit comments link. System Default uses the official Reddit app if installed, otherwise Safari.")
             }
         }
+        .pageForm()
         .navigationTitle("Settings")
         .onAppear(perform: refreshStoredKeyState)
         .fileImporter(
@@ -248,14 +249,14 @@ private struct SettingsForm: View {
             if let exportError = syncStatus.exportFailureText {
                 HStack(alignment: .top, spacing: 8) {
                     Image(systemName: "exclamationmark.triangle.fill")
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Semantic.destructive)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Export failed")
                             .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(.red)
+                            .foregroundStyle(Semantic.destructive)
                         Text(exportError)
                             .font(.caption)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Ink.secondary)
                             .textSelection(.enabled)
                     }
                 }
@@ -338,18 +339,18 @@ private struct SyncEventRow: View {
                 if let record {
                     Text(timestamp(for: record))
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Ink.secondary)
                 } else {
                     Text("No events yet")
                         .font(.caption)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Ink.secondary)
                 }
             }
             Spacer()
             if count > 0 {
                 Text("\(count)")
                     .font(.caption.monospacedDigit())
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Ink.secondary)
             }
         }
     }
@@ -359,17 +360,17 @@ private struct SyncEventRow: View {
         if let record {
             if !record.isFinished {
                 Image(systemName: "arrow.triangle.2.circlepath")
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Ink.secondary)
             } else if record.succeeded {
                 Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(Semantic.success)
             } else {
                 Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(.red)
+                    .foregroundStyle(Semantic.destructive)
             }
         } else {
             Image(systemName: "circle.dashed")
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Ink.secondary)
         }
     }
 

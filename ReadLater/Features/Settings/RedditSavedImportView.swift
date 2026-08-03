@@ -31,11 +31,12 @@ struct RedditSavedImportView: View {
                 Section {
                     Text(message)
                         .font(.footnote)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Semantic.destructive)
                     Button("Try Again") { start() }
                 }
             }
         }
+        .pageForm()
         .navigationTitle("Import Saved Posts")
         .navigationBarTitleDisplayMode(.inline)
     }
@@ -66,11 +67,11 @@ struct RedditSavedImportView: View {
     private func doneSection(_ result: RedditImporter.SavedImportResult) -> some View {
         Section {
             Label("Imported \(result.imported) post\(result.imported == 1 ? "" : "s")", systemImage: "checkmark.circle.fill")
-                .foregroundStyle(.green)
+                .foregroundStyle(Semantic.success)
             if result.skipped > 0 {
                 Text("\(result.skipped) already in your library or had no link — skipped.")
                     .font(.footnote)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Ink.secondary)
             }
         } footer: {
             Text("New posts appear in your Library now and finish extracting in the background. Open any that are still loading to prioritize them.")

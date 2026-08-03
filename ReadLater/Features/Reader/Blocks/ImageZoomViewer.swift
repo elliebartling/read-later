@@ -102,11 +102,14 @@ struct ImageZoomViewer: View {
 
     private var closeButton: some View {
         Button { dismiss() } label: {
+            // Glass circle, Standard tier (§8.3). `.ultraThinMaterial` is out
+            // — S4 sets `.regularMaterial` as the floor for floating chrome.
             Image(systemName: "xmark")
-                .font(.system(size: 15, weight: .bold))
-                .foregroundStyle(.white)
-                .padding(11)
-                .background(.ultraThinMaterial, in: Circle())
+                .font(.system(size: ControlTier.standard.glyph, weight: .medium))
+                .foregroundStyle(Ink.primary)
+                .frame(width: ControlTier.standard.height,
+                       height: ControlTier.standard.height)
+                .floatingChrome(in: Circle())
         }
         .padding(.top, 8)
         .padding(.trailing, 16)

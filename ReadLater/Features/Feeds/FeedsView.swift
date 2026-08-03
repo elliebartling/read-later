@@ -23,6 +23,7 @@ struct FeedsView: View {
                         description: Text("Tap + and paste a site or feed URL to subscribe.")
                     )
                     .listRowSeparator(.hidden)
+                    .containerRow()
                 } else {
                     NavigationLink(value: AllItemsRoute()) {
                         HStack {
@@ -31,13 +32,14 @@ struct FeedsView: View {
                             Spacer()
                             UnreadBadge(count: unreadEntries.count)
                         }
-                        .padding(.vertical, 4)
                     }
+                    .containerRow()
                     Section("Subscriptions") {
                         ForEach(feeds) { feed in
                             NavigationLink(value: feed) {
                                 FeedRow(feed: feed, unreadCount: unreadCount(for: feed))
                             }
+                            .containerRow()
                             .swipeActions(edge: .trailing) {
                                 Button(role: .destructive) { delete(feed) } label: {
                                     Label("Unsubscribe", systemImage: "trash")
@@ -47,7 +49,7 @@ struct FeedsView: View {
                     }
                 }
             }
-            .listStyle(.plain)
+            .pageList()
             .navigationTitle("Feeds")
             .toolbar {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -108,7 +110,7 @@ private struct FeedRow: View {
                 if let host = feed.siteURL?.host ?? feed.feedURL?.host {
                     Text(host)
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Ink.secondary)
                 }
             }
             Spacer()
@@ -125,10 +127,10 @@ private struct UnreadBadge: View {
         if count > 0 {
             Text("\(count)")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Ink.secondary)
                 .padding(.horizontal, 8)
                 .padding(.vertical, 3)
-                .background(.quaternary, in: Capsule())
+                .background(Surface.control, in: .capsule)
                 .accessibilityLabel("\(count) unread")
         }
     }
@@ -157,9 +159,10 @@ struct AddFeedSheet: View {
                 if let errorMessage {
                     Text(errorMessage)
                         .font(.footnote)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Semantic.destructive)
                 }
             }
+            .pageForm()
             .navigationTitle("Add Feed")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

@@ -116,6 +116,13 @@ struct ReaderView: View {
         .animation(Self.chromeAnimation, value: reextractToast)
         .animation(.spring(response: 0.4, dampingFraction: 0.85), value: tts.isActive)
         .readerTitleBar(title: article.title, subtitle: subtitleText)
+        // S4 — the material floor for chrome over long-form text. The default
+        // glass bar is transparent enough in LIGHT mode that body text renders
+        // straight through the article title (audit theme 3); dark mode gets
+        // away with it, which is why the defect went unnoticed. `.regularMaterial`
+        // is specified for both schemes so the two can't diverge again (N7).
+        .toolbarBackground(.regularMaterial, for: .navigationBar)
+        .toolbarBackgroundVisibility(.visible, for: .navigationBar)
         .toolbar(.hidden, for: .tabBar)
         .toolbar(showChrome ? .visible : .hidden, for: .navigationBar)
         .statusBarHidden(!showChrome)
@@ -222,7 +229,7 @@ struct ReaderView: View {
         }
     }
 
-    /// The floating pink capsule: the playing bar while read-aloud is active,
+    /// The floating glass capsule: the playing bar while read-aloud is active,
     /// the idle overflow/share/tag/play bar when chrome is up, and nothing in
     /// immersive reading. The two states cross-fade as one reshaping object.
     @ViewBuilder
@@ -248,8 +255,8 @@ struct ReaderView: View {
                 .transition(.opacity.combined(with: .scale(scale: 0.9, anchor: .bottom)))
             }
         }
-        .padding(.horizontal, 24)
-        .padding(.bottom, 10)
+        .padding(.horizontal, Metric.screenMargin)
+        .padding(.bottom, ReaderChrome.actionBarBottomOffset)
     }
 
     /// Floating status region pinned below the top chrome. Priority order:
@@ -273,7 +280,7 @@ struct ReaderView: View {
             }
         }
         .padding(.top, 6)
-        .padding(.horizontal, 24)
+        .padding(.horizontal, Metric.screenMargin)
         .transition(.move(edge: .top).combined(with: .opacity))
     }
 
@@ -293,7 +300,7 @@ struct ReaderView: View {
                     Text("Member-only — Sign in to \(host)")
                     Image(systemName: "chevron.right")
                         .font(.caption2.weight(.semibold))
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Ink.secondary)
                 }
             }
             .buttonStyle(.plain)
@@ -325,12 +332,11 @@ struct ReaderView: View {
             content()
         }
         .font(.subheadline.weight(.medium))
-        .foregroundStyle(.primary)
-        .padding(.horizontal, 16)
-        .padding(.vertical, 10)
-        .background(.regularMaterial, in: .capsule)
-        .overlay(Capsule().strokeBorder(.separator, lineWidth: 0.5))
-        .shadow(color: .black.opacity(0.12), radius: 8, y: 2)
+        .foregroundStyle(Ink.primary)
+        .padding(.horizontal, Metric.capsuleHorizontalPadding)
+        .padding(.vertical, Metric.capsuleVerticalPadding)
+        // E3 glass. No stroke (S2) — the material and its shadow separate it.
+        .floatingChrome(in: .capsule)
     }
 
     @ViewBuilder
@@ -373,6 +379,11 @@ struct ReaderView: View {
                         withAnimation(Self.chromeAnimation) { chromeVisible.toggle() }
                     }
                 )
+                // Same contract as the plain reader below: the block reader
+                // runs full-screen under both bars and reserves its own insets,
+                // so revealing chrome overlays the text instead of shoving it
+                // down ~130pt (S6, audit theme 5).
+                .ignoresSafeArea(.container, edges: .vertical)
             } else {
                 HighlightableTextView(
                     text: article.plainText,
@@ -427,11 +438,11 @@ struct ReaderView: View {
             ProgressView().controlSize(.large)
             Text("Extracting article…")
                 .font(.headline)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Ink.secondary)
             if let host = article.url?.host {
                 Text(host)
                     .font(.footnote)
-                    .foregroundStyle(.tertiary)
+                    .foregroundStyle(Ink.tertiary)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity)
