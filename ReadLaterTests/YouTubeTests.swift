@@ -276,6 +276,63 @@ final class YouTubeTests: XCTestCase {
         XCTAssertEqual(VideoArticleParser.cues(fromSegmentInnerTexts: raw), ["[Music]", "[Music]"])
     }
 
+    /// The audit's live failure: harvested from an UNRENDERED transcript panel,
+    /// where `innerText` degrades to `textContent` and the timestamp, the a11y
+    /// duration label, and the cue arrive as ONE line with no separators —
+    /// "0:1212 secondsOn dirait…". The line filter has nothing to bite on, so
+    /// the glued prefix has to come off the assembled cue.
+    func testGluedSegmentTimestampsAreStripped() {
+        let raw = [
+            "0:000 secondsC'est le graphique le plus effrayant en génie électrique.",
+            "0:033 secondsIl est frais tous les étudiants de premier cycle.",
+            "0:1212 secondsOn dirait un trou de verre dans un film de science-fiction.",
+            "1:02:3312 minutes, 14 secondsEt voilà.",
+            "0:00no Rosen is playing",
+        ]
+        XCTAssertEqual(VideoArticleParser.cues(fromSegmentInnerTexts: raw), [
+            "C'est le graphique le plus effrayant en génie électrique.",
+            "Il est frais tous les étudiants de premier cycle.",
+            "On dirait un trou de verre dans un film de science-fiction.",
+            "Et voilà.",
+            "no Rosen is playing",
+        ])
+    }
+
+    func testStrippingLeadingTimestamp() {
+        XCTAssertEqual(
+            VideoArticleParser.strippingLeadingTimestamp("0:1212 secondsOn dirait"), "On dirait"
+        )
+        XCTAssertEqual(
+            VideoArticleParser.strippingLeadingTimestamp("0:00no Rosen"), "no Rosen"
+        )
+        XCTAssertEqual(
+            VideoArticleParser.strippingLeadingTimestamp("12:14 12 minutes, 14 seconds (Applause)"),
+            "(Applause)"
+        )
+        // Counter-fixtures: a cue that opens with a duration but NO timestamp
+        // (the properly line-separated path already dropped both label lines)
+        // must survive intact, as must ordinary prose that opens with digits.
+        XCTAssertEqual(
+            VideoArticleParser.strippingLeadingTimestamp("5 seconds later he left"),
+            "5 seconds later he left"
+        )
+        XCTAssertEqual(
+            VideoArticleParser.strippingLeadingTimestamp("3120 yeah they just had an equal game"),
+            "3120 yeah they just had an equal game"
+        )
+        XCTAssertEqual(VideoArticleParser.strippingLeadingTimestamp("[Music]"), "[Music]")
+    }
+
+    /// Counter-fixture: the well-formed multi-line segment shape must be
+    /// unaffected by the glued-prefix strip.
+    func testWellFormedSegmentsAreUnaffectedByTimestampStrip() {
+        let raw = ["0:05\n5 seconds\n5 seconds later he left the board"]
+        XCTAssertEqual(
+            VideoArticleParser.cues(fromSegmentInnerTexts: raw),
+            ["5 seconds later he left the board"]
+        )
+    }
+
     func testTimestampAndDurationLineDetection() {
         XCTAssertTrue(VideoArticleParser.isTimestampLine("0:00"))
         XCTAssertTrue(VideoArticleParser.isTimestampLine("12:14"))

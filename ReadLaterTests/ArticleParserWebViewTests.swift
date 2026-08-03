@@ -79,6 +79,145 @@ final class ArticleParserWebViewTests: XCTestCase {
         )
     }
 
+    /// The audit's dropped code blocks. MDX toolchains (rehype-pretty-code,
+    /// which overreacted.io uses) wrap EVERY fenced code block in a `<figure>`;
+    /// the walker's figure branch only ever looked for an `<img>` + caption and
+    /// returned, so all 62 code blocks on that article vanished and the prose
+    /// read "Look at the highlighted line closely:" straight into the next
+    /// paragraph.
+    func testFigureWrappedCodeBlockIsKept() async throws {
+        let body = page(body: """
+        <article>
+        <h1>Each render has its own props and state</h1>
+        \(prose)
+        <p>Here is a counter. Look at the highlighted line closely:</p>
+        <figure data-rehype-pretty-code-figure="">
+          <pre data-language="jsx"><code data-language="jsx" style="display:grid"><span \
+        data-line="">function Counter() {</span>
+        <span data-line="">  const [count, setCount] = useState(0);</span>
+        <span data-line="">  return &lt;p&gt;You clicked {count} times&lt;/p&gt;;</span>
+        <span data-line="">}</span></code></pre>
+        </figure>
+        <p>What does it mean? Does count somehow change inside an unchanging function?</p>
+        </article>
+        """)
+
+        let parsed = try await ArticleParser.shared.parse(url: url, prefetchedHTML: body)
+
+        let code = parsed.blocks.filter { $0.type == .preformatted }
+        XCTAssertEqual(code.count, 1, "figure-wrapped <pre> was dropped; blocks: \(parsed.blocks.map(\.type))")
+        let text = try XCTUnwrap(code.first?.text)
+        XCTAssertTrue(text.contains("function Counter() {"), "code: \(text)")
+        XCTAssertTrue(text.contains("useState(0)"), "code: \(text)")
+        XCTAssertTrue(text.contains("\n"), "code block lost its line structure: \(text)")
+        XCTAssertTrue(parsed.plainText.contains("function Counter"), "plainText: \(parsed.plainText)")
+    }
+
+    /// A figure wrapping a TABLE (the other common non-image figure) survives too.
+    func testFigureWrappedTableContentIsKept() async throws {
+        let body = page(body: """
+        <article>
+        <h1>Comparison</h1>
+        \(prose)
+        <figure>
+          <table><tr><td>Runtime overhead is negligible</td><td>Bundle grows by two kilobytes</td></tr></table>
+          <figcaption>Table 1: measured overhead</figcaption>
+        </figure>
+        </article>
+        """)
+
+        let parsed = try await ArticleParser.shared.parse(url: url, prefetchedHTML: body)
+
+        XCTAssertTrue(parsed.plainText.contains("Runtime overhead is negligible"),
+                      "figure-wrapped table content lost: \(parsed.plainText)")
+        XCTAssertTrue(parsed.blocks.contains { $0.type == .caption && $0.text == "Table 1: measured overhead" },
+                      "blocks: \(parsed.blocks.map { "\($0.type):\($0.text ?? "")" })")
+    }
+
+    /// Counter-fixture: an ordinary image figure keeps its old shape exactly —
+    /// image block first, caption immediately after, no duplicated caption text.
+    func testImageFigureStillEmitsImageThenCaption() async throws {
+        let body = page(body: """
+        <article>
+        <h1>Photo essay</h1>
+        \(prose)
+        <figure>
+          <img src="/photo.png" alt="A photo" width="800" height="600">
+          <figcaption>The harbour at dawn</figcaption>
+        </figure>
+        </article>
+        """)
+
+        let parsed = try await ArticleParser.shared.parse(url: url, prefetchedHTML: body)
+
+        let imageIndex = try XCTUnwrap(parsed.blocks.firstIndex { $0.type == .image })
+        let captionIndex = try XCTUnwrap(parsed.blocks.firstIndex { $0.type == .caption })
+        XCTAssertEqual(captionIndex, imageIndex + 1, "caption must follow its image")
+        XCTAssertEqual(parsed.blocks[captionIndex].text, "The harbour at dawn")
+        XCTAssertEqual(parsed.blocks.filter { $0.type == .caption }.count, 1, "caption emitted twice")
+        XCTAssertEqual(parsed.blocks[imageIndex].alt, "A photo")
+    }
+
+    // MARK: - Captured-content floor (Reddit self posts)
+
+    /// The audit's failed Reddit self post. Readability's 500-character
+    /// threshold rejects a short fragment, so this used to land in `.failed`
+    /// ("Couldn't parse this page") even though the entry carried the body.
+    func testShortRedditSelfPostFallsBackToCapturedContentFloor() async throws {
+        let permalink = URL(string: "https://www.reddit.com/r/AskHistorians/comments/abc/why/")!
+        let captured = """
+        <!-- SC_OFF --><div class="md"><p>Why did Einstein become synonymous with genius?</p>\
+        </div><!-- SC_ON --> &#32; submitted by &#32; \
+        <a href="https://www.reddit.com/user/asker"> /u/asker </a> <br/> \
+        <span><a href="https://www.reddit.com/r/AskHistorians/comments/abc/why/">[link]</a></span> \
+        &#32; <span><a href="https://www.reddit.com/r/AskHistorians/comments/abc/why/">[comments]</a></span>
+        """
+
+        let parsed = try await ArticleParser.shared.parse(url: permalink, prefetchedHTML: captured)
+
+        XCTAssertTrue(parsed.plainText.contains("Why did Einstein become synonymous with genius?"),
+                      "plainText: \(parsed.plainText)")
+        XCTAssertFalse(parsed.plainText.contains("submitted by"), "plainText: \(parsed.plainText)")
+        XCTAssertEqual(parsed.title, "", "the floor must not rename the article")
+        XCTAssertEqual(parsed.plainText, ArticleBlocks.derivePlainText(parsed.blocks))
+    }
+
+    /// Counter-fixture: a substantial self-post FRAGMENT still goes through the
+    /// normal Readability path — the floor is a last resort, not the new route
+    /// for captured content. Readability returns its own extracted container, so
+    /// `extractedHTML` differs from the input; the floor echoes the input
+    /// verbatim, which is the tell.
+    func testSubstantialSelfPostFragmentStillUsesNormalExtraction() async throws {
+        let fragment = """
+        <div class="md">\(prose)<p>And a closing thought that ties the whole thing together
+        neatly enough for anyone reading along at home to follow without any trouble at all,
+        which is rather more text than the extractor's character threshold demands.</p></div>
+        """
+
+        let parsed = try await ArticleParser.shared.parse(url: url, prefetchedHTML: fragment)
+
+        XCTAssertTrue(parsed.plainText.contains("And a closing thought"))
+        XCTAssertNotEqual(parsed.extractedHTML, fragment,
+                          "the floor fired on a fragment Readability could handle")
+    }
+
+    /// Counter-fixture for the floor's scope: a captured WHOLE PAGE that is only
+    /// nav chrome must still be rejected. The Safari extension captures
+    /// `documentElement.outerHTML`, so flooring every `prefetchedHTML` would
+    /// persist site chrome as an article.
+    func testCapturedWholePageNavShellIsStillRejected() async {
+        let body = page(body: """
+        <nav><a href="/sitemap">Sitemap</a> <a href="/signin">Sign in</a>
+        <a href="/write">Write</a> <a href="/search">Search</a></nav>
+        """)
+        do {
+            _ = try await ArticleParser.shared.parse(url: url, prefetchedHTML: body)
+            XCTFail("a captured whole-page nav shell must not floor into an article")
+        } catch {
+            // expected
+        }
+    }
+
     func testNavShellIsRejectedByQualityGate() async {
         // The failure Ellen hit: WKWebView captured only the app shell.
         let body = page(body: """

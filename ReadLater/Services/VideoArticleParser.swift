@@ -306,11 +306,20 @@ final class VideoArticleParser: NSObject {
     ///     `transcript-segment-view-model` inside the `PAmodern_transcript_view`
     ///     engagement panel; `ytd-transcript-segment-renderer` is kept as the
     ///     legacy fallback selector;
-    ///  4. harvest raw segment innerText with a scroll pump so a virtualizing
-    ///     panel still yields the full transcript (banked first-seen, like the
+    ///  4. harvest segment text with a scroll pump so a virtualizing panel
+    ///     still yields the full transcript (banked first-seen, like the
     ///     ArticleParser harvester). The panel DOM is often DOUBLED (two panel
     ///     copies); the full-text dedupe key collapses the copies while
     ///     distinct cues (same words, different timestamp line) survive.
+    ///
+    /// Harvesting reads the segment's timestamp and cue-text SUB-ELEMENTS and
+    /// joins them with an explicit "\\n", falling back to `innerText` only when
+    /// that structure isn't found. `innerText` alone is not safe here: in an
+    /// off-screen WKWebView the transcript panel is frequently not laid out, and
+    /// an unrendered element's `innerText` degrades to `textContent` — which has
+    /// no line breaks, so "0:12", the a11y label "12 seconds", and the cue glue
+    /// into "0:1212 secondsOn dirait…". (`cues(fromSegmentInnerTexts:)` also
+    /// strips a glued prefix in Swift, so both layers have to fail to leak one.)
     /// All waits are internally bounded (~35s worst case, ~8s typical).
     private static let transcriptUIDriveJS = """
     const sleep = ms => new Promise(r => setTimeout(r, ms));
@@ -355,10 +364,28 @@ final class VideoArticleParser: NSObject {
         }
     }
     const seen = {};
+    // One segment's text as "<timestamp>\\n<cue>". Reads the sub-elements so the
+    // separator is explicit: innerText collapses to textContent (no newlines) on
+    // an unrendered panel, which glues the timestamp and the a11y duration label
+    // onto the cue.
+    function segmentText(s) {
+        try {
+            const ts = s.querySelector('[class*="segment-timestamp"]');
+            const tx = s.querySelector('[class*="segment-text"]');
+            if (tx) {
+                const cue = (tx.textContent || '').replace(/\\s+/g, ' ').trim();
+                if (cue) {
+                    const stamp = ts ? (ts.textContent || '').trim() : '';
+                    return stamp ? (stamp + "\\n" + cue) : cue;
+                }
+            }
+        } catch (e) {}
+        return (s.innerText || '').trim();
+    }
     function harvest() {
         let added = 0;
         document.querySelectorAll(SEG).forEach(s => {
-            const t = (s.innerText || '').trim();
+            const t = segmentText(s);
             if (t && !seen[t]) { seen[t] = 1; out.segments.push(t); added++; }
         });
         return added;
@@ -374,13 +401,18 @@ final class VideoArticleParser: NSObject {
     return out;
     """
 
-    /// Parses raw transcript-segment `innerText`s into cue strings. A segment's
-    /// innerText is "<timestamp>\\n[<a11y duration label>\\n]<cue text…>" (the
-    /// duration line may be absent — its div can be empty). Timestamp and
-    /// duration-label lines are dropped, remaining lines join into one cue, and
-    /// segments are deduped by their FULL raw text — the panel DOM renders two
-    /// copies of every segment, and the timestamp line inside the key keeps
-    /// legitimately repeated cues (same words at different times) distinct.
+    /// Parses raw transcript-segment texts into cue strings. A segment's text is
+    /// "<timestamp>\\n[<a11y duration label>\\n]<cue text…>" (the duration line
+    /// may be absent — its div can be empty). Timestamp and duration-label lines
+    /// are dropped, remaining lines join into one cue, and segments are deduped
+    /// by their FULL raw text — the panel DOM renders two copies of every
+    /// segment, and the timestamp line inside the key keeps legitimately
+    /// repeated cues (same words at different times) distinct.
+    ///
+    /// A segment harvested from an UNRENDERED panel arrives with no line breaks
+    /// at all ("0:1212 secondsOn dirait…" — see `transcriptUIDriveJS`), so the
+    /// line filter has nothing to bite on. `strippingLeadingTimestamp` removes
+    /// the glued prefix from the assembled cue as the second line of defence.
     /// Pure and unit-testable from captured fixtures.
     nonisolated static func cues(fromSegmentInnerTexts raw: [String]) -> [String] {
         var seen = Set<String>()
@@ -393,9 +425,36 @@ final class VideoArticleParser: NSObject {
             let cue = kept.joined(separator: " ")
                 .replacingOccurrences(of: "\\s+", with: " ", options: .regularExpression)
                 .trimmingCharacters(in: .whitespaces)
-            if !cue.isEmpty { cues.append(cue) }
+            let cleaned = strippingLeadingTimestamp(cue)
+            if !cleaned.isEmpty { cues.append(cleaned) }
         }
         return cues
+    }
+
+    /// Removes a transcript timestamp that is GLUED to the front of cue text —
+    /// and the accessibility duration label that YouTube renders right after it.
+    /// "0:1212 secondsOn dirait…" → "On dirait…"; "0:00no Rosen is playing" →
+    /// "no Rosen is playing".
+    ///
+    /// The duration strip is deliberately gated behind a successful timestamp
+    /// strip, so a cue that legitimately OPENS with a duration ("5 seconds later
+    /// he left" — arriving from a properly line-separated segment, where the
+    /// timestamp and label lines were already filtered out) is never touched.
+    /// Pure — internal for tests.
+    nonisolated static func strippingLeadingTimestamp(_ text: String) -> String {
+        var s = text.trimmingCharacters(in: .whitespaces)
+        guard let stamp = s.range(of: "^\\d{1,2}(:\\d{2}){1,2}", options: .regularExpression) else {
+            return s
+        }
+        s = String(s[stamp.upperBound...])
+        let unit = "(hours?|minutes?|seconds?)"
+        let durationPattern = "^\\s*\\d+ \(unit)(,? \\d+ \(unit))*"
+        if let duration = s.range(
+            of: durationPattern, options: [.regularExpression, .caseInsensitive]
+        ) {
+            s = String(s[duration.upperBound...])
+        }
+        return s.trimmingCharacters(in: .whitespaces)
     }
 
     /// "0:05", "12:14", "1:02:33" — the segment's aria-hidden timestamp line.

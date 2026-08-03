@@ -218,4 +218,25 @@ enum CruftRules {
         // Medium highlight-engagement furniture.
         "top highlight",
     ]
+
+    // MARK: - Syndication boilerplate (category 7: trailing feed furniture)
+
+    /// Anchored-at-the-END regexes for the footer a syndication source staples
+    /// onto every item's content. Reddit's `.rss` appends
+    /// `submitted by /u/name [link] [comments]` to the body of *every* entry,
+    /// which surfaced two ways: as the entire summary of a link post (the row
+    /// then reads "submitted by /u/J2quared [link] [comments]" directly above a
+    /// meta row that already names the author), and as a trailing paragraph on
+    /// a self post's captured body.
+    ///
+    /// TRAILING-only and shape-specific by design: a post that merely mentions
+    /// "[link]" mid-sentence, or whose prose ends in something else, is
+    /// untouched. Applied by `CruftFilter.strippingTrailingBoilerplate` (text)
+    /// and `CruftFilter.trimmingTrailingBoilerplate` (blocks).
+    static let syndicationTrailingPatterns: [String] = [
+        // "submitted by /u/name" with the optional [link]/[comments] anchors.
+        #"\s*submitted by\s*/?u/[A-Za-z0-9_\-]{1,40}\s*(\[link\])?\s*(\[comments\])?\s*$"#,
+        // The bare anchor pair, when the username sat elsewhere.
+        #"\s*\[link\]\s*\[comments\]\s*$"#,
+    ]
 }
