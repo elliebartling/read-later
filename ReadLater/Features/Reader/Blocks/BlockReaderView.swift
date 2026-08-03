@@ -40,6 +40,13 @@ struct BlockReaderView: View {
     let onRequestNote: (UUID) -> Void
     let onTapHighlight: (UUID) -> Void
     let onScrollProgress: (Double) -> Void
+    /// Reports the UTF-16 offset of the first character at the top of the
+    /// viewport as the user scrolls, so the reader can persist the spot. Same
+    /// contract (and same offset space) as the plain reader's callback.
+    let onTopCharacterOffset: (Int) -> Void
+    /// Saved reading position as a UTF-16 offset into `plainText`, applied once
+    /// per appearance. Zero means start at the top.
+    let initialCharacterOffset: Int
     /// Plain single tap in the body toggles the reader chrome.
     let onTap: () -> Void
 
@@ -55,6 +62,19 @@ struct BlockReaderView: View {
     @State private var lastScrollTime: CFTimeInterval = 0
     private let scrollTapCooldown: CFTimeInterval = 0.25
 
+    /// Live frames of the on-screen text blocks plus the restore bookkeeping.
+    /// A reference type (like `layout`) so recording a frame on every scroll
+    /// frame never invalidates `body`.
+    @State private var tracker = BlockScrollTracker()
+
+    /// Named space for measuring block frames: coordinates are relative to the
+    /// scroll view's *visible* rect, so a block's `minY` is exactly where it
+    /// sits on screen.
+    private static let scrollSpace = "readerBlockScroll"
+
+    /// How many times the restore may re-measure and re-scroll before giving
+    /// up (40ms apart). Covers a lazily-settling stack; ~0.5s worst case.
+    private static let restoreSteps = 12
 
     var body: some View {
         // Refresh the memo before anything reads it. This is a pure cache update
@@ -71,6 +91,12 @@ struct BlockReaderView: View {
             // 5); the plain reader avoided it with a frozen inset and the
             // block reader had no equivalent. S6.
             let deviceInsets = ReaderChrome.deviceSafeAreaInsets
+            // The reading line: where the first block sits when the article is
+            // scrolled to the very top. Used as BOTH the restore target and the
+            // line the persisted character offset is measured at, so reopening
+            // an article is idempotent — the restore reproduces exactly the
+            // position that produced the saved offset.
+            let lineY = deviceInsets.top + ReaderChrome.topReading
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: paragraphSpacing) {
@@ -86,6 +112,8 @@ struct BlockReaderView: View {
                     // clearance, so the capsule never bisects a line.
                     .padding(.bottom, ReaderChrome.bottomReserve + deviceInsets.bottom)
                 }
+                // Measure block frames against the scroll view's visible rect.
+                .coordinateSpace(.named(Self.scrollSpace))
                 // Keep the scrollbar off the notch and the home indicator.
                 .contentMargins(.top, deviceInsets.top, for: .scrollIndicators)
                 .contentMargins(.bottom, deviceInsets.bottom, for: .scrollIndicators)
@@ -96,6 +124,19 @@ struct BlockReaderView: View {
                     return min(1, max(0, bottom / total))
                 } action: { _, progress in
                     onScrollProgress(progress)
+                    reportTopCharacterOffset(lineY: lineY)
+                }
+                // Resume where the user left off. Runs once per appearance and
+                // unblocks offset reporting when it finishes (or gives up), so
+                // the opening top-of-article position can never be persisted
+                // over the saved one — the same ordering the plain reader's
+                // `didRestoreScroll` enforces.
+                .task {
+                    await restoreReadingPosition(
+                        proxy: proxy,
+                        lineY: lineY,
+                        containerHeight: geo.size.height
+                    )
                 }
                 .onScrollPhaseChange { _, newPhase, _ in
                     isScrolling = newPhase == .tracking
@@ -152,6 +193,19 @@ struct BlockReaderView: View {
                     onTapHighlight: onTapHighlight,
                     onTap: handleTap
                 )
+                // Track where this block sits on screen. Only text blocks are
+                // tracked: they are the ones with a `plainText` range, so they
+                // are the only ones a character offset can be read off. Writes
+                // land in a reference tracker, so this costs no `body` passes
+                // while scrolling.
+                .onGeometryChange(for: CGRect.self) { proxy in
+                    proxy.frame(in: .named(Self.scrollSpace))
+                } action: { frame in
+                    tracker.record(index: index, frame: frame)
+                }
+                // The LazyVStack recycles blocks that scroll far away; drop
+                // their stale frames so "topmost visible" never consults one.
+                .onDisappear { tracker.forget(index: index) }
             }
             // A text-bearing block with empty text contributes nothing to
             // plainText (no base offset) — skip it, matching derivePlainText.
@@ -180,11 +234,124 @@ struct BlockReaderView: View {
         return nil
     }
 
+    // MARK: - Reading position
+
+    /// Scrolls the block holding the saved offset to the reading line.
+    ///
+    /// Granularity is the BLOCK, not the character: the reader has no global
+    /// text layout to ask for a caret rect (each block is its own text view),
+    /// so a resumed article opens at the top of the paragraph that was under
+    /// the reading line — within a couple of lines of where the user stopped
+    /// for ordinary prose. The persisted offset itself stays character-grained
+    /// (see `reportTopCharacterOffset`) so switching readers keeps the spot.
+    ///
+    /// `scrollTo` alone is not enough: it aligns the block's top with the top
+    /// of the *scroll view*, which here runs under the notch, and blocks above
+    /// the target settle to their final heights only after the lazy stack has
+    /// laid them out. So the restore measures where the block actually landed
+    /// and re-aims with a corrected anchor until it sits on the reading line.
+    private func restoreReadingPosition(
+        proxy: ScrollViewProxy,
+        lineY: CGFloat,
+        containerHeight: CGFloat
+    ) async {
+        guard !tracker.didRestore else { return }
+        defer { tracker.didRestore = true }
+
+        guard let target = ReadingPosition.blockTarget(
+            offset: initialCharacterOffset,
+            ranges: layout.rangesByIndex,
+            textLength: plainText.utf16.count
+        ), blocks.indices.contains(target.index) else { return }
+
+        let id = blocks[target.index].id
+        var anchorY: CGFloat = 0
+        proxy.scrollTo(id, anchor: UnitPoint(x: 0, y: anchorY))
+
+        for _ in 0 ..< Self.restoreSteps {
+            try? await Task.sleep(for: .milliseconds(40))
+            // The user got there first — never fight a live gesture.
+            if isScrolling { return }
+            guard let frame = tracker.frame(for: target.index) else {
+                // Not laid out yet (or scrolled past by a settling stack).
+                proxy.scrollTo(id, anchor: UnitPoint(x: 0, y: anchorY))
+                continue
+            }
+            guard abs(frame.minY - lineY) > 1 else { return }
+            guard let corrected = ReadingPosition.correctedAnchorY(
+                currentAnchorY: anchorY,
+                observedMinY: frame.minY,
+                desiredMinY: lineY,
+                blockHeight: frame.height,
+                containerHeight: containerHeight
+            ), abs(corrected - anchorY) > 0.0001 else {
+                // A block taller than the viewport, or an anchor already at the
+                // limit (the article's first or last screen) — top alignment is
+                // the best answer available.
+                return
+            }
+            anchorY = corrected
+            proxy.scrollTo(id, anchor: UnitPoint(x: 0, y: anchorY))
+        }
+    }
+
+    /// Reports the UTF-16 offset of the character sitting on the reading line,
+    /// so `ReaderView` can persist it on disappear exactly as it does for the
+    /// plain reader.
+    private func reportTopCharacterOffset(lineY: CGFloat) {
+        guard tracker.didRestore,
+              let index = tracker.topmostIndex(lineY: lineY),
+              let range = layout.rangesByIndex[index],
+              let frame = tracker.frame(for: index) else { return }
+        onTopCharacterOffset(
+            ReadingPosition.characterOffset(
+                in: range,
+                blockMinY: frame.minY,
+                blockHeight: frame.height,
+                lineY: lineY
+            )
+        )
+    }
+
     /// Toggle chrome, unless the tap is really the tail end of a scroll.
     private func handleTap() {
         guard !isScrolling,
               CACurrentMediaTime() - lastScrollTime >= scrollTapCooldown else { return }
         onTap()
+    }
+}
+
+/// Where each on-screen text block currently sits, plus the once-per-appearance
+/// restore flag.
+///
+/// A reference type on purpose: block frames change on every scroll frame, and
+/// publishing that through `@State` would re-run `body` at 120Hz. Nothing here
+/// drives rendering — it is read only from scroll actions and the restore task.
+final class BlockScrollTracker {
+    /// Frames of the currently-rendered text blocks, keyed by block index, in
+    /// the scroll view's visible coordinate space.
+    private var frames: [Int: CGRect] = [:]
+
+    /// Whether the saved position has been applied (or deliberately skipped).
+    /// Offset reporting stays blocked until it is true, so the opening
+    /// top-of-article position can't overwrite the saved one.
+    var didRestore = false
+
+    func record(index: Int, frame: CGRect) { frames[index] = frame }
+
+    func forget(index: Int) { frames.removeValue(forKey: index) }
+
+    func frame(for index: Int) -> CGRect? { frames[index] }
+
+    /// Index of the block under the reading line: the last tracked block that
+    /// starts at or above it. Falls back to the highest block on screen when
+    /// the line sits above everything (the article's first screen).
+    func topmostIndex(lineY: CGFloat) -> Int? {
+        let above = frames.filter { $0.value.minY <= lineY }
+        if let best = above.max(by: { $0.value.minY < $1.value.minY }) {
+            return best.key
+        }
+        return frames.min(by: { $0.value.minY < $1.value.minY })?.key
     }
 }
 
