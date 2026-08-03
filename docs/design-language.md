@@ -1,10 +1,12 @@
 # Design language — the ReadLater constitution
 
-**Status:** v2 draft, pending Ellen's ratification · **Motivated by:** [design audit 2026-08](design-audit-2026-08.md)
+**Status:** **ratified** by Ellen, 2026-08-03 · **Motivated by:** [design audit 2026-08](design-audit-2026-08.md)
 
 Every UI agent on this app is briefed with this file. It resolves the audit's eight cross-cutting themes so nobody re-decides them. If a rule here requires judgment to comply with, that is a bug in the rule — report it rather than guessing.
 
-**v2 changes:** the brand accent is **deferred** (§2.3–2.4) — v1 ships true neutrals with abstract accent plumbing. Four new sections: [Iconography](#5-iconography), [Third-party brand representation](#6-third-party-brand-representation), a real [typography POV](#4-typography), and [sizing standards](#7-sizing-controls-containers-spacing). The sidebar is now the adopted default navigation, which reshapes the wave plan.
+**v2 changes:** the brand accent is **deferred** (§2.3–2.4) — v1 ships true neutrals with abstract accent plumbing. Four new sections: [Iconography](#5-iconography), [Third-party brand representation](#6-third-party-brand-representation), a real [typography POV](#4-typography), and [sizing standards](#7-sizing-controls-containers-spacing). The sidebar is the adopted default navigation.
+
+**Ratification amendment:** SF Symbols are the **interim** icon standard, not the end state. A full third-party glyph pass is planned and explicitly sequenced last (§5.4, wave 6).
 
 ---
 
@@ -226,16 +228,21 @@ Line heights are the face's default for the text style unless stated.
 
 Ellen's note: Apple's default glyphs "look clinical, and we overuse them"; the result "feels unbranded". Both halves are true and they have different fixes. **Clinical** is mostly a *usage* problem — mixed weights, mixed fills, glyphs as decoration. **Unbranded** is a *coverage* problem — there is nowhere in the app that a drawing of ours appears.
 
-**Position: SF Symbols are the substrate, not the personality. They stay for system verbs; we go custom in exactly three places; and we cut the glyph count roughly in half.**
+**Interim position: SF Symbols are the substrate, not the personality. They stay for system verbs; we go custom in exactly three places; and we cut the glyph count roughly in half.**
 
-### 5.1 SF Symbols usage
+**End state (Ellen, ratification):** *"I'd like to consider a full glyph pass with something more like Tabler or Phosphor icons. But we can do that last."* §5.1–5.3 are therefore the **interim standard**, and they are written so the swap is mechanical rather than a redesign: one weight, one scale, semantic fill, and a glyph inventory small enough to migrate in an afternoon. Every rule below survives the migration — only the source of the artwork changes. §5.4 is the migration.
 
-- **I1.** SF Symbols are used for **standard system verbs only**: back, share, add, play/pause, chevrons, search, trash, checkmark. Users read these as OS vocabulary; a custom drawing of "share" is worse than useless.
+### 5.1 SF Symbols usage — interim standard
+
+- **I1.** SF Symbols are used for **standard system verbs only**: back, share, add, play/pause, chevrons, search, trash, checkmark. Users read these as OS vocabulary; a custom drawing of "share" is worse than useless. *(Post-migration this rule reads "the icon set is used for standard system verbs only" — the constraint is about which concepts get a glyph, not who drew it.)*
 - **I2. One weight, one scale.** Every symbol renders `.medium` weight at `.medium` scale, sized to the adjacent text's optical size. Mixed weights are most of what "clinical" actually means here — as is the audit's "Watch on YouTube" glyph, a filled black rounded rectangle heavier than the nav title beside it.
 - **I3. Fill is semantic, never decorative.** Outline = available/inactive. Filled = active/selected/on. Never mixed inside one control group. The one exception is transport controls (`play.fill`, `pause.fill`), where filled is the platform convention for the shape itself.
 - **I4.** Symbols are monochrome `Ink.*` or `Accent.primary`. No `.hierarchical`, no `.palette`, no multicolour — multicolour SF Symbols are the strongest "unstyled iOS app" signal there is.
 
-### 5.2 The overuse rule
+### 5.2 The overuse rule — set-independent
+
+Everything here is about *how many* glyphs exist and *where*, not who drew them. It stands unchanged through the migration, and it is the single biggest thing that makes the migration cheap: the app currently references **28 distinct SF Symbols**, and this section removes a large fraction of them.
+
 
 - **I5. Glyphs are banned from:** metadata lines, list-row bodies, section headers, menu items, and settings rows. If a text label already carries the meaning, the glyph is decoration and gets deleted (N3).
 
@@ -247,9 +254,9 @@ Ellen's note: Apple's default glyphs "look clinical, and we overuse them"; the r
 - **I7. Enclosure rule.** A glyph sits inside a filled circular chip **only when it identifies a thing** (a source, a smart list, a saved search). Actions are never chipped — they get the glass-circle vocabulary (§8.3). This is the GoodLinks distinction, and it is what stops the navigation list becoming coloured-circle soup.
 - **I8.** No emoji as UI iconography, ever.
 
-### 5.3 Where we go custom — three places
+### 5.3 Where we go custom — three places, permanent
 
-These are the whole answer to "unbranded", and they are deliberately few (N3: playfulness is budgeted).
+These are the whole answer to "unbranded", they are deliberately few (N3: playfulness is budgeted), and **they survive the §5.4 migration regardless of which set wins.** A third-party set replaces the system-verb substrate; it never supplies the app's identity marks.
 
 1. **The highlight mark.** One custom glyph — the app's single identity mark — for the Highlights destination, the highlighting empty state, and as the lineage for the app icon. Drawn as a mark, not a marker-pen skeuomorph (N4).
 2. **Empty-state illustrations.** One custom line-art mark per empty state: 64pt, 2pt uniform stroke, `Ink.tertiary`, one visual idea each. An SF Symbol scaled to 64pt is exactly what "unbranded" looks like, and the app has five empty states to fix anyway.
@@ -257,6 +264,36 @@ These are the whole answer to "unbranded", and they are deliberately few (N3: pl
 
 - **I9.** Custom glyphs share one spec: 2pt stroke on a 24pt grid, round caps, no fills, no gradients, no two-tone. A glyph that cannot be drawn at 2pt/24 is out of scope.
 - **I10.** No mascot, no illustration *style*, no spot illustrations beyond the empty states.
+
+### 5.4 Full glyph migration (planned, last wave)
+
+Replacing the whole system-verb substrate with a third-party set is the last thing the pretty pass does. Sequenced last on Ellen's instruction, and structurally correct: waves 2–5 touch icon call sites, so migrating earlier means churning every glyph twice.
+
+**Candidates** (licenses verified 2026-08-03):
+
+| | Tabler Icons | Phosphor |
+|---|---|---|
+| License | MIT | MIT |
+| Count | 6,184 (5,130 outline + 1,054 filled) | 1,248 |
+| Weights | outline + filled | 6: Thin, Light, Regular, Bold, Fill, Duotone |
+| Design grid | 24×24, 2px stroke | 16×16, scales up |
+
+Each has one structural advantage the other lacks, which is what makes this a real comparison rather than a taste poll:
+
+- **Tabler's 24×24 / 2px grid is already our I9 custom-glyph spec.** Choosing Tabler means the three permanent custom marks (§5.3) sit natively in the set instead of being visibly hand-drawn next to it. That is the single strongest argument in either direction.
+- **Phosphor's six weights map cleanly onto both SF Pro's weight range and our I3 outline-vs-fill semantics**, and give the set somewhere to go at Bold Text and accessibility sizes. Tabler has one stroke weight plus a filled variant, so I3 works but weight response does not.
+
+**Evaluation criteria** — all four, in order:
+
+1. **Stroke harmony with our type at real sizes.** Glyphs render at 14pt (small tier), 17pt (standard) and 20pt (prominent) beside SF Pro body text and Lexend display. A 2px-on-24 stroke is heavier than SF Symbols `.medium` at 17pt; whether that reads as confident or clunky next to our type is the first question and it cannot be answered from a specimen sheet.
+2. **Coverage of our core glyph set.** The app references **28 distinct SF Symbols** today, and §5.2 will cut that. Both sets trivially cover the common verbs. The risk is Apple's *composite/badged* symbols, which have no third-party equivalent: `note.text.badge.plus`, `person.crop.circle.fill.badge.checkmark`, `play.rectangle.fill`, `textformat.size`, `highlighter`. Each must be matched, composed from two glyphs, or redrawn to I9 — count them before choosing, not after.
+3. **Rendering approach — SF Symbol templates, not plain images.** Third-party SVGs get authored into a custom `.symbolset` via the SF Symbols app's template flow. This preserves Dynamic Type scaling, `.imageScale`, text-baseline alignment inside label runs, weight variants and `symbolRenderingMode`. A plain asset-catalog `Image(...).renderingMode(.template)` loses all of it, and would silently break T9 (`.accessibility3` support) and I2 (scale matched to adjacent text). **Asset images are not an acceptable shortcut.**
+4. **Weight degradation.** Whichever set wins, check it at Bold Text and `.accessibility3`. A single-weight source may need a manually thickened variant; a set that only looks right at one size is disqualified.
+
+**Decision procedure.** Build a comp rendering **12 glyphs inside real screens** — not a specimen grid — three ways: current SF, Tabler, Phosphor. The twelve are the app's most-used plus its hardest: `plus`, `checkmark`, `trash`, `xmark`, `globe`, `photo`, `line.3.horizontal`, `checkmark.circle.fill`, `play.rectangle.fill`, `textformat.size`, `note.text.badge.plus`, `highlighter`. The last three are deliberately included because a comp of easy glyphs proves nothing. Screens: a populated Library list, the sidebar, and the reader with chrome revealed, in both schemes. **Ellen picks.**
+
+- **I11.** Until that comp is run and a set is chosen, no third-party icon ships. No partial migration, no "just this one glyph from Tabler" — a mixed set is worse than either pure set.
+- **I12.** Whichever set wins, it replaces the substrate wholesale in one change. The three custom marks (§5.3) and every rule in §5.1–5.2 carry over unchanged.
 
 ---
 
@@ -450,7 +487,7 @@ Playfulness is **attention direction with a personality**, and the budget is del
 
 ## 11. Phase-3 wave plan
 
-Five waves, each independently mergeable and reviewable. Wave 1 gates everything (all consume the tokens); waves 2 and 3 are independent of each other; wave 4 consumes 1–3; wave 5 is polish over settled structure.
+Six waves, each independently mergeable and reviewable. Wave 1 gates everything (all consume the tokens); waves 2 and 3 are independent of each other; wave 4 consumes 1–3; wave 5 is polish over settled structure; wave 6 is last by instruction and by dependency.
 
 **Already filed elsewhere — excluded from every wave:** [#63](https://github.com/elliebartling/read-later/issues/63) content-fidelity batch (audit theme 8, fix #10) and [#64](https://github.com/elliebartling/read-later/issues/64) block-reader reading-position restore (theme 5, fix #8). Both are correctness bugs, not design work.
 
@@ -532,6 +569,19 @@ The sidebar's IA was already the best in the app; everything here brings prototy
 | Typography sheet → bento grid (§8.6) | typography sheet | **taste-check** |
 | Settings: dismiss control, no row icons, de-duplicate Reader / Read Aloud | Settings | code |
 | Motion pass: §10 curve tokens, Reduce Motion wrapper, the four playful moments | §9, §10 | **taste-check** on save confirmation |
+
+### Wave 6 — The glyph pass
+
+*Last, per Ellen. Every earlier wave touches icon call sites, so migrating before they settle means churning every glyph twice.*
+
+| Item | Ref | Kind |
+|---|---|---|
+| Build the twelve-glyph three-way comp in real screens, both schemes | §5.4 | code (throwaway) + **taste-check — Ellen picks the set** |
+| Audit the composite/badged symbols with no third-party equivalent; match, compose or redraw to I9 | §5.4 criterion 2 | code |
+| Author the chosen set as a custom `.symbolset` via SF Symbols templates — never plain asset images | §5.4 criterion 3 | code |
+| Wholesale substrate swap (I12); verify at Bold Text and `.accessibility3` | §5.4 criterion 4 | code |
+
+Runs only after wave 5. Nothing in waves 1–5 may ship a third-party glyph (I11).
 
 ---
 
