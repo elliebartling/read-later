@@ -338,11 +338,13 @@ struct HighlightableTextView: UIViewRepresentable {
         func restoreScrollIfNeeded() {
             guard !didRestoreScroll, let tv = textView, let parent = parent else { return }
 
-            let offset = parent.initialCharacterOffset
-            let length = (tv.text as NSString).length
-            // Nothing meaningful saved (or the text shrank past it) — start at
-            // the top and report immediately.
-            guard offset > 0, offset < length else {
+            // Shared with the block reader (ReadingPosition) so both readers
+            // treat "nothing saved" and "the text shrank past the saved spot"
+            // identically — start at the top and report immediately.
+            guard let offset = ReadingPosition.resolvedOffset(
+                saved: parent.initialCharacterOffset,
+                textLength: (tv.text as NSString).length
+            ) else {
                 didRestoreScroll = true
                 return
             }

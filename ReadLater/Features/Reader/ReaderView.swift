@@ -375,6 +375,13 @@ struct ReaderView: View {
                         editingHighlight = findHighlight(id)
                     },
                     onScrollProgress: handleScrollProgress,
+                    // Same reading-position contract as the plain reader below:
+                    // report the top-of-viewport offset while scrolling, resume
+                    // there on open. Both readers write the same
+                    // `readingCharacterOffset`, so switching readers keeps the
+                    // spot (AGENTS.md, "There are two readers").
+                    onTopCharacterOffset: { latestTopOffset = $0 },
+                    initialCharacterOffset: article.readingCharacterOffset,
                     onTap: {
                         withAnimation(Self.chromeAnimation) { chromeVisible.toggle() }
                     }
