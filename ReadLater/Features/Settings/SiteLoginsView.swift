@@ -60,13 +60,13 @@ struct SiteLoginsView: View {
                 ForEach(model.sites, id: \.self) { host in
                     HStack {
                         Image(systemName: "globe")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Ink.secondary)
                             .accessibilityHidden(true)
                         Text(host)
                         Spacer()
                         Button("Sign Out") { model.pendingSignOut = host }
                             .buttonStyle(.borderless)
-                            .foregroundStyle(.red)
+                            .foregroundStyle(Semantic.destructive)
                             .accessibilityLabel("Sign out of \(host)")
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
@@ -79,6 +79,7 @@ struct SiteLoginsView: View {
                 Text("Signing out clears the site's cookies and cached data on this device. Saved articles keep their text; future fetches will be anonymous.")
             }
         }
+        .pageList()
         .refreshable { await model.load() }
     }
 }

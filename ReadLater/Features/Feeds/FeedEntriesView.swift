@@ -39,6 +39,7 @@ struct FeedEntriesView: View {
                 }
                 .padding(.top, 40)
                 .listRowSeparator(.hidden)
+                .containerRow()
                 .accessibilityLabel("Loading")
             } else if let message = emptyStateMessage {
                 ContentUnavailableView(
@@ -47,6 +48,7 @@ struct FeedEntriesView: View {
                     description: message.description.map(Text.init)
                 )
                 .listRowSeparator(.hidden)
+                .containerRow()
             }
             ForEach(entries) { entry in
                 Button {
@@ -60,8 +62,11 @@ struct FeedEntriesView: View {
                 }
                 .buttonStyle(.plain)
                 .accessibilityValue(entry.isRead ? Text("Read") : Text("Unread"))
-                .listRowInsets(EdgeInsets(top: 4, leading: 16, bottom: 4, trailing: 16))
-                .alignmentGuide(.listRowSeparatorLeading) { _ in 0 }
+                .listRowInsets(EdgeInsets(
+                    top: Metric.rowVerticalPadding, leading: Metric.containerPadding,
+                    bottom: Metric.rowVerticalPadding, trailing: Metric.containerPadding
+                ))
+                .containerRow()
                 .swipeActions(edge: .leading) {
                     Button {
                         entry.isRead.toggle()
@@ -70,11 +75,10 @@ struct FeedEntriesView: View {
                         Label(entry.isRead ? "Unread" : "Read",
                               systemImage: entry.isRead ? "circle" : "checkmark.circle")
                     }
-                    .tint(.blue)
                 }
             }
         }
-        .listStyle(.plain)
+        .pageList()
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
@@ -216,7 +220,7 @@ private struct FeedEntryRow: View {
         // shift to the title's leading edge.
         HStack(alignment: .top, spacing: 10) {
             Circle()
-                .fill(.blue)
+                .fill(Accent.primary)
                 .frame(width: 8, height: 8)
                 .padding(.top, 6)
                 .opacity(entry.isRead ? 0 : 1)
@@ -225,11 +229,11 @@ private struct FeedEntryRow: View {
                 Text(entry.title.isEmpty ? (entry.url?.absoluteString ?? "Untitled") : entry.title)
                     .font(.headline)
                     .lineLimit(3)
-                    .foregroundStyle(entry.isRead ? .secondary : .primary)
+                    .foregroundStyle(entry.isRead ? Ink.secondary : Ink.primary)
                 if let summary = entry.summary, !summary.isEmpty {
                     Text(summary)
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Ink.secondary)
                         .lineLimit(2)
                 }
                 HStack(spacing: 10) {
@@ -247,7 +251,7 @@ private struct FeedEntryRow: View {
                     }
                 }
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Ink.tertiary)
             }
             .frame(maxWidth: .infinity, alignment: .leading)
             if let thumbnailURL = entry.thumbnailURL {
@@ -255,7 +259,8 @@ private struct FeedEntryRow: View {
                     .padding(.top, 2)
             }
         }
-        .padding(.vertical, 6)
+        // Row vertical padding is the list's (§7.2), applied once via
+        // `listRowInsets`.
         .contentShape(Rectangle())
     }
 }
@@ -277,16 +282,16 @@ private struct FeedThumbnail: View {
                     .scaledToFill()
             } else {
                 Rectangle()
-                    .fill(.quaternary)
+                    .fill(Surface.control)
                     .overlay {
                         Image(systemName: "play.rectangle")
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Ink.tertiary)
                             .font(.caption)
                     }
             }
         }
         .frame(width: Self.width, height: Self.height)
-        .clipShape(RoundedRectangle(cornerRadius: 6, style: .continuous))
+        .clipShape(.rect(cornerRadius: Radius.thumbnail, style: .continuous))
         .accessibilityHidden(true)
         .task(id: url) {
             image = await ArticleImageCache.shared.image(for: url, targetWidth: Self.width)

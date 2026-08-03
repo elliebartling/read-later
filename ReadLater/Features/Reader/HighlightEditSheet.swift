@@ -46,7 +46,7 @@ struct HighlightEditSheet: View {
                                         if highlight.color == color {
                                             Image(systemName: "checkmark")
                                                 .font(.footnote.weight(.bold))
-                                                .foregroundStyle(.black.opacity(0.6))
+                                                .foregroundStyle(HighlightMarker.onMarker)
                                         }
                                     }
                             }
@@ -69,6 +69,7 @@ struct HighlightEditSheet: View {
                     }
                 }
             }
+            .pageForm()
             .navigationTitle("Highlight")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {

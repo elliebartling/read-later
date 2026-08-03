@@ -38,11 +38,15 @@ enum FeedSourceKind: String, CaseIterable, Identifiable {
         }
     }
 
+    /// Source identity hue (§2.2 / BR5). Row and kind identity only — it never
+    /// tints text, selection, controls or `Accent.*`. Normalised to our chip
+    /// lightness so the three read as siblings in one column rather than a
+    /// logo parade.
     var tint: Color {
         switch self {
-        case .youtube: return .red
-        case .reddit:  return .orange
-        case .web:     return .blue
+        case .youtube: return Source.youtube
+        case .reddit:  return Source.reddit
+        case .web:     return Source.website
         }
     }
 

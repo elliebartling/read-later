@@ -162,8 +162,18 @@ struct HighlightableTextView: UIViewRepresentable {
     /// a similar amount.
     static let quoteIndent: CGFloat = 20
 
+    /// Reading padding. The bottom is `ReaderChrome.bottomReserve` — the
+    /// floating action bar's height plus its offset plus 12pt of clearance
+    /// (S5) — reserved unconditionally so the capsule never bisects a line and
+    /// so text doesn't move when the bar comes and goes (S6). The same
+    /// constant feeds the block reader.
     private static func inset(for width: ReaderWidth) -> UIEdgeInsets {
-        UIEdgeInsets(top: 24, left: width.horizontalInset, bottom: 40, right: width.horizontalInset)
+        UIEdgeInsets(
+            top: ReaderChrome.topReading,
+            left: width.horizontalInset,
+            bottom: ReaderChrome.bottomReserve,
+            right: width.horizontalInset
+        )
     }
 
     private func renderSignature() -> String {
@@ -753,10 +763,8 @@ final class ReaderTextView: SelectionWashHidingTextView {
         safeAreaBottom: CGFloat,
         frozenTop: CGFloat?
     ) -> (insets: UIEdgeInsets, frozenTop: CGFloat?) {
-        var frozen = frozenTop
-        if safeAreaTop > 0 {
-            frozen = min(frozen ?? safeAreaTop, safeAreaTop)
-        }
+        // Shared with the block reader so the two readers cannot drift.
+        let frozen = ReaderChrome.frozenTop(live: safeAreaTop, frozen: frozenTop)
         let insets = UIEdgeInsets(
             top: base.top + (frozen ?? safeAreaTop),
             left: base.left,

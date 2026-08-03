@@ -27,7 +27,8 @@ struct SidebarPanel: View {
     var body: some View {
         VStack(spacing: 0) {
             header
-            Divider()
+            // No rule under the header (S2). The header's own padding and the
+            // list's ground are the separation.
             List {
                 Section {
                     row(.library, title: "Library", systemImage: "books.vertical",
@@ -40,7 +41,7 @@ struct SidebarPanel: View {
                     Section("Feeds") {
                         Text("No subscriptions yet — tap + to add one.")
                             .font(.footnote)
-                            .foregroundStyle(.secondary)
+                            .foregroundStyle(Ink.secondary)
                     }
                 } else {
                     ForEach(FeedSourceKind.displayOrder) { kind in
@@ -69,10 +70,9 @@ struct SidebarPanel: View {
                     .buttonStyle(.plain)
                 }
             }
-            .listStyle(.plain)
-            .scrollContentBackground(.hidden)
+            .pageList()
         }
-        .background(.regularMaterial)
+        .background(Surface.ground)
         .sheet(isPresented: $showingAddFeed) { AddFeedSheet() }
         .sheet(isPresented: $showingImport) { YouTubeImportView() }
         .sheet(isPresented: $showingSettings) { SettingsView() }
@@ -85,7 +85,7 @@ struct SidebarPanel: View {
                     .font(.title3.bold())
                 Text(subscriptionSummary)
                     .font(.caption)
-                    .foregroundStyle(.secondary)
+                    .foregroundStyle(Ink.secondary)
             }
             Spacer()
             Menu {
@@ -102,8 +102,11 @@ struct SidebarPanel: View {
             } label: {
                 Image(systemName: "plus")
                     .font(.body.weight(.semibold))
-                    .frame(width: 32, height: 32)
-                    .background(.quaternary, in: Circle())
+                    .foregroundStyle(Accent.primary)
+                    // Standard tier — there is no 32pt tier (Z2).
+                    .frame(width: ControlTier.standard.height,
+                           height: ControlTier.standard.height)
+                    .background(Surface.control, in: Circle())
             }
             .accessibilityLabel("Add feed")
         }
@@ -211,7 +214,7 @@ struct SidebarRowLabel: View {
     var body: some View {
         HStack(spacing: 10) {
             Image(systemName: systemImage)
-                .foregroundStyle(isSelected ? Color.accentColor : .secondary)
+                .foregroundStyle(isSelected ? Accent.primary : Ink.secondary)
                 .frame(width: 22)
             Text(title)
                 .font(.body.weight(isSelected ? .semibold : .regular))
@@ -223,7 +226,7 @@ struct SidebarRowLabel: View {
         .contentShape(Rectangle())
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isSelected ? Color.accentColor.opacity(0.15) : .clear)
+                .fill(isSelected ? Accent.muted : .clear)
         )
     }
 }
@@ -248,7 +251,7 @@ private struct SidebarFeedRow: View {
         .contentShape(Rectangle())
         .background(
             RoundedRectangle(cornerRadius: 8, style: .continuous)
-                .fill(isSelected ? Color.accentColor.opacity(0.15) : .clear)
+                .fill(isSelected ? Accent.muted : .clear)
         )
     }
 }
@@ -267,12 +270,15 @@ private struct SidebarAvatar: View {
 
     var body: some View {
         Circle()
-            .fill(kind.tint.gradient)
+            // Flat fill: a gradient inside a source mark is decoration that
+            // answers nothing (N3), and BR3 wants one fidelity per column.
+            .fill(kind.tint)
             .frame(width: 22, height: 22)
             .overlay {
                 Text(monogram)
                     .font(.caption2.weight(.bold))
-                    .foregroundStyle(.white)
+                    // A2 — never hardcoded white.
+                    .foregroundStyle(Accent.onFill)
             }
             .accessibilityHidden(true)
     }
@@ -285,7 +291,7 @@ private struct SidebarCountBadge: View {
         if count > 0 {
             Text("\(count)")
                 .font(.caption.weight(.semibold))
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Ink.secondary)
                 .monospacedDigit()
                 .accessibilityLabel("\(count) unread")
         }

@@ -9,11 +9,11 @@ struct ArticleRow: View {
                 Text(article.title)
                     .font(.headline)
                     .lineLimit(2)
-                    .foregroundStyle(article.readAt == nil ? .primary : .secondary)
+                    .foregroundStyle(article.readAt == nil ? Ink.primary : Ink.secondary)
                 if let site = article.siteName ?? article.url?.host {
                     Text(site)
                         .font(.subheadline)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Ink.secondary)
                 }
                 HStack(spacing: 10) {
                     if article.isVideoArticle {
@@ -31,12 +31,13 @@ struct ArticleRow: View {
                     }
                 }
                 .font(.caption)
-                .foregroundStyle(.secondary)
+                .foregroundStyle(Ink.tertiary)
                 .labelStyle(CompactLabelStyle())
             }
             Spacer(minLength: 0)
         }
-        .padding(.vertical, 6)
+        // Row vertical padding is the list's (§7.2), applied once via
+        // `listRowInsets` — not doubled up here.
     }
 }
 

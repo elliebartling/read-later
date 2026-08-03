@@ -1,7 +1,7 @@
 import SwiftUI
 import SwiftData
 
-/// Floating pink capsule shown while read-aloud is active. Left to right:
+/// Floating glass capsule shown while read-aloud is active. Left to right:
 /// silk-ribbon waveform (doubles as a progress readout; tap to stop), speed
 /// cycler, and a transport cluster (skip-back paragraph, pause/play,
 /// skip-forward paragraph). While OpenAI is synthesizing the first chunk, the
@@ -25,7 +25,8 @@ struct AudioPlayerBar: View {
                         SilkWaveformView(isAnimating: controller.isPlaying, progress: controller.progress)
                     }
                 }
-                .frame(maxWidth: .infinity, minHeight: 30, maxHeight: 30)
+                .frame(maxWidth: .infinity,
+                       minHeight: Self.waveformHeight, maxHeight: Self.waveformHeight)
                 .contentShape(.rect)
             }
             .buttonStyle(.plain)
@@ -51,11 +52,19 @@ struct AudioPlayerBar: View {
 
             transportButton
         }
-        .foregroundStyle(.white)
-        .padding(.horizontal, 20)
-        .padding(.vertical, 11)
+        // §7.3 — one 44pt capsule in both states, down from 56 idle / 52
+        // playing. Over a reading surface the old bar was the heaviest object
+        // on screen, which is N1 backwards.
+        .foregroundStyle(Ink.primary)
+        .frame(height: ControlTier.standard.height)
+        .padding(.horizontal, Metric.capsuleHorizontalPadding)
         .playerGlassCapsule()
     }
+
+    /// §7.3 waveform height, down from 30.
+    private static let waveformHeight: CGFloat = 22
+    /// §7.3 play/pause button, down from 34.
+    private static let playButtonSize: CGFloat = 30
 
     /// Previous / next paragraph. The engine is paragraph-based, so these skip
     /// whole paragraphs rather than a fixed number of seconds.
@@ -65,7 +74,7 @@ struct AudioPlayerBar: View {
                 controller.skipBackward()
             } label: {
                 Image(systemName: "backward.fill")
-                    .font(.body.weight(.semibold))
+                    .font(.system(size: ControlTier.standard.glyph, weight: .medium))
                     .contentShape(.rect)
             }
             .buttonStyle(.plain)
@@ -75,7 +84,7 @@ struct AudioPlayerBar: View {
                 controller.skipForward()
             } label: {
                 Image(systemName: "forward.fill")
-                    .font(.body.weight(.semibold))
+                    .font(.system(size: ControlTier.standard.glyph, weight: .medium))
                     .contentShape(.rect)
             }
             .buttonStyle(.plain)
@@ -86,7 +95,7 @@ struct AudioPlayerBar: View {
     private var loadingLabel: some View {
         Text("Loading")
             .font(.subheadline.weight(.medium))
-            .foregroundStyle(.white.opacity(0.85))
+            .foregroundStyle(Ink.secondary)
             .frame(maxWidth: .infinity, alignment: .leading)
             .accessibilityHidden(true)
     }
@@ -100,10 +109,10 @@ struct AudioPlayerBar: View {
                     BufferingCancelControl()
                 } else {
                     Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.title3.weight(.bold))
+                        .font(.system(size: ControlTier.standard.glyph, weight: .semibold))
                 }
             }
-            .frame(width: 34, height: 34)
+            .frame(width: Self.playButtonSize, height: Self.playButtonSize)
             .contentShape(.rect)
         }
         .buttonStyle(.plain)
@@ -133,8 +142,8 @@ struct AudioPlayerBar: View {
     }
 }
 
-/// Idle counterpart to `AudioPlayerBar`: the pink capsule shown when the reader
-/// chrome is up but nothing is playing. Overflow · share · tag · play.
+/// Idle counterpart to `AudioPlayerBar`: the glass capsule shown when the
+/// reader chrome is up but nothing is playing. Overflow · share · tag · play.
 struct IdlePlayerBar: View {
     let article: Article
     var onTags: () -> Void
@@ -175,8 +184,8 @@ struct IdlePlayerBar: View {
                 if isReextracting {
                     ProgressView()
                         .controlSize(.regular)
-                        .tint(.white)
-                        .frame(width: 30, height: 30)
+                        .tint(Ink.primary)
+                        .frame(width: Self.glyphFrame, height: Self.glyphFrame)
                         .contentShape(.rect)
                 } else {
                     capsuleGlyph("ellipsis")
@@ -203,32 +212,38 @@ struct IdlePlayerBar: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Listen")
         }
-        .foregroundStyle(.white)
-        .padding(.horizontal, 24)
-        .padding(.vertical, 13)
+        // §7.3 — 44pt tall, 16pt horizontal padding, 17pt glyphs on a 24pt
+        // frame (was 56pt tall, 24pt padding, 20pt glyphs on 30pt).
+        .foregroundStyle(Ink.primary)
+        .frame(height: ControlTier.standard.height)
+        .padding(.horizontal, Metric.capsuleHorizontalPadding)
         .playerGlassCapsule()
     }
 
+    /// §7.3 glyph frame, down from 30.
+    private static let glyphFrame: CGFloat = 24
+
     private func capsuleGlyph(_ name: String) -> some View {
+        // I2 — one weight, one scale, sized to the adjacent text's optical size.
         Image(systemName: name)
-            .font(.title3.weight(.semibold))
-            .frame(width: 30, height: 30)
+            .font(.system(size: ControlTier.standard.glyph, weight: .medium))
+            .frame(width: Self.glyphFrame, height: Self.glyphFrame)
             .contentShape(.rect)
     }
 }
 
 /// Stop glyph inside a spinning indeterminate ring — used while OpenAI is
-/// synthesizing the first paragraph. White to sit on the pink capsule.
+/// synthesizing the first paragraph.
 private struct BufferingCancelControl: View {
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: false)) { timeline in
             let turns = timeline.date.timeIntervalSinceReferenceDate * 1.6
             ZStack {
                 Circle()
-                    .stroke(.white.opacity(0.3), lineWidth: 2)
+                    .stroke(Ink.quaternary, lineWidth: 2)
                 Circle()
                     .trim(from: 0, to: 0.72)
-                    .stroke(.white, style: StrokeStyle(lineWidth: 2, lineCap: .round))
+                    .stroke(Accent.primary, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                     .rotationEffect(.degrees(turns * 360))
                 Image(systemName: "stop.fill")
                     .font(.system(size: 10, weight: .semibold))
@@ -243,11 +258,23 @@ private struct BufferingCancelControl: View {
 /// line plus a fainter trailing line, undulating via layered sine motion while
 /// speaking and freezing to a static curve when paused. The already-spoken
 /// fraction renders at full brightness; the upcoming fraction fades back, so
-/// the ribbon doubles as an at-a-glance position readout. White on pink.
+/// the ribbon doubles as an at-a-glance position readout.
 private struct SilkWaveformView: View {
     let isAnimating: Bool
     /// 0...1 fraction of the article already spoken.
     let progress: Double
+
+    @Environment(\.colorScheme) private var colorScheme
+
+    /// `Canvas` draws outside the SwiftUI environment, so a dynamic `Color`
+    /// handed to `GraphicsContext` resolves against an unspecified trait
+    /// collection — which painted the ribbon in the DARK ink value on a light
+    /// capsule. Resolve it here instead.
+    private var ink: Color {
+        Color(uiColor: Accent.primaryUI.resolvedColor(
+            with: UITraitCollection(userInterfaceStyle: colorScheme == .dark ? .dark : .light)
+        ))
+    }
 
     var body: some View {
         TimelineView(.animation(minimumInterval: 1.0 / 30.0, paused: !isAnimating)) { timeline in
@@ -261,20 +288,23 @@ private struct SilkWaveformView: View {
                     var upcoming = context
                     upcoming.clip(to: Path(CGRect(x: playedX, y: 0,
                                                   width: size.width - playedX, height: size.height)))
-                    drawRibbon(in: &upcoming, size: size, t: t, alpha: 0.4)
+                    drawRibbon(in: &upcoming, size: size, t: t, alpha: 0.4, ink: ink)
                 }
                 // Played fraction — full brightness.
                 if playedX > 0 {
                     var played = context
                     played.clip(to: Path(CGRect(x: 0, y: 0, width: playedX, height: size.height)))
-                    drawRibbon(in: &played, size: size, t: t, alpha: 1.0)
+                    drawRibbon(in: &played, size: size, t: t, alpha: 1.0, ink: ink)
                 }
             }
         }
         .accessibilityHidden(true)
     }
 
-    private func drawRibbon(in context: inout GraphicsContext, size: CGSize, t: TimeInterval, alpha: Double) {
+    private func drawRibbon(
+        in context: inout GraphicsContext, size: CGSize,
+        t: TimeInterval, alpha: Double, ink: Color
+    ) {
         let w = size.width
         let h = size.height
         let mid = Double(h) / 2
@@ -305,7 +335,7 @@ private struct SilkWaveformView: View {
             px -= step
         }
         body.closeSubpath()
-        context.fill(body, with: .color(.white.opacity(0.22 * alpha)))
+        context.fill(body, with: .color(ink.opacity(0.22 * alpha)))
 
         // Bright top line.
         var top = Path()
@@ -315,7 +345,7 @@ private struct SilkWaveformView: View {
             top.addLine(to: CGPoint(x: px, y: y(px, amp: Double(h) * 0.32, k: 0.05, sp: 3.4)))
             px += 1
         }
-        context.stroke(top, with: .color(.white.opacity(0.95 * alpha)),
+        context.stroke(top, with: .color(ink.opacity(0.95 * alpha)),
                        style: StrokeStyle(lineWidth: 2, lineCap: .round, lineJoin: .round))
 
         // Fainter trailing line, phase-shifted the other way.
@@ -326,19 +356,21 @@ private struct SilkWaveformView: View {
             trail.addLine(to: CGPoint(x: px, y: y(px, amp: Double(h) * 0.24, k: 0.07, sp: -2.2, offset: 2)))
             px += 1
         }
-        context.stroke(trail, with: .color(.white.opacity(0.45 * alpha)),
+        context.stroke(trail, with: .color(ink.opacity(0.45 * alpha)),
                        style: StrokeStyle(lineWidth: 1.4, lineCap: .round, lineJoin: .round))
     }
 }
 
-extension Color {
-    /// Figma `Accents/Pink` — the player capsule accent.
-    static let playerPink = Color(red: 1.0, green: 45.0 / 255.0, blue: 85.0 / 255.0)
-}
-
 extension View {
-    /// Prominent pink liquid-glass capsule for the audio / idle player.
+    /// **E3.** The reader's floating action capsule: `.regularMaterial` plus
+    /// `Surface.chromeTint` in both schemes (S4).
+    ///
+    /// `Color.playerPink` (`#FF2D55` at full saturation) is retired. It was
+    /// the app's loudest colour, it appeared on exactly one surface, and N5
+    /// disqualifies a fully saturated hue on anything larger than a 44pt
+    /// control wherever you put it. Pink survives only where the user chose
+    /// it, as `HighlightMarker.pink`.
     func playerGlassCapsule() -> some View {
-        self.glassEffect(.regular.tint(.playerPink).interactive(), in: .capsule)
+        floatingChrome(in: .capsule)
     }
 }

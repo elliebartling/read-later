@@ -55,6 +55,7 @@ struct BlockReaderView: View {
     @State private var lastScrollTime: CFTimeInterval = 0
     private let scrollTapCooldown: CFTimeInterval = 0.25
 
+
     var body: some View {
         // Refresh the memo before anything reads it. This is a pure cache update
         // (no SwiftUI state is published), so it's safe inside body.
@@ -62,6 +63,14 @@ struct BlockReaderView: View {
 
         GeometryReader { geo in
             let contentWidth = max(1, geo.size.width - width.horizontalInset * 2)
+            // The scroll view runs full-screen (`.ignoresSafeArea` at the
+            // ReaderView call site) and reserves the bars itself, from the
+            // WINDOW's safe area — a figure a chrome reveal cannot change.
+            // Before this, revealing the chrome grew the scroll view's safe
+            // area and shoved the article down ~130pt mid-read (audit theme
+            // 5); the plain reader avoided it with a frozen inset and the
+            // block reader had no equivalent. S6.
+            let deviceInsets = ReaderChrome.deviceSafeAreaInsets
             ScrollViewReader { proxy in
                 ScrollView {
                     LazyVStack(alignment: .leading, spacing: paragraphSpacing) {
@@ -72,9 +81,14 @@ struct BlockReaderView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                     .padding(.horizontal, width.horizontalInset)
-                    .padding(.top, 24)
-                    .padding(.bottom, 40)
+                    .padding(.top, ReaderChrome.topReading + deviceInsets.top)
+                    // S5 — the floating action bar's height + offset + 12pt of
+                    // clearance, so the capsule never bisects a line.
+                    .padding(.bottom, ReaderChrome.bottomReserve + deviceInsets.bottom)
                 }
+                // Keep the scrollbar off the notch and the home indicator.
+                .contentMargins(.top, deviceInsets.top, for: .scrollIndicators)
+                .contentMargins(.bottom, deviceInsets.bottom, for: .scrollIndicators)
                 .onScrollGeometryChange(for: Double.self) { geometry in
                     let total = geometry.contentSize.height
                     guard total > 0 else { return 0 }

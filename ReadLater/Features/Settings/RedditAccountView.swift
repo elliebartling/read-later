@@ -21,10 +21,11 @@ struct RedditAccountView: View {
                 Section {
                     Text(error)
                         .font(.footnote)
-                        .foregroundStyle(.red)
+                        .foregroundStyle(Semantic.destructive)
                 }
             }
         }
+        .pageForm()
         .navigationTitle("Reddit")
         .navigationBarTitleDisplayMode(.inline)
         .confirmationDialog(
@@ -46,13 +47,13 @@ struct RedditAccountView: View {
         Section {
             HStack {
                 Image(systemName: "person.crop.circle.fill.badge.checkmark")
-                    .foregroundStyle(.green)
+                    .foregroundStyle(Semantic.success)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Connected")
                         .font(.subheadline.weight(.semibold))
                     Text("u/\(account.name)")
                         .font(.footnote)
-                        .foregroundStyle(.secondary)
+                        .foregroundStyle(Ink.secondary)
                 }
             }
         }

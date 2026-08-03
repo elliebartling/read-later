@@ -90,10 +90,10 @@ struct YouTubeImportView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Import from YouTube").font(.headline)
                             Text("Sign in and we'll read your subscribed channels.")
-                                .font(.footnote).foregroundStyle(.secondary)
+                                .font(.footnote).foregroundStyle(Ink.secondary)
                         }
                     } icon: {
-                        Image(systemName: "play.rectangle.fill").foregroundStyle(.red)
+                        Image(systemName: "play.rectangle.fill").foregroundStyle(Source.youtube)
                     }
                 }
             }
@@ -105,16 +105,17 @@ struct YouTubeImportView: View {
                         VStack(alignment: .leading, spacing: 2) {
                             Text("Import from Google Takeout").font(.headline)
                             Text("Pick the subscriptions.csv from your Takeout export.")
-                                .font(.footnote).foregroundStyle(.secondary)
+                                .font(.footnote).foregroundStyle(Ink.secondary)
                         }
                     } icon: {
-                        Image(systemName: "doc.text.fill").foregroundStyle(.blue)
+                        Image(systemName: "doc.text.fill").foregroundStyle(Ink.secondary)
                     }
                 }
             } footer: {
                 Text("A one-time import — no ongoing sync. Channels become normal feeds you can unsubscribe any time.")
             }
         }
+        .pageList()
     }
 
     // MARK: - Picker
@@ -138,8 +139,8 @@ struct YouTubeImportView: View {
                             } label: {
                                 HStack {
                                     Image(systemName: model.isSelected(channel) ? "checkmark.circle.fill" : "circle")
-                                        .foregroundStyle(model.isSelected(channel) ? Color.accentColor : Color.secondary)
-                                    Text(channel.title).foregroundStyle(.primary)
+                                        .foregroundStyle(model.isSelected(channel) ? Accent.primary : Ink.secondary)
+                                    Text(channel.title).foregroundStyle(Ink.primary)
                                     Spacer()
                                 }
                             }
