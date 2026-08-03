@@ -45,6 +45,10 @@ final class AppSettings {
     /// Raw value of RedditDiscussionApp — where "View discussion" opens a
     /// Reddit comments permalink. Local-only store, so no CloudKit concern.
     var redditDiscussionAppRaw: String = RedditDiscussionApp.systemDefault.rawValue
+    /// PROTOTYPE: replace the tab bar with a Readwise-Reader-style slide-in
+    /// sidebar (ReadLater/Features/Sidebar/). Off = the shipping TabView, byte
+    /// for byte. Local-only store, so no CloudKit concern.
+    var useSidebarNavigation: Bool = false
 
     var redditDiscussionApp: RedditDiscussionApp {
         get { RedditDiscussionApp(rawValue: redditDiscussionAppRaw) ?? .systemDefault }
