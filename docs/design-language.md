@@ -1,5 +1,8 @@
 # Design language — the ReadLater constitution
 
+> **Errata (2026-08-03, wave 1):** two internal inconsistencies were resolved in code and now govern: (1) §7.2's nested-radius worked example did not follow its own formula — the FORMULA wins; (2) §7.3's capsule metrics (44pt height + 30pt play + 10pt padding) over-summed — the 44pt HEIGHT wins, padding derives (10 idle / 7 playing).
+
+
 **Status:** **ratified** by Ellen, 2026-08-03 · **Motivated by:** [design audit 2026-08](design-audit-2026-08.md)
 
 Every UI agent on this app is briefed with this file. It resolves the audit's eight cross-cutting themes so nobody re-decides them. If a rule here requires judgment to comply with, that is a bug in the rule — report it rather than guessing.
