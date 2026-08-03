@@ -295,4 +295,38 @@ final class HighlightMergeTests: XCTestCase {
         XCTAssertEqual(plan.unionEnd, 9)
         XCTAssertEqual(plan.quotedText, "quick")
     }
+
+    // MARK: - Session color (edit-menu checkmark after create/merge)
+
+    func testSessionColorUsesSurvivorColorOnMerge() {
+        // createHighlight merged into an existing highlight and returned its
+        // ID — the checkmark must show the survivor's kept color.
+        let survivor = UUID()
+        let color = HighlightMerge.sessionColor(
+            forCreated: survivor,
+            existing: [(id: UUID(), color: .yellow), (id: survivor, color: .blue)],
+            defaultColor: .yellow
+        )
+        XCTAssertEqual(color, .blue)
+    }
+
+    func testSessionColorUsesDefaultForFreshHighlight() {
+        // A brand-new highlight isn't among the pre-existing ones — it was
+        // created with the default color, so the checkmark shows that.
+        let color = HighlightMerge.sessionColor(
+            forCreated: UUID(),
+            existing: [(id: UUID(), color: .blue)],
+            defaultColor: .green
+        )
+        XCTAssertEqual(color, .green)
+    }
+
+    func testSessionColorWithNoExistingHighlights() {
+        let color = HighlightMerge.sessionColor(
+            forCreated: UUID(),
+            existing: [],
+            defaultColor: .pink
+        )
+        XCTAssertEqual(color, .pink)
+    }
 }
