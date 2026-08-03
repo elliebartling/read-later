@@ -113,10 +113,14 @@ targets:
           CODE_SIGN_STYLE: Manual
           CODE_SIGN_IDENTITY: Apple Distribution
           PROVISIONING_PROFILE_SPECIFIER: ReadLater App Store
-          # App-group-only entitlements for Release: CloudKit is code-gated
-          # off and the App Store profile doesn't carry the iCloud container.
-          # Restore ReadLater/ReadLater.entitlements here when sync ships.
-          CODE_SIGN_ENTITLEMENTS: ReadLater/ReadLater.release.entitlements
+          # CloudKit sync shipped 2026-08-03 (docs/cloudkit-rollout.md):
+          # Release now signs with the full entitlements (iCloud container +
+          # CloudKit) and compiles the mirroring path in. Prereqs verified:
+          # container assigned, App Store profile regenerated with iCloud
+          # (2026-07-14), schema deployed to Production. The ship workflow's
+          # entitlement tripwire hard-fails if the profile disagrees.
+          CODE_SIGN_ENTITLEMENTS: ReadLater/ReadLater.entitlements
+          SWIFT_ACTIVE_COMPILATION_CONDITIONS: "$(inherited) CLOUDKIT_SYNC"
 
   ShareExtension:
     type: app-extension
