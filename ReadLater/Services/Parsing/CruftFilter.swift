@@ -101,6 +101,64 @@ enum CruftFilter {
         return Result(kept: kept, removed: removed)
     }
 
+    // MARK: - Syndication boilerplate (feed summaries + captured bodies)
+
+    /// Removes the trailing syndication footer (`CruftRules
+    /// .syndicationTrailingPatterns`) from a plain-text string, repeatedly, so
+    /// "…prose. submitted by /u/x [link] [comments]" collapses in one call
+    /// regardless of which pattern bites first. Returns the input unchanged when
+    /// nothing matches. Pure.
+    static func strippingTrailingBoilerplate(_ text: String) -> String {
+        var s = text
+        var changed = true
+        while changed {
+            changed = false
+            for pattern in CruftRules.syndicationTrailingPatterns {
+                let stripped = s.replacingOccurrences(
+                    of: pattern, with: "", options: [.regularExpression, .caseInsensitive]
+                )
+                if stripped != s {
+                    s = stripped
+                    changed = true
+                }
+            }
+        }
+        return s.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
+
+    /// True when a block's whole text is syndication boilerplate — stripping the
+    /// footer leaves nothing behind.
+    static func isTrailingBoilerplate(_ block: ArticleBlock) -> Bool {
+        guard block.type.isTextBearing, let text = block.text, !text.isEmpty else { return false }
+        return strippingTrailingBoilerplate(text).isEmpty
+    }
+
+    /// Drops the run of trailing blocks that are pure syndication boilerplate,
+    /// and strips a footer that is glued to the END of the last surviving text
+    /// block. Never touches anything earlier in the document, and never returns
+    /// an empty article (an item that is *only* a footer keeps it — there would
+    /// be nothing left to read otherwise). Pure.
+    static func trimmingTrailingBoilerplate(
+        _ blocks: [ArticleBlock]
+    ) -> (kept: [ArticleBlock], removed: [ArticleBlock]) {
+        var cut = blocks.count
+        while cut > 0, isTrailingBoilerplate(blocks[cut - 1]) { cut -= 1 }
+        guard cut > 0 else { return (blocks, []) }
+        var kept = Array(blocks[..<cut])
+        let removed = Array(blocks[cut...])
+        // The footer often rides on the same text node as the body's last line.
+        if let last = kept.indices.last(where: { kept[$0].type.isTextBearing }),
+           let text = kept[last].text {
+            let stripped = strippingTrailingBoilerplate(text)
+            if stripped != text, !stripped.isEmpty {
+                var block = kept[last]
+                block.text = stripped
+                kept[last] = block
+            }
+        }
+        return (kept, removed)
+    }
+
     // MARK: - Classification
 
     /// Classifies a single block against the rule tables. Nil = not cruft.

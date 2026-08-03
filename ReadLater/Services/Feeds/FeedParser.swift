@@ -99,22 +99,42 @@ enum FeedParser {
 
     /// Feed descriptions are HTML more often than not. Reduce to short plain
     /// text suitable for a list row: strip tags, decode entities, collapse
-    /// whitespace, cap the length.
+    /// whitespace, drop syndication boilerplate, cap the length.
+    ///
+    /// Returns nil when nothing survives — notably for a Reddit **link post**,
+    /// whose entire content is the footer `submitted by /u/name [link]
+    /// [comments]`. Rendering that as the row's summary (above a meta row that
+    /// already names the author) was the single loudest piece of visible
+    /// garbage in the feeds list; no summary at all is strictly better.
     static func plainSummary(_ html: String) -> String? {
-        var text = html.replacingOccurrences(
-            of: "<[^>]+>",
-            with: " ",
-            options: .regularExpression
-        )
+        var text = strippingTags(html)
         text = decodeEntities(text)
+        // Entity-encoded markup that survived the strip (a double-encoded feed:
+        // the XML parser decodes `&amp;lt;p&amp;gt;` to `&lt;p&gt;`, which has
+        // no real tags for the strip above to see, and then decodes here into a
+        // literal "<p>" sitting in the summary). Only re-strip when the ORIGINAL
+        // had no real markup at all, so a post that legitimately quotes "<p>" as
+        // text keeps it.
+        if !containsTag(html), containsTag(text) {
+            text = decodeEntities(strippingTags(text))
+        }
         text = text.replacingOccurrences(
             of: "\\s+",
             with: " ",
             options: .regularExpression
         )
-        text = text.trimmingCharacters(in: .whitespacesAndNewlines)
+        text = CruftFilter.strippingTrailingBoilerplate(text)
         guard !text.isEmpty else { return nil }
         return String(text.prefix(400))
+    }
+
+    private static func strippingTags(_ input: String) -> String {
+        input.replacingOccurrences(of: "<[^>]+>", with: " ", options: .regularExpression)
+    }
+
+    /// Whether the string carries something shaped like an HTML tag.
+    private static func containsTag(_ input: String) -> Bool {
+        input.range(of: "</?[a-zA-Z][^>]*>", options: .regularExpression) != nil
     }
 
     /// Decodes the named entities that actually show up in feed summaries plus

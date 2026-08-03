@@ -181,4 +181,63 @@ final class FeedParserTests: XCTestCase {
     func testDecodeNumericEntities() {
         XCTAssertEqual(FeedParser.decodeEntities("&#65;&#x42;"), "AB")
     }
+
+    // MARK: - Syndication boilerplate in summaries
+
+    /// Captured from `https://www.reddit.com/r/programming/.rss` (2026-08): a
+    /// LINK post's entire `<content>` is the submission footer, so the feed row
+    /// rendered "submitted by /u/… [link] [comments]" as its summary.
+    func testRedditLinkPostSummaryIsDroppedEntirely() {
+        let content = """
+        &#32; submitted by &#32; <a href="https://www.reddit.com/user/Dear-Economics-315"> \
+        /u/Dear-Economics-315 </a> <br/> <span><a href="https://example.com/post">[link]</a></span> \
+        &#32; <span><a href="https://www.reddit.com/r/programming/comments/x/">[comments]</a></span>
+        """
+        XCTAssertNil(FeedParser.plainSummary(content))
+    }
+
+    /// A SELF post keeps its body and loses only the trailing footer.
+    func testRedditSelfPostSummaryKeepsBodyAndDropsFooter() throws {
+        let content = """
+        <!-- SC_OFF --><div class="md"><p>The rules page needs a rewrite; it doesn&#39;t read \
+        well crammed into a sidebar.</p></div><!-- SC_ON --> &#32; submitted by &#32; \
+        <a href="https://www.reddit.com/user/ChemicalRascal"> /u/ChemicalRascal </a> <br/> \
+        <span><a href="https://example.com/a">[link]</a></span> &#32; \
+        <span><a href="https://example.com/b">[comments]</a></span>
+        """
+        let summary = try XCTUnwrap(FeedParser.plainSummary(content))
+        XCTAssertEqual(
+            summary,
+            "The rules page needs a rewrite; it doesn't read well crammed into a sidebar."
+        )
+    }
+
+    /// Counter-fixture: prose that merely mentions the footer's words mid-text
+    /// survives — the rules are anchored to the END of the summary.
+    func testSummaryBoilerplateRulesAreTrailingOnly() {
+        let html = "<p>The [link] tag submitted by our CMS is broken, and here is why.</p>"
+        XCTAssertEqual(
+            FeedParser.plainSummary(html),
+            "The [link] tag submitted by our CMS is broken, and here is why."
+        )
+    }
+
+    /// Double-encoded feeds (`&amp;lt;p&amp;gt;` in the XML) reach here as
+    /// escaped markup with no real tags, so the tag strip sees nothing and the
+    /// entity decode used to deposit a literal "<p>…</p>" into the summary.
+    func testDoubleEncodedMarkupDoesNotLeakIntoSummary() {
+        XCTAssertEqual(
+            FeedParser.plainSummary("&lt;p&gt;Hello there, reader.&lt;/p&gt;"),
+            "Hello there, reader."
+        )
+    }
+
+    /// Counter-fixture for the same rule: when the payload has REAL markup, an
+    /// escaped tag inside it is content the author typed and must stay verbatim.
+    func testEscapedMarkupInsideRealMarkupSurvivesAsText() {
+        XCTAssertEqual(
+            FeedParser.plainSummary("<p>The render result is &lt;p&gt;You clicked 0 times&lt;/p&gt;.</p>"),
+            "The render result is <p>You clicked 0 times</p>."
+        )
+    }
 }

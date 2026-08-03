@@ -335,25 +335,53 @@ final class ArticleParser: NSObject {
         // longer settle when a pass looks like a shell. If every attempt fails
         // the gate we surface the error so the caller records `.failed` (user
         // can retry / open in Safari) instead of persisting nav junk.
+        //
+        // A captured body FRAGMENT gets ONE attempt: it is a static string with
+        // no scripts to hydrate, so re-pumping and re-extracting produces the
+        // identical result — the retries would only spend seconds before the
+        // floor below takes over. A captured whole PAGE keeps the full retry
+        // budget (its scripts do run) and never floors.
+        let capturedFragment = prefetchedHTML.flatMap {
+            CapturedHTMLBlocks.isBodyFragment($0) ? $0 : nil
+        }
+        let attempts = capturedFragment == nil ? Self.maxParseAttempts : 1
         var lastError: Error = ParseError.lowQuality
-        for attempt in 0 ..< Self.maxParseAttempts {
+        attemptLoop: for attempt in 0 ..< attempts {
             await pumpFullRender(longSettle: attempt > 0)
             do {
                 return try await runPass()
             } catch ParseError.paywalled {
                 // Detected a member-only gate on a pass that also failed the
-                // quality gate: retries won't reveal the body. Surface it now.
-                NSLog("ArticleParser: paywall gate detected for %@ — short-circuiting retries",
-                      url.absoluteString)
-                throw ParseError.paywalled
+                // quality gate: retries won't reveal the body. Surface it now —
+                // unless we hold captured content, which the floor can render.
+                lastError = ParseError.paywalled
+                guard capturedFragment != nil else {
+                    NSLog("ArticleParser: paywall gate detected for %@ — short-circuiting retries",
+                          url.absoluteString)
+                    throw ParseError.paywalled
+                }
+                break attemptLoop
             } catch {
                 lastError = error
                 NSLog("ArticleParser: parse attempt %d/%d rejected for %@: %@",
-                      attempt + 1, Self.maxParseAttempts, url.absoluteString, String(describing: error))
+                      attempt + 1, attempts, url.absoluteString, String(describing: error))
             }
-            if attempt + 1 < Self.maxParseAttempts {
+            if attempt + 1 < attempts {
                 try? await Task.sleep(for: .seconds(Double(attempt + 1) * 1.5))
             }
+        }
+
+        // Captured-content floor. Readability is built for full pages and gives
+        // up on a short fragment (its character threshold is 500), so a short
+        // Reddit self post — a question, a link with a sentence of context —
+        // reliably failed the extract even though its whole body was in hand.
+        // When the save carried the content, we render it rather than telling
+        // the user we couldn't parse the thing we are holding.
+        if let html = capturedFragment,
+           let floor = CapturedHTMLBlocks.floorParsed(capturedHTML: html, url: url) {
+            NSLog("ArticleParser: extraction failed for %@ (%@) — falling back to the captured-content floor (%d blocks)",
+                  url.absoluteString, String(describing: lastError), floor.blocks.count)
+            return floor
         }
         throw lastError
     }
@@ -545,7 +573,22 @@ final class ArticleParser: NSObject {
             if (tag === "FIGURE") {
                 // Image first, then its caption as a separate
                 // text-bearing block immediately after.
-                pushImage(child.querySelector("img"));
+                var fimg = child.querySelector("img");
+                if (fimg) {
+                    pushImage(fimg);
+                } else {
+                    // A figure with NO image is not a media figure: MDX
+                    // toolchains (rehype-pretty-code, Docusaurus) wrap EVERY
+                    // fenced code block in <figure><pre><code>…, and tables in
+                    // <figure><table>. Returning here dropped the whole thing —
+                    // overreacted.io lost all 62 of its code blocks that way.
+                    // Walk the non-caption children so they classify normally.
+                    for (var fi = 0; fi < child.children.length; fi++) {
+                        if (child.children[fi].tagName !== "FIGCAPTION") {
+                            walkChild(child.children[fi], q);
+                        }
+                    }
+                }
                 var cap = child.querySelector("figcaption");
                 if (cap) {
                     var ct = normalize(cap.textContent);

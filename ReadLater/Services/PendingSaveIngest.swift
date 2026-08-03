@@ -82,13 +82,34 @@ enum PendingSaveIngest {
     /// first so the reader shows its loading state while this runs.
     static func reparse(article: Article, context: ModelContext) async {
         let id = article.id
+        let html = capturedHTML(for: article, context: context)
         let prior = parseChain
         let mine = Task { @MainActor in
             _ = await prior?.value
-            await parseOne(id: id, context: context, prefetchedHTML: nil)
+            await parseOne(id: id, context: context, prefetchedHTML: html)
         }
         parseChain = mine
         _ = await mine.value
+    }
+
+    /// Recovers the captured body for a re-parse. A Reddit self post's body is
+    /// stored on its `FeedEntry`, not on the `Article` — the first ingest passed
+    /// it through as `PendingSave.capturedHTML`, which is consumed and deleted.
+    /// Without this, reopening a self post that had landed `.failed` re-parsed
+    /// its *permalink* (a JS app shell that fails the same way), leaving the
+    /// entry stuck on "Couldn't parse this page" forever even though its body
+    /// was still sitting in the store.
+    ///
+    /// Only entries that actually carry body HTML are fetched (Reddit self posts
+    /// — a small subset), then matched on the permalink, which is exactly the
+    /// URL a self post's article was saved under. Internal for tests.
+    static func capturedHTML(for article: Article, context: ModelContext) -> String? {
+        guard let url = article.url, RedditFeed.isRedditURL(url) else { return nil }
+        let descriptor = FetchDescriptor<FeedEntry>(
+            predicate: #Predicate { $0.contentHTML != nil }
+        )
+        let entries = (try? context.fetch(descriptor)) ?? []
+        return entries.first { $0.url == url }?.contentHTML
     }
 
     private static func parseOne(id: UUID, context: ModelContext, prefetchedHTML: String?) async {
