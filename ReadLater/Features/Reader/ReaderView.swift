@@ -4,6 +4,10 @@ import SwiftData
 struct ReaderView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.colorScheme) private var colorScheme
+    /// **M3.** Reduce Motion is not optional, and the reader is where most of
+    /// the app's animation lives — every chrome reveal below resolves through
+    /// `chromeAnimation`, which consults this.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @Query private var settingsRows: [AppSettings]
     let article: Article
     /// Open at this UTF-16 offset into `plainText` instead of the article's
@@ -74,7 +78,15 @@ struct ReaderView: View {
     }
 
     /// One spring for every chrome reveal/dismiss so the two directions match.
-    private static let chromeAnimation: Animation = .spring(response: 0.4, dampingFraction: 0.85)
+    ///
+    /// §10 **Standard**, resolved for Reduce Motion (M3). It used to be a
+    /// hand-rolled `.spring(response: 0.4, dampingFraction: 0.85)` — a curve
+    /// that appears nowhere in the §10 table (M2), declared `static` and so
+    /// unable to consult the environment at all, which meant the app's most
+    /// frequent animation was also the one place Reduce Motion was ignored.
+    private var chromeAnimation: Animation {
+        Motion.resolve(Motion.standard, reduceMotion: reduceMotion)
+    }
 
     // A row is seeded at startup (RootView); the transient fallback only
     // covers the first render tick and is never inserted or written to.
@@ -123,9 +135,11 @@ struct ReaderView: View {
             floatingPlayer
         }
         .overlay(alignment: .top) { topStatusOverlay }
-        .animation(Self.chromeAnimation, value: isReextracting)
-        .animation(Self.chromeAnimation, value: reextractToast)
-        .animation(.spring(response: 0.4, dampingFraction: 0.85), value: tts.isActive)
+        .animation(chromeAnimation, value: isReextracting)
+        .animation(chromeAnimation, value: reextractToast)
+        // C2 — the capsule reshapes rather than resizing, so idle→playing is
+        // one Standard spring on a fixed-width object (§10).
+        .animation(chromeAnimation, value: tts.isActive)
         .readerTitleBar(title: article.title, subtitle: subtitleText)
         // S4 — the material floor for chrome over long-form text. The default
         // glass bar is transparent enough in LIGHT mode that body text renders
@@ -214,7 +228,8 @@ struct ReaderView: View {
             ) {
                 pendingDeleteID = highlight.id
             }
-            .presentationDetents([.medium, .large])
+            // §8.2 — an **Editor** sheet is `.medium`, one height.
+            .presentationDetents([.medium])
             // Let the user drag selection handles in the reader behind the sheet.
             .presentationBackgroundInteraction(.enabled(upThrough: .medium))
         }
@@ -395,7 +410,7 @@ struct ReaderView: View {
                     onTopCharacterOffset: { latestTopOffset = $0 },
                     initialCharacterOffset: openingOffset,
                     onTap: {
-                        withAnimation(Self.chromeAnimation) { chromeVisible.toggle() }
+                        withAnimation(chromeAnimation) { chromeVisible.toggle() }
                     }
                 )
                 // Same contract as the plain reader below: the block reader
@@ -439,7 +454,7 @@ struct ReaderView: View {
                         // Drive the chrome from a single explicit animation so both
                         // directions match. A redundant implicit `.animation(value:)`
                         // modifier used to fight this and left the *dismiss* un-animated.
-                        withAnimation(Self.chromeAnimation) {
+                        withAnimation(chromeAnimation) {
                             chromeVisible.toggle()
                         }
                     }
@@ -477,7 +492,7 @@ struct ReaderView: View {
     /// than re-running the article extractor that couldn't parse it.
     private var failedState: some View {
         EmptyStateView(
-            mark: "exclamationmark.triangle",
+            mark: .warning,
             title: "Couldn't parse this page",
             message: "The extractor didn't find readable content on \(article.url?.host ?? "this page").",
             isFailure: true,
@@ -490,7 +505,7 @@ struct ReaderView: View {
 
     private func startTTS() {
         // Keep the title / "X min left" nav chrome visible while listening.
-        withAnimation(Self.chromeAnimation) { chromeVisible = true }
+        withAnimation(chromeAnimation) { chromeVisible = true }
         let voice = settings.ttsProvider == .apple ? settings.appleVoiceID : settings.openAIVoice
         tts.start(
             paragraphs: paragraphs,
@@ -561,7 +576,7 @@ struct ReaderView: View {
         Task { @MainActor in
             do {
                 try await reddit.savePost(discussionURL: discussionURL)
-                withAnimation(Self.chromeAnimation) { chromeVisible = true }
+                withAnimation(chromeAnimation) { chromeVisible = true }
                 showReextractToast("Saved to Reddit")
             } catch {
                 reextractError = (error as? LocalizedError)?.errorDescription ?? error.localizedDescription
@@ -581,7 +596,7 @@ struct ReaderView: View {
         // Keep the chrome up so the in-progress spinner (and, on finish, the
         // toast) is visible and the user retains a back button — a parse can
         // run for tens of seconds.
-        withAnimation(Self.chromeAnimation) { chromeVisible = true }
+        withAnimation(chromeAnimation) { chromeVisible = true }
         // Stop read-aloud before swapping the text out from under it — audio
         // reading stale paragraphs against refreshed text is a desync. No-op
         // when idle.
@@ -614,7 +629,7 @@ struct ReaderView: View {
             try? await Task.sleep(for: .seconds(2.5))
             // Only clear if this toast is still the one showing.
             if reextractToast == message {
-                withAnimation(Self.chromeAnimation) { reextractToast = nil }
+                withAnimation(chromeAnimation) { reextractToast = nil }
             }
         }
     }

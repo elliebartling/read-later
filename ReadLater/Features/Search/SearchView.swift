@@ -32,14 +32,14 @@ struct SearchView: View {
     private var emptyState: EmptyStateView? {
         if query.isEmpty {
             return EmptyStateView(
-                mark: "magnifyingglass",
+                mark: .search,
                 title: "Search everything",
                 message: "Every word of every saved article and highlight is searchable here."
             )
         }
         if results.isEmpty {
             return EmptyStateView(
-                mark: "magnifyingglass",
+                mark: .search,
                 title: "No matches",
                 message: "Nothing in your library contains “\(query)”."
             )

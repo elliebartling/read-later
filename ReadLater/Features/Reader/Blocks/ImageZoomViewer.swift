@@ -17,6 +17,10 @@ struct ImageZoomViewer: View {
     let alt: String?
 
     @Environment(\.dismiss) private var dismiss
+    /// **M3.** Every spring below resolves through `zoomAnimation`, so Reduce
+    /// Motion degrades the viewer instead of the viewer being the one screen
+    /// that ignores it.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     @State private var image: UIImage?
     @State private var didFail = false
@@ -31,6 +35,11 @@ struct ImageZoomViewer: View {
 
     /// Vertical travel of a drag-to-dismiss gesture (only active at fit scale).
     @State private var dismissDrag: CGFloat = 0
+
+    /// §10 **Standard**, degraded under Reduce Motion (M3).
+    private var zoomAnimation: Animation {
+        Motion.resolve(Motion.standard, reduceMotion: reduceMotion)
+    }
 
     private let maxScale: CGFloat = 4
     private let doubleTapScale: CGFloat = 2.5
@@ -86,8 +95,10 @@ struct ImageZoomViewer: View {
             }
             .accessibilityLabel(alt ?? "Image")
             .accessibilityAddTraits(.isImage)
-            .animation(.interactiveSpring, value: scale)
-            .animation(.interactiveSpring, value: offset)
+            // §10 Standard, resolved for Reduce Motion. `.interactiveSpring`
+            // is not one of the four §10 curves (M2).
+            .animation(zoomAnimation, value: scale)
+            .animation(zoomAnimation, value: offset)
     }
 
     private var failureLayer: some View {
@@ -177,13 +188,13 @@ struct ImageZoomViewer: View {
                 } else if abs(value.translation.height) > dismissThreshold {
                     dismiss()
                 } else {
-                    withAnimation(.spring) { dismissDrag = 0 }
+                    withAnimation(zoomAnimation) { dismissDrag = 0 }
                 }
             }
     }
 
     private func toggleZoom(around location: CGPoint, in size: CGSize, image: UIImage) {
-        withAnimation(.spring(duration: 0.3)) {
+        withAnimation(zoomAnimation) {
             if scale > 1 {
                 scale = 1
                 offset = .zero

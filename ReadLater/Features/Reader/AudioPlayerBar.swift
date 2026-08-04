@@ -147,6 +147,17 @@ struct AudioPlayerBar: View {
 
 /// Idle counterpart to `AudioPlayerBar`: the glass capsule shown when the
 /// reader chrome is up but nothing is playing. Overflow · share · tag · play.
+///
+/// **C2 — one width.** Both bars fill the reading measure, so pressing play
+/// reshapes the capsule's *contents* instead of growing the capsule from an
+/// intrinsic 200-odd points to full width. The audit's note was about the
+/// growth reading as a different object arriving; a fixed width plus the §10
+/// Standard spring makes it one object changing its mind.
+///
+/// **C3 — state-aware.** An article with no readable text offers Retry and
+/// Share only. Offering Play on an empty article was the bar's worst tell that
+/// it did not know what it was sitting on: it would happily start read-aloud on
+/// zero paragraphs.
 struct IdlePlayerBar: View {
     let article: Article
     var onTags: () -> Void
@@ -157,8 +168,60 @@ struct IdlePlayerBar: View {
     /// Disables the Re-extract menu item while a parse is in flight.
     var isReextracting: Bool
 
+    /// **C3.** There is something here to read, tag and speak.
+    private var hasReadableContent: Bool {
+        article.parseStatus == .ready
+            && !article.plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty
+    }
+
     var body: some View {
-        HStack(spacing: 22) {
+        Group {
+            if hasReadableContent {
+                fullControls
+            } else {
+                recoveryControls
+            }
+        }
+        // §7.3 — 44pt tall, 16pt horizontal padding, 17pt glyphs on a 24pt
+        // frame (was 56pt tall, 24pt padding, 20pt glyphs on 30pt).
+        .foregroundStyle(Ink.primary)
+        .frame(maxWidth: .infinity)
+        .frame(height: ControlTier.standard.height)
+        .padding(.horizontal, Metric.capsuleHorizontalPadding)
+        .playerGlassCapsule()
+    }
+
+    /// The C3 recovery dress: no Play, no Tags, nothing that needs text.
+    private var recoveryControls: some View {
+        HStack(spacing: 0) {
+            Button(action: onReextract) {
+                if isReextracting {
+                    ProgressView()
+                        .controlSize(.regular)
+                        .tint(Ink.primary)
+                        .frame(width: Self.glyphFrame, height: Self.glyphFrame)
+                        .contentShape(.rect)
+                } else {
+                    capsuleGlyph("arrow.clockwise")
+                }
+            }
+            .buttonStyle(.plain)
+            .disabled(isReextracting)
+            .accessibilityLabel(isReextracting ? "Re-extracting" : "Try again")
+
+            Spacer(minLength: 8)
+
+            if let url = article.url {
+                ShareLink(item: url) {
+                    capsuleGlyph("square.and.arrow.up")
+                }
+                .accessibilityLabel("Share")
+            }
+        }
+    }
+
+    private var fullControls: some View {
+        HStack(spacing: 0) {
             Menu {
                 Button {
                     onExport()
@@ -196,11 +259,15 @@ struct IdlePlayerBar: View {
             }
             .accessibilityLabel(isReextracting ? "Re-extracting" : "More")
 
+            Spacer(minLength: 8)
+
             if let url = article.url {
                 ShareLink(item: url) {
                     capsuleGlyph("square.and.arrow.up")
                 }
                 .accessibilityLabel("Share")
+
+                Spacer(minLength: 8)
             }
 
             Button(action: onTags) {
@@ -209,18 +276,14 @@ struct IdlePlayerBar: View {
             .buttonStyle(.plain)
             .accessibilityLabel("Tags")
 
+            Spacer(minLength: 8)
+
             Button(action: onPlay) {
                 capsuleGlyph("play.fill")
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Listen")
         }
-        // §7.3 — 44pt tall, 16pt horizontal padding, 17pt glyphs on a 24pt
-        // frame (was 56pt tall, 24pt padding, 20pt glyphs on 30pt).
-        .foregroundStyle(Ink.primary)
-        .frame(height: ControlTier.standard.height)
-        .padding(.horizontal, Metric.capsuleHorizontalPadding)
-        .playerGlassCapsule()
     }
 
     /// §7.3 glyph frame, down from 30.

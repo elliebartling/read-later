@@ -1,6 +1,8 @@
 # Design language — the ReadLater constitution
 
 > **Errata (2026-08-03, wave 1):** two internal inconsistencies were resolved in code and now govern: (1) §7.2's nested-radius worked example did not follow its own formula — the FORMULA wins; (2) §7.3's capsule metrics (44pt height + 30pt play + 10pt padding) over-summed — the 44pt HEIGHT wins, padding derives (10 idle / 7 playing).
+>
+> **Amendments (2026-08-04, wave 5) — all four ratified by Ellen** on the built results of PRs #72 and #73, and marked inline where they land: **S1a** the sidebar is flat (one continuous ground, no per-section cards, one selection wash); **S7** never put a border on only one side of a rounded card; **BR2/BR3/§7.2** monograms and kind tiles are rounded squares at the favicon-tile radius, never circles; **§2.2** the system-state wash is paper-relative — the token is the ±16/255 luminance *step*, not the two literal colours.
 
 
 **Status:** **ratified** by Ellen, 2026-08-03 · **Motivated by:** [design audit 2026-08](design-audit-2026-08.md)
@@ -90,7 +92,17 @@ Markers carry `Ink.primary` (dark value) glyphs, never white — white-on-yellow
 
 Reddit is pulled to hue 58° rather than its brand 35°: at our lightness the brand value is indistinguishable from YouTube's. The glyph, not the hue, is the primary discriminator.
 
-**System state — no hue at all.** Reading position (TTS) and search matches must never look like a user's highlight. They render as a **luminance wash only** (`#312F2C` dark, `#E9E7E5` light) plus a 3pt `Accent.primary` leading rail. A coloured band behind a paragraph means the user put it there; nothing else may claim that signal.
+**System state — no hue at all.** Reading position (TTS) and search matches must never look like a user's highlight. They render as a **luminance wash only** plus a 3pt `Accent.primary` leading rail. A coloured band behind a paragraph means the user put it there; nothing else may claim that signal.
+
+**The wash is paper-relative, and the token is the *step*, not the value** *(amended, ratified by Ellen on the built result of #72)*. The original text gave two literal colours — `#312F2C` dark, `#E9E7E5` light — measured against `Surface.ground`. But the wash's home is the reader, and the reader has eight hand-tuned papers (T1/T2); a fixed `#E9E7E5` band laid over Sepia or Forest is precisely the "coloured band" this section forbids. So:
+
+```
+SystemState.washStep = 16/255, applied equally to R, G and B
+wash(paper) = paper + step   on a dark page
+            = paper − step   on a light page
+```
+
+Every channel moves by the same amount, so no hue is introduced on any paper. Over `Surface.ground` this reproduces the two original literals to within 1/255 — they were `#211F1C` + 16 and `#F8F6F5` − 15/15/16 all along — so nothing about the specified appearance changes; what changes is that the rule now holds on all eight papers instead of one. `darkBackground` is the *reader theme's* darkness, not the UI scheme: a light-mode app can be showing a dark paper. The companion rail resolves the same way (`SystemState.railUI(darkBackground:)`).
 
 ### 2.3 The accent binding — v1 is neutral
 
@@ -166,11 +178,16 @@ Today Feeds is `.plain` on `systemBackground` and Highlights is grouped, so two 
 | **E3 — floating glass chrome** | Anything hovering over scrolling content: nav pills, sidebar affordance, audio capsule, reader toolbars. | material, see S4 | 22pt or capsule | `y4 blur16 α0.18` dark / `α0.10` light |
 
 - **S1.** Every list is `.listStyle(.insetGrouped)` on `Surface.ground` with `.scrollContentBackground(.hidden)`. Delete every other `listStyle` in the app. One page surface, one container surface — that is the whole system.
+
+  **S1a — the sidebar is FLAT, and is the one exception to S1** *(amended, ratified by Ellen on the built result of PR #73)*. Layer 0 is not a destination list; it is the ground floor the whole app sits on, and it takes `.listStyle(.plain)` on `Surface.ground`. **One continuous ground: no per-section cards, no row containers, no separators.** Section headers and rows sit directly on the ground and whitespace does the separating. The only fill in the list is a **single soft selection wash** (`Accent.muted`, A1) landing directly on the ground — never a pill nested inside a card, and never a second selection treatment for a different row type.
+
+  Ellen, reviewing build 43 against Reeder and Craft: the sidebar "may have too much layering: let's get closer to Reeder and Craft." An inset-grouped sidebar puts a floating `Surface.raised` card under every section, then a selection pill inside that card, on top of the peel card already floating over the sidebar — surface on surface on surface, three deep, for a list of eight rows. The layer model itself (§ wave 4) is unchanged: the list card above keeps its elevation. It is the *internal* layering that is struck.
 - **S2. No strokes.** No `.border`, no `.overlay(RoundedRectangle().stroke())`, no `.background(...).cornerRadius()` faking an outline, on any container or control. Separation is the E0→E1 value step plus 16pt of ground (N2).
 - **S3. One exception, tightly scoped:** rows *inside* one E1 container may be separated by a 0.5pt `Surface.divider` inset to the text column. This is the only line in the app. It is not a border; it never surrounds anything.
 - **S4. Floating chrome material floor.** Over long-form text: `.regularMaterial` in **both** schemes, plus the `Surface.chromeTint` overlay defined here and nowhere else — `#262421` at 0.35 alpha (dark), `#FBFAF8` at 0.45 alpha (light). `.ultraThinMaterial` and `.thinMaterial` are banned over the reader: they are the reason body text currently renders through the nav bar in light mode. Over short/static content (a settings header) `.thinMaterial` is fine.
 - **S5. Chrome reserves its own space.** Every floating chrome element publishes `its height + 12pt` as a `safeAreaInset(edge:)` on the scroll view. Content never passes under chrome at rest. This is [fix #1](design-audit-2026-08.md#if-we-fix-only-ten-things) stated as a rule.
 - **S6. Revealing chrome must not move text.** The inset is reserved whether chrome is shown or hidden. The plain reader already does this with a frozen inset; the block reader must match.
+- **S7. Never put a border on only one side of a rounded card.** Ellen's words, verbatim, from the PR #73 review that struck R1: *"never ever add a border to only one side of a rounded card."* This is the general rule the unread rail broke — in an all-unread list the per-row rails merged into one continuous bar hugging the container's rounded left edge, a straight line trying to follow a curve. It is a standing rule, not a note about that one component: leading rails, top hairlines, trailing accents and bottom rules on a rounded container are all the same defect. **A rail is legal only when it sits fully *inside* its card** with the card's own padding around it, and only when it encodes something nothing else does — the Highlights passage rail, which carries the marker colour, is the one built example (H2).
 
 | Light — the S4 defect | Dark — same bar, fine |
 |---|---|
@@ -322,11 +339,13 @@ Each has one structural advantage the other lacks, which is what makes this a re
 Three source kinds (YouTube, Reddit, websites) and a long tail of favicons. The goal is **faithful enough to recognise instantly, in-system enough to sit in a column** — and never so prominent that a third party's brand outweighs the article (N1).
 
 - **BR1. Favicons are the row identity, and they are always tiled.** A favicon renders 20pt centred on a 28pt `Surface.control` tile, 6pt corner. The tile is what makes a ragged collection of transparent PNGs, wrong aspect ratios and near-black logos read as one column. **Never render a bare favicon on the page ground.**
-- **BR2. Monogram fallback.** No favicon → the first character of the source title, `.caption/.semibold`, in `Accent.onFill`, on a 28pt circle filled with that source's `Source.*` hue. The sidebar experiment already does this and it works:
+- **BR2. Monogram fallback — a rounded square, not a circle** *(amended, ratified by Ellen on the build-43 review)*. No favicon → the first character of the source title, `.caption/.semibold`, in `Accent.onFill`, on a **28pt rounded square at the 6pt favicon-tile radius**, filled with that source's `Source.*` hue.
+
+  The original rule said *circle*, and that was wrong for the reason BR1 exists: real favicons are small rounded squares, so a column that alternates squares (sites with a favicon) and circles (sites without) is exactly the mixed-fidelity column the tile was invented to prevent. **One geometry, two fills** — real artwork on `Surface.control`, monogram on the source hue. Kind tiles (BR3) take the same geometry, so a group header's mark and a child row's mark are the same shape at the same radius.
 
   ![Sidebar monograms](https://raw.githubusercontent.com/elliebartling/read-later/main/audit/36-sidebar-open-light.png)
 
-- **BR3. Kind chips use a silhouette, not a logo.** Source-*kind* identity (the YouTube / Reddit / Websites groups) is a monochrome platform silhouette in `Accent.onFill` on a chip filled with the normalised `Source.*` hue (§2.2). Never the full-colour multi-element logo, never a wordmark, never a logo on a white plate. Today the app mixes all three fidelities in one list — real YouTube brand mark, generic orange speech bubbles for Reddit, system blue globe for websites.
+- **BR3. Kind chips use a silhouette, not a logo.** Source-*kind* identity (the YouTube / Reddit / Websites groups) is a monochrome platform silhouette in `Accent.onFill` on a **rounded-square tile** (BR2 geometry) filled with the normalised `Source.*` hue (§2.2). Never the full-colour multi-element logo, never a wordmark, never a logo on a white plate. Today the app mixes all three fidelities in one list — real YouTube brand mark, generic orange speech bubbles for Reddit, system blue globe for websites.
 - **BR4. Brand marks never take a prominent slot.** No brand mark on a prominent capsule, in a nav bar's primary position, or at display size. "Watch on YouTube" is a glass circle with a monochrome glyph like every other action — the audit found it as a filled black rounded rectangle, the heaviest element in its nav bar.
 - **BR5. Brand hue is row identity only.** It never tints text, selection, controls, or `Accent.*`. A Reddit row is not an orange row.
 - **BR6. Platform conventions live in the text, not in more logo.** `r/AskHistorians`, not `AskHistorians`. Cheaper and more faithful than any glyph.
@@ -356,7 +375,7 @@ Three source kinds (YouTube, Reddit, websites) and a long tail of favicons. The 
 | E3 floating panel | 22pt continuous | 16pt inner |
 | Pills, capsules, chips | full capsule | 16pt horizontal / 10pt vertical |
 | Thumbnails | 8pt | — |
-| Favicon tiles | 6pt (circle for monograms) | — |
+| Favicon tiles, monograms, kind tiles | 6pt continuous — **one geometry, no circles** (BR2, amended) | — |
 | List row | — | 12pt vertical |
 | Gap between E1 containers | — | 16pt (this gap *is* the separator, per S2) |
 

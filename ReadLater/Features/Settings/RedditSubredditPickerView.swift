@@ -17,7 +17,7 @@ struct RedditSubredditPickerView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let error = model.loadError {
                 EmptyStateView(
-                    mark: "exclamationmark.triangle",
+                    mark: .warning,
                     title: "Couldn't load subreddits",
                     message: error,
                     isFailure: true,
@@ -27,14 +27,14 @@ struct RedditSubredditPickerView: View {
                 .pageBackground()
             } else if model.subreddits.isEmpty {
                 EmptyStateView(
-                    mark: "person.2.slash",
+                    mark: .stream,
                     title: "No subreddits",
                     message: "Subreddits you subscribe to on Reddit show up here, ready to add as feeds."
                 )
                 .pageBackground()
             } else if let summary = model.importSummary {
                 EmptyStateView(
-                    mark: "checkmark.circle",
+                    mark: .done,
                     title: "Subscribed",
                     message: summary,
                     actionTitle: "Done",
@@ -45,12 +45,12 @@ struct RedditSubredditPickerView: View {
                 list
             }
         }
-        .navigationTitle("Import Subreddits")
+        .navigationTitle("Import subreddits")
         .navigationBarTitleDisplayMode(.inline)
         .toolbar {
             if model.showsSelectionControls {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(model.allSelected ? "Deselect All" : "Select All") {
+                    Button(model.allSelected ? "Deselect all" : "Select all") {
                         model.toggleSelectAll()
                     }
                 }
@@ -88,17 +88,24 @@ struct RedditSubredditPickerView: View {
             }
         }
         .pageList()
+        // §8.3 — the screen's ONE prominent capsule. It was
+        // `.buttonStyle(.borderedProminent)` on a `Surface.raised` plate, which
+        // is a fourth button vocabulary sitting on a fifth elevation; the
+        // capsule floats on the ground instead (S2 — no plate, no stroke).
+        // SH3 — verb + object.
         .safeAreaInset(edge: .bottom) {
-            Button {
+            ProminentCapsuleButton(
+                title: model.selected.isEmpty
+                    ? "Add feeds"
+                    : "Add ^[\(model.selected.count) feed](inflect: true)",
+                fillsWidth: true
+            ) {
                 model.subscribe(context: context)
-            } label: {
-                Text(model.selected.isEmpty ? "Select subreddits to import" : "Subscribe to \(model.selected.count)")
-                    .frame(maxWidth: .infinity)
             }
-            .buttonStyle(.borderedProminent)
             .disabled(model.selected.isEmpty || model.isSubscribing)
-            .padding()
-            .background(Surface.raised)
+            .opacity(model.selected.isEmpty || model.isSubscribing ? 0.45 : 1)
+            .padding(.horizontal, Metric.screenMargin)
+            .padding(.bottom, Metric.containerGap)
         }
     }
 }

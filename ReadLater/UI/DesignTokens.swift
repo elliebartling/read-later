@@ -302,6 +302,10 @@ enum Metric {
     /// Favicon tile (BR1): a 20pt mark centred on a 28pt tile.
     static let faviconTile: CGFloat = 28
     static let faviconMark: CGFloat = 20
+    /// **§8.2.** The detent for a **Form** sheet — Add link, Add feed. One
+    /// field never gets a full screen, and both of the app's form sheets get
+    /// the same height so they read as one component in two dresses.
+    static let formSheetHeight: CGFloat = 220
 }
 
 // MARK: - §3 Elevations, as view modifiers
