@@ -5,6 +5,13 @@ struct ArticleRow: View {
 
     var body: some View {
         HStack(alignment: .top, spacing: 12) {
+            // BR1 / BR2 — the row's source identity: a tiled favicon, with the
+            // source's monogram on its `Source.*` hue standing in when the
+            // site ships none. Library and Search rows had no source mark at
+            // all before wave 3; the site name alone made three adjacent rows
+            // from three platforms read as one undifferentiated column.
+            FaviconTile(article: article)
+                .padding(.top, 2)
             VStack(alignment: .leading, spacing: 4) {
                 Text(article.title)
                     .font(.headline)
@@ -28,6 +35,14 @@ struct ArticleRow: View {
                     }
                     if article.parseStatus == .pending {
                         Label("Parsing…", systemImage: "arrow.triangle.2.circlepath")
+                    }
+                    // **R7.** Failure is visible in the list. The one glyph I5
+                    // permits in a meta line, because no text field carries
+                    // that meaning — you should never learn about a failed
+                    // parse by opening the article.
+                    if article.parseStatus == .failed {
+                        Label("Couldn't parse", systemImage: "exclamationmark.triangle")
+                            .foregroundStyle(Semantic.warning)
                     }
                 }
                 .font(.caption)

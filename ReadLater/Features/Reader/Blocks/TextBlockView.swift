@@ -48,7 +48,6 @@ struct TextBlockView: View {
     /// Same callback family as `HighlightableTextView`; ALL offsets are GLOBAL.
     let onCreateHighlight: (HighlightableTextView.HighlightIntent) -> UUID?
     let onUpdateHighlight: (UUID, NSRange, String) -> Void
-    let onRecolorHighlight: (UUID, HighlightColor) -> Void
     let onDeleteHighlight: (UUID) -> Void
     let onRequestNote: (UUID) -> Void
     let onTapHighlight: (UUID) -> Void
@@ -57,7 +56,35 @@ struct TextBlockView: View {
 
     var body: some View {
         quoted
-            .background(isSpoken ? Color(uiColor: Self.spokenTint(darkBackground: theme.isDark)) : Color.clear)
+            // **H5.** Reading position is machine state: a hueless wash derived
+            // from this page's own paper, plus a leading `Accent.primary` rail.
+            // It used to be a pale yellow band indistinguishable from a yellow
+            // highlight (audit theme 7). The plain reader paints the identical
+            // pair — the wash as a text attribute, the rail as a layer.
+            .background(isSpoken ? Color(uiColor: spokenWash) : Color.clear)
+            .overlay(alignment: .leading) {
+                if isSpoken {
+                    RoundedRectangle(
+                        cornerRadius: SystemState.railWidth / 2,
+                        style: .continuous
+                    )
+                    .fill(Color(uiColor: SystemState.railUI(darkBackground: theme.isDark)))
+                    .frame(width: SystemState.railWidth)
+                    .frame(maxHeight: .infinity)
+                    // The rail sits in the page margin, outside the text
+                    // column, the same place the plain reader puts it.
+                    .offset(x: -(SystemState.railWidth + Self.railGap))
+                    .accessibilityHidden(true)
+                }
+            }
+    }
+
+    /// Gap between the spoken rail and the text column's leading edge. Matches
+    /// `ReaderTextView.railGap`.
+    private static let railGap: CGFloat = 8
+
+    private var spokenWash: UIColor {
+        SystemState.washUI(overPaper: theme.background, darkBackground: theme.isDark)
     }
 
     /// Quote treatment, applied AROUND the per-type chrome so it composes with
@@ -136,7 +163,6 @@ struct TextBlockView: View {
                 wraps: false,
                 onCreateHighlight: onCreateHighlight,
                 onUpdateHighlight: onUpdateHighlight,
-                onRecolorHighlight: onRecolorHighlight,
                 onDeleteHighlight: onDeleteHighlight,
                 onRequestNote: onRequestNote,
                 onTapHighlight: onTapHighlight,
@@ -172,7 +198,6 @@ struct TextBlockView: View {
             wraps: true,
             onCreateHighlight: onCreateHighlight,
             onUpdateHighlight: onUpdateHighlight,
-            onRecolorHighlight: onRecolorHighlight,
             onDeleteHighlight: onDeleteHighlight,
             onRequestNote: onRequestNote,
             onTapHighlight: onTapHighlight,
@@ -187,12 +212,6 @@ struct TextBlockView: View {
         (ReaderFont(rawValue: fontRaw) ?? .serif).uiFont(size: fontSize)
     }
 
-    /// Spoken-paragraph tint — identical colors to the TextKit reader path.
-    static func spokenTint(darkBackground: Bool) -> UIColor {
-        darkBackground
-            ? UIColor(white: 1, alpha: 0.14)
-            : UIColor.systemYellow.withAlphaComponent(0.16)
-    }
 }
 
 // MARK: - Block text view
@@ -237,7 +256,6 @@ private struct BlockTextRepresentable: UIViewRepresentable {
 
     let onCreateHighlight: (HighlightableTextView.HighlightIntent) -> UUID?
     let onUpdateHighlight: (UUID, NSRange, String) -> Void
-    let onRecolorHighlight: (UUID, HighlightColor) -> Void
     let onDeleteHighlight: (UUID) -> Void
     let onRequestNote: (UUID) -> Void
     let onTapHighlight: (UUID) -> Void
@@ -422,7 +440,6 @@ private struct BlockTextRepresentable: UIViewRepresentable {
         /// update it instead of stacking duplicates. Ends when the selection
         /// collapses (unless sheet-edit mode holds it open).
         private var activeHighlightID: UUID?
-        private var activeColor: HighlightColor?
         /// Last `effectiveEditingID` we applied a selection for — avoids
         /// re-selecting on every SwiftUI tick while the sheet is open.
         private var appliedEditingHighlightID: UUID?
@@ -469,28 +486,18 @@ private struct BlockTextRepresentable: UIViewRepresentable {
                     return UIMenu(children: suggestedActions)
                 }
                 activeHighlightID = id
-                // Creation can merge into an existing highlight, which keeps
-                // its own color — sync the menu checkmark to the survivor.
-                activeColor = HighlightMerge.sessionColor(
-                    forCreated: id,
-                    existing: parent.locatedRanges.map { ($0.id, $0.color) },
-                    defaultColor: parent.defaultColor
-                )
                 highlightID = id
             }
 
-            let colorActions = HighlightColor.allCases.map { color in
-                UIAction(title: color.displayName,
-                         state: color == activeColor ? .on : .off) { [weak self] _ in
-                    self?.activeColor = color
-                    self?.parent?.onRecolorHighlight(highlightID, color)
-                }
-            }
-            let colorMenu = UIMenu(
+            // H1 — same move as the plain reader: the text-only colour list
+            // is deleted and `Color` opens the edit sheet's swatch row, the
+            // app's only picker. Keep the two menus identical.
+            let color = UIAction(
                 title: "Color",
-                image: UIImage(systemName: "highlighter"),
-                children: colorActions
-            )
+                image: UIImage(systemName: "highlighter")
+            ) { [weak self] _ in
+                self?.parent?.onTapHighlight(highlightID)
+            }
             let addNote = UIAction(
                 title: "Add Note",
                 image: UIImage(systemName: "note.text.badge.plus")
@@ -505,7 +512,7 @@ private struct BlockTextRepresentable: UIViewRepresentable {
                 self?.endSession(collapseSelection: true)
                 self?.parent?.onDeleteHighlight(highlightID)
             }
-            return UIMenu(children: [colorMenu, addNote, remove] + suggestedActions)
+            return UIMenu(children: [color, addNote, remove] + suggestedActions)
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
@@ -520,7 +527,6 @@ private struct BlockTextRepresentable: UIViewRepresentable {
             // editMenuForTextIn when a handle drag settles.
             if textView.selectedRange.length == 0, parent?.effectiveEditingID == nil {
                 activeHighlightID = nil
-                activeColor = nil
             }
         }
 
@@ -544,7 +550,6 @@ private struct BlockTextRepresentable: UIViewRepresentable {
             guard range.location >= 0,
                   range.location + range.length <= (tv.text as NSString).length else { return }
             activeHighlightID = id
-            activeColor = located.color
             suppressSelectionChange = true
             tv.selectedRange = range
             suppressSelectionChange = false
@@ -554,7 +559,6 @@ private struct BlockTextRepresentable: UIViewRepresentable {
         /// Forgets the session highlight, optionally collapsing the selection.
         private func endSession(collapseSelection: Bool) {
             activeHighlightID = nil
-            activeColor = nil
             guard collapseSelection, let tv = textView, tv.selectedRange.length > 0 else { return }
             suppressSelectionChange = true
             tv.selectedRange = NSRange(location: tv.selectedRange.location, length: 0)

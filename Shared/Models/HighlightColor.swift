@@ -1,15 +1,31 @@
-import SwiftUI
+import CoreGraphics
+#if canImport(UIKit)
+import UIKit
+#endif
 
+/// The app's core taxonomy (§2.2), split into the two roles the design
+/// language separates and this type used to conflate:
+///
+/// - **Paint** — what sits *behind text*, `uiColor(darkBackground:)`. Protected
+///   work: the multiply-on-light / screen-on-dark composite below keeps body
+///   text legible on all eight reader papers and must never be replaced with a
+///   plain alpha.
+/// - **Marker** — the identity chip (swatches, picker circles, the Highlights
+///   rail). Saturated, precisely because a marker never sits behind text. It
+///   lives in the app's token file as `HighlightColor.marker`
+///   (`ReadLater/UI/HighlightSwatch.swift`), not here, because `Shared/` also
+///   compiles into the extensions and they have no design-token layer.
+///
+/// Nothing may render `rgb` directly as an identity colour — that pastel is a
+/// paint input, and using it as a swatch is what made the app's own taxonomy
+/// look washed out in the audit (theme 7).
 enum HighlightColor: String, Codable, CaseIterable, Identifiable {
     case yellow, green, blue, pink
 
     var id: String { rawValue }
 
-    var swiftUIColor: Color {
-        Color(red: rgb.r, green: rgb.g, blue: rgb.b)
-    }
-
-    /// RGB components of the identity marker color.
+    /// RGB components the *paint* composites from. Deliberately private: the
+    /// identity value is `marker`.
     private var rgb: (r: CGFloat, g: CGFloat, b: CGFloat) {
         switch self {
         case .yellow: return (1.0, 0.93, 0.55)
