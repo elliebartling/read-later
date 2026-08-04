@@ -14,11 +14,7 @@ struct SearchView: View {
                 NavigationLink(value: article) {
                     ArticleRow(article: article)
                 }
-                .listRowInsets(EdgeInsets(
-                    top: Metric.rowVerticalPadding, leading: Metric.containerPadding,
-                    bottom: Metric.rowVerticalPadding, trailing: Metric.containerPadding
-                ))
-                .containerRow()
+                .readableRowStyle()
             }
         }
         .pageList()
@@ -28,14 +24,27 @@ struct SearchView: View {
         }
         .navigationTitle("Search")
         .sidebarBackToolbarItem()
-        .overlay {
-            if query.isEmpty {
-                ContentUnavailableView("Search", systemImage: "magnifyingglass",
-                                       description: Text("Full-text search across saved articles."))
-            } else if results.isEmpty {
-                ContentUnavailableView.search
-            }
+        // E1/E2 — both states use the one template. The copy names no action
+        // (the search field is already on screen), so neither gets a capsule.
+        .emptyStateOverlay(emptyState)
+    }
+
+    private var emptyState: EmptyStateView? {
+        if query.isEmpty {
+            return EmptyStateView(
+                mark: "magnifyingglass",
+                title: "Search everything",
+                message: "Every word of every saved article and highlight is searchable here."
+            )
         }
+        if results.isEmpty {
+            return EmptyStateView(
+                mark: "magnifyingglass",
+                title: "No matches",
+                message: "Nothing in your library contains “\(query)”."
+            )
+        }
+        return nil
     }
 
     private func runSearch(_ q: String) {

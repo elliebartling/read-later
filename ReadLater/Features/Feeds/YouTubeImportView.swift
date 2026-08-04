@@ -86,30 +86,28 @@ struct YouTubeImportView: View {
                 Button {
                     showingLogin = true
                 } label: {
-                    Label {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Import from YouTube").font(.headline)
-                            Text("Sign in and we'll read your subscribed channels.")
-                                .font(.footnote).foregroundStyle(Ink.secondary)
-                        }
-                    } icon: {
-                        Image(systemName: "play.rectangle.fill").foregroundStyle(Source.youtube)
+                    // I5 — no glyph in a list-row body, and SH4: a Button's
+                    // explanatory subtitle is never tinted.
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Import from YouTube").font(.body.weight(.semibold))
+                            .foregroundStyle(Ink.primary)
+                        Text("Sign in and we'll read your subscribed channels.")
+                            .font(.footnote).foregroundStyle(Ink.secondary)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             }
             Section {
                 Button {
                     showingFileImporter = true
                 } label: {
-                    Label {
-                        VStack(alignment: .leading, spacing: 2) {
-                            Text("Import from Google Takeout").font(.headline)
-                            Text("Pick the subscriptions.csv from your Takeout export.")
-                                .font(.footnote).foregroundStyle(Ink.secondary)
-                        }
-                    } icon: {
-                        Image(systemName: "doc.text.fill").foregroundStyle(Ink.secondary)
+                    VStack(alignment: .leading, spacing: 2) {
+                        Text("Import from Google Takeout").font(.body.weight(.semibold))
+                            .foregroundStyle(Ink.primary)
+                        Text("Pick the subscriptions.csv from your Takeout export.")
+                            .font(.footnote).foregroundStyle(Ink.secondary)
                     }
+                    .frame(maxWidth: .infinity, alignment: .leading)
                 }
             } footer: {
                 Text("A one-time import — no ongoing sync. Channels become normal feeds you can unsubscribe any time.")
@@ -123,13 +121,14 @@ struct YouTubeImportView: View {
     private var picker: some View {
         Group {
             if model.newChannels.isEmpty {
-                ContentUnavailableView {
-                    Label("Nothing New to Import", systemImage: "checkmark.circle")
-                } description: {
-                    Text(model.alreadySubscribedCount > 0
+                EmptyStateView(
+                    mark: "checkmark.circle",
+                    title: "Nothing new to import",
+                    message: model.alreadySubscribedCount > 0
                         ? "All \(model.alreadySubscribedCount) channels we found are already in your feeds."
-                        : "No channels were found to import.")
-                }
+                        : "No channels were found to import."
+                )
+                .pageBackground()
             } else {
                 List {
                     Section {
@@ -139,6 +138,7 @@ struct YouTubeImportView: View {
                             } label: {
                                 HStack {
                                     Image(systemName: model.isSelected(channel) ? "checkmark.circle.fill" : "circle")
+                                        .uiGlyph(size: Font.GlyphSize.body)
                                         .foregroundStyle(model.isSelected(channel) ? Accent.primary : Ink.secondary)
                                     Text(channel.title).foregroundStyle(Ink.primary)
                                     Spacer()
@@ -158,7 +158,7 @@ struct YouTubeImportView: View {
         .toolbar {
             if !model.newChannels.isEmpty {
                 ToolbarItem(placement: .topBarTrailing) {
-                    Button(model.allSelected ? "Deselect All" : "Select All") {
+                    Button(model.allSelected ? "Deselect all" : "Select all") {
                         if model.allSelected { model.deselectAll() } else { model.selectAll() }
                     }
                 }
@@ -181,30 +181,39 @@ struct YouTubeImportView: View {
     // MARK: - Terminal states
 
     private func doneView(added: Int) -> some View {
-        ContentUnavailableView {
-            Label("Import Complete", systemImage: "checkmark.circle.fill")
-        } description: {
-            Text(added > 0
-                ? "Subscribed to ^[\(added) channel](inflect: true)."
-                : "No new channels were subscribed.")
-            if model.failedCount > 0 {
-                Text("\(model.failedCount) couldn't be reached and were skipped.")
-            }
-        } actions: {
-            Button("Done") { dismiss() }
-                .buttonStyle(.borderedProminent)
+        EmptyStateView(
+            mark: "checkmark.circle",
+            title: "Import complete",
+            message: doneMessage(added: added),
+            actionTitle: "Done",
+            action: { dismiss() }
+        )
+        .pageBackground()
+    }
+
+    /// One sentence, per E2 — the skipped-channel note joins it rather than
+    /// becoming a second paragraph.
+    private func doneMessage(added: Int) -> String {
+        var sentence = added > 0
+            ? "Subscribed to ^[\(added) channel](inflect: true)."
+            : "No new channels were subscribed."
+        if model.failedCount > 0 {
+            sentence += " \(model.failedCount) couldn't be reached and were skipped."
         }
+        return sentence
     }
 
     private func failureView(_ message: String) -> some View {
-        ContentUnavailableView {
-            Label("Import Didn't Work", systemImage: "exclamationmark.triangle")
-        } description: {
-            Text(message)
-        } actions: {
-            Button("Try Google Takeout") { showingFileImporter = true }
-                .buttonStyle(.borderedProminent)
-            Button("Back") { model.reset() }
-        }
+        EmptyStateView(
+            mark: "exclamationmark.triangle",
+            title: "Import didn't work",
+            message: message,
+            isFailure: true,
+            actionTitle: "Try Google Takeout",
+            action: { showingFileImporter = true },
+            secondaryActionTitle: "Back",
+            secondaryAction: { model.reset() }
+        )
+        .pageBackground()
     }
 }

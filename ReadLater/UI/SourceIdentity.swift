@@ -21,6 +21,30 @@ enum SourceIdentity {
         host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
 
+    /// **R3.** The source string has ONE format, from ONE helper: `siteName`
+    /// if present, else the host with `www.` stripped.
+    ///
+    /// The audit found three formats in three adjacent Library rows —
+    /// `www.reddit.com`, `overreacted.io`, `YouTube` — because two call sites
+    /// each wrote their own `siteName ?? host`. Everything that needs a source
+    /// label goes through here now; a fourth format is a rule change, not a
+    /// local choice.
+    static func sourceString(siteName: String?, host: String?) -> String? {
+        if let siteName = siteName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !siteName.isEmpty {
+            return siteName
+        }
+        guard let host = host?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !host.isEmpty else { return nil }
+        let stripped = strippingWWW(host)
+        return stripped.isEmpty ? nil : stripped
+    }
+
+    /// R3 for a saved article.
+    static func sourceString(for article: Article) -> String? {
+        sourceString(siteName: article.siteName, host: article.url?.host)
+    }
+
     /// The monogram for a source: the first letter or digit of its title,
     /// uppercased. Falls back to the host, then to a placeholder, so a row can
     /// always render something.

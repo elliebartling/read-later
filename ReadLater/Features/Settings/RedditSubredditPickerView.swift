@@ -16,29 +16,31 @@ struct RedditSubredditPickerView: View {
                 ProgressView("Loading subreddits…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let error = model.loadError {
-                ContentUnavailableView {
-                    Label("Couldn't Load Subreddits", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text(error)
-                } actions: {
-                    Button("Retry") { Task { await model.load() } }
-                        .buttonStyle(.borderedProminent)
-                }
-            } else if model.subreddits.isEmpty {
-                ContentUnavailableView(
-                    "No Subreddits",
-                    systemImage: "person.2.slash",
-                    description: Text("You aren't subscribed to any subreddits.")
+                EmptyStateView(
+                    mark: "exclamationmark.triangle",
+                    title: "Couldn't load subreddits",
+                    message: error,
+                    isFailure: true,
+                    actionTitle: "Retry",
+                    action: { Task { await model.load() } }
                 )
+                .pageBackground()
+            } else if model.subreddits.isEmpty {
+                EmptyStateView(
+                    mark: "person.2.slash",
+                    title: "No subreddits",
+                    message: "Subreddits you subscribe to on Reddit show up here, ready to add as feeds."
+                )
+                .pageBackground()
             } else if let summary = model.importSummary {
-                ContentUnavailableView {
-                    Label("Subscribed", systemImage: "checkmark.circle.fill")
-                } description: {
-                    Text(summary)
-                } actions: {
-                    Button("Done") { dismiss() }
-                        .buttonStyle(.borderedProminent)
-                }
+                EmptyStateView(
+                    mark: "checkmark.circle",
+                    title: "Subscribed",
+                    message: summary,
+                    actionTitle: "Done",
+                    action: { dismiss() }
+                )
+                .pageBackground()
             } else {
                 list
             }
@@ -66,6 +68,7 @@ struct RedditSubredditPickerView: View {
                     } label: {
                         HStack {
                             Image(systemName: model.selected.contains(sub.id) ? "checkmark.circle.fill" : "circle")
+                                .uiGlyph(size: Font.GlyphSize.body)
                                 .foregroundStyle(model.selected.contains(sub.id) ? Accent.primary : Ink.secondary)
                             VStack(alignment: .leading, spacing: 2) {
                                 Text("r/\(sub.name)")

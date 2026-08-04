@@ -74,7 +74,7 @@ struct AudioPlayerBar: View {
                 controller.skipBackward()
             } label: {
                 Image(systemName: "backward.fill")
-                    .font(.system(size: ControlTier.standard.glyph, weight: .medium))
+                    .uiGlyph()
                     .contentShape(.rect)
             }
             .buttonStyle(.plain)
@@ -84,7 +84,7 @@ struct AudioPlayerBar: View {
                 controller.skipForward()
             } label: {
                 Image(systemName: "forward.fill")
-                    .font(.system(size: ControlTier.standard.glyph, weight: .medium))
+                    .uiGlyph()
                     .contentShape(.rect)
             }
             .buttonStyle(.plain)
@@ -108,8 +108,11 @@ struct AudioPlayerBar: View {
                 if controller.isBuffering {
                     BufferingCancelControl()
                 } else {
+                    // I2 — ONE weight. This was the transport cluster's odd
+                    // one out at `.semibold` beside its `.medium` siblings.
+                    // I3's transport exception covers the fill, not the weight.
                     Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
-                        .font(.system(size: ControlTier.standard.glyph, weight: .semibold))
+                        .uiGlyph()
                 }
             }
             .frame(width: Self.playButtonSize, height: Self.playButtonSize)
@@ -226,7 +229,7 @@ struct IdlePlayerBar: View {
     private func capsuleGlyph(_ name: String) -> some View {
         // I2 — one weight, one scale, sized to the adjacent text's optical size.
         Image(systemName: name)
-            .font(.system(size: ControlTier.standard.glyph, weight: .medium))
+            .uiGlyph()
             .frame(width: Self.glyphFrame, height: Self.glyphFrame)
             .contentShape(.rect)
     }
@@ -246,7 +249,7 @@ private struct BufferingCancelControl: View {
                     .stroke(Accent.primary, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                     .rotationEffect(.degrees(turns * 360))
                 Image(systemName: "stop.fill")
-                    .font(.system(size: 10, weight: .semibold))
+                    .uiGlyph(size: 10)
             }
             .frame(width: 28, height: 28)
         }

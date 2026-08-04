@@ -30,13 +30,11 @@ enum FeedSourceKind: String, CaseIterable, Identifiable {
         }
     }
 
-    var systemImage: String {
-        switch self {
-        case .youtube: return "play.rectangle.fill"
-        case .reddit:  return "bubble.left.and.bubble.right.fill"
-        case .web:     return "globe"
-        }
-    }
+    // **BR3.** There is no `systemImage` here any more. Kind identity is a
+    // silhouette we drew (`SourceKindShape`), at one stroke weight and one
+    // optical size, precisely because the SF Symbols this used to name were
+    // three different fidelities standing in a column together: a filled video
+    // rectangle, filled speech bubbles, and an outline globe.
 
     /// Source identity hue (§2.2 / BR5). Row and kind identity only — it never
     /// tints text, selection, controls or `Accent.*`. Normalised to our chip

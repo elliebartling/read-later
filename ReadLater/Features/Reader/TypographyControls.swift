@@ -199,7 +199,7 @@ private struct ThemeSwatch: View {
                 // an `Accent.onFill` check — one idiom app-wide (SH2).
                 .overlay(alignment: .topTrailing) {
                     if selected {
-                        Image(systemName: "checkmark")
+                        Image(systemName: "checkmark").uiGlyph(size: Font.GlyphSize.subheadline)
                             .font(.caption2.weight(.bold))
                             .foregroundStyle(Accent.onFill)
                             .frame(width: 18, height: 18)
@@ -232,7 +232,7 @@ private struct FontRow: View {
                     .font(Font(font.uiFont(size: 18)))
                 Spacer()
                 if selected {
-                    Image(systemName: "checkmark")
+                    Image(systemName: "checkmark").uiGlyph(size: Font.GlyphSize.subheadline)
                         .foregroundStyle(Accent.primary)
                         .font(.body.weight(.semibold))
                 }

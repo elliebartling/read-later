@@ -116,19 +116,15 @@ struct SidebarPanel: View {
             }
             Spacer(minLength: Metric.containerPadding)
             Menu {
-                Button {
-                    showingAddFeed = true
-                } label: {
-                    Label("Add feed…", systemImage: "link")
-                }
-                Button {
-                    showingImport = true
-                } label: {
-                    Label("Import subscriptions…", systemImage: "square.and.arrow.down")
-                }
+                // I5 — glyphs are banned from menu items: the label already
+                // carries the meaning, so the icon is decoration (N3). T7 —
+                // sentence case, which this menu previously mixed with title
+                // case one item apart.
+                Button("Add feed…") { showingAddFeed = true }
+                Button("Import subscriptions…") { showingImport = true }
             } label: {
                 Image(systemName: "plus")
-                    .font(.system(size: ControlTier.standard.glyph, weight: .medium))
+                    .uiGlyph()
                     .foregroundStyle(Accent.primary)
                     // Standard tier — there is no 32pt tier (Z2).
                     .frame(width: ControlTier.standard.height,
@@ -209,7 +205,7 @@ struct SidebarPanel: View {
             }
         } label: {
             HStack(spacing: 10) {
-                SidebarKindChip(kind: kind)
+                SourceKindChip(kind: kind)
                 Text(kind.title)
                     .font(.subheadline.weight(.semibold))
                     .foregroundStyle(Ink.secondary)
@@ -252,7 +248,7 @@ struct SidebarRowLabel: View {
         HStack(spacing: 10) {
             // I2 — one weight, one scale, sized to the label beside it.
             Image(systemName: systemImage)
-                .font(.system(size: ControlTier.standard.glyph, weight: .medium))
+                .uiGlyph()
                 .foregroundStyle(isSelected ? Accent.primary : Ink.secondary)
                 .frame(width: 24)
             Text(title)
@@ -287,7 +283,7 @@ private struct SidebarFeedRow: View {
 
     var body: some View {
         HStack(spacing: 10) {
-            SidebarAvatar(title: feed.sidebarDisplayTitle, kind: kind)
+            SidebarAvatar(feed: feed, kind: kind)
             Text(feed.sidebarDisplayTitle)
                 .font(.body.weight(isSelected ? .semibold : .regular))
                 .foregroundStyle(Ink.primary)
@@ -306,46 +302,22 @@ private struct SidebarFeedRow: View {
     }
 }
 
-/// The kind marker for a group header. I7 — a glyph is chipped when it
-/// *identifies a thing*, and a source kind is a thing. Small tier (§7.1).
-private struct SidebarKindChip: View {
-    let kind: FeedSourceKind
-
-    var body: some View {
-        Image(systemName: kind.systemImage)
-            .font(.system(size: ControlTier.small.glyph, weight: .medium))
-            .foregroundStyle(Accent.onFill)
-            .frame(width: ControlTier.small.height, height: ControlTier.small.height)
-            .background(kind.tint, in: Circle())
-            .accessibilityHidden(true)
-    }
-}
-
-/// Monogram stand-in for a favicon/channel avatar (BR2). Local and offline —
-/// favicon fetching is wave 3's, not this wave's.
+/// **BR1 / BR2.** A subscription's identity mark: the site's own favicon on a
+/// `Surface.control` tile, with the monogram on the source hue standing in
+/// until (or instead of) one. Wave 3 built `FaviconTile` to drop in here
+/// unchanged — the sidebar's hand-rolled monogram circle was the prototype the
+/// component was modelled on, so adopting it deletes the duplicate rather than
+/// changing the design.
 private struct SidebarAvatar: View {
-    let title: String
+    let feed: Feed
     let kind: FeedSourceKind
 
-    private var monogram: String {
-        let stripped = title.drop(while: { !$0.isLetter && !$0.isNumber })
-        guard let first = stripped.first ?? title.first else { return "?" }
-        return String(first).uppercased()
-    }
-
     var body: some View {
-        Circle()
-            // Flat fill: a gradient inside a source mark is decoration that
-            // answers nothing (N3), and BR3 wants one fidelity per column.
-            .fill(kind.tint)
-            .frame(width: ControlTier.small.height, height: ControlTier.small.height)
-            .overlay {
-                Text(monogram)
-                    .font(.caption.weight(.semibold))
-                    // A2 — never hardcoded white.
-                    .foregroundStyle(Accent.onFill)
-            }
-            .accessibilityHidden(true)
+        FaviconTile(
+            host: feed.siteURL?.host ?? feed.feedURL?.host,
+            title: feed.sidebarDisplayTitle,
+            tint: kind.tint
+        )
     }
 }
 

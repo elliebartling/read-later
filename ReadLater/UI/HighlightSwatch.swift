@@ -46,8 +46,9 @@ struct HighlightSwatch: View {
             .frame(width: Self.diameter, height: Self.diameter)
             .overlay {
                 if isSelected {
-                    Image(systemName: "checkmark")
-                        .font(.system(size: 11, weight: .semibold))
+                    // I2 — one weight, one scale, sized to the swatch's
+                    // `.caption2` chip tier (§4.3).
+                    Image(systemName: "checkmark").uiGlyph(size: 11)
                         .foregroundStyle(HighlightMarker.onMarker)
                 }
             }

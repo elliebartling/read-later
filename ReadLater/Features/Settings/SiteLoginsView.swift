@@ -13,27 +13,31 @@ struct SiteLoginsView: View {
                 ProgressView("Loading…")
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if model.loadFailed {
-                ContentUnavailableView {
-                    Label("Can't Load Site Logins", systemImage: "exclamationmark.triangle")
-                } description: {
-                    Text("The browser data store didn't respond. Try again in a moment.")
-                } actions: {
-                    Button("Retry") {
-                        Task { await model.load() }
-                    }
-                    .buttonStyle(.borderedProminent)
-                }
+                // E2/E3 — one template, and a failure takes the warning hue.
+                EmptyStateView(
+                    mark: "exclamationmark.triangle",
+                    title: "Can't load site logins",
+                    message: "The browser data store didn't respond. Try again in a moment.",
+                    isFailure: true,
+                    actionTitle: "Retry",
+                    action: { Task { await model.load() } }
+                )
+                .pageBackground()
             } else if model.sites.isEmpty {
-                ContentUnavailableView {
-                    Label("No Site Logins", systemImage: "person.badge.key")
-                } description: {
-                    Text("When you sign in to a member-only article from its reader banner, that site shows up here so you can manage it or sign out.")
-                }
+                // The constitution names this state as the template every other
+                // empty state copies: it explains the mechanism that would fill
+                // the void rather than naming the void.
+                EmptyStateView(
+                    mark: "person.badge.key",
+                    title: "No site logins",
+                    message: "When you sign in to a member-only article from its reader banner, that site shows up here so you can manage it or sign out."
+                )
+                .pageBackground()
             } else {
                 siteList
             }
         }
-        .navigationTitle("Site Logins")
+        .navigationTitle("Site logins")
         .navigationBarTitleDisplayMode(.inline)
         .task { await model.load() }
         .confirmationDialog(
@@ -45,7 +49,7 @@ struct SiteLoginsView: View {
             titleVisibility: .visible,
             presenting: model.pendingSignOut
         ) { host in
-            Button("Sign Out", role: .destructive) {
+            Button("Sign out", role: .destructive) {
                 Task { await model.confirmSignOut(host) }
             }
             Button("Cancel", role: .cancel) { model.pendingSignOut = nil }
@@ -58,19 +62,17 @@ struct SiteLoginsView: View {
         List {
             Section {
                 ForEach(model.sites, id: \.self) { host in
+                    // I5 — no glyph in a list-row body; the host is the row.
                     HStack {
-                        Image(systemName: "globe")
-                            .foregroundStyle(Ink.secondary)
-                            .accessibilityHidden(true)
                         Text(host)
                         Spacer()
-                        Button("Sign Out") { model.pendingSignOut = host }
+                        Button("Sign out") { model.pendingSignOut = host }
                             .buttonStyle(.borderless)
                             .foregroundStyle(Semantic.destructive)
                             .accessibilityLabel("Sign out of \(host)")
                     }
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
-                        Button("Sign Out", role: .destructive) {
+                        Button("Sign out", role: .destructive) {
                             model.pendingSignOut = host
                         }
                     }

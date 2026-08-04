@@ -141,7 +141,10 @@ struct ReaderView: View {
             if article.isVideoArticle {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: watchOnYouTube) {
-                        Image(systemName: "play.rectangle.fill")
+                        // BR4 — a brand mark never takes a prominent slot; the
+                        // link out to YouTube is a plain system verb like every
+                        // other toolbar action.
+                        Image(systemName: "play.rectangle").uiGlyph()
                     }
                     .accessibilityLabel("Watch on YouTube")
                 }
@@ -149,7 +152,7 @@ struct ReaderView: View {
             if article.discussionURL != nil {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: openDiscussion) {
-                        Image(systemName: "bubble.left.and.bubble.right")
+                        Image(systemName: "bubble.left.and.bubble.right").uiGlyph()
                     }
                     .accessibilityLabel("View discussion")
                     .contextMenu {
@@ -158,7 +161,7 @@ struct ReaderView: View {
                                 DiscussionOpener.openInBrowser(url)
                             }
                         } label: {
-                            Label("Open in Browser", systemImage: "safari")
+                            Text("Open in browser")
                         }
                         // Save-back to Reddit — only for Reddit discussions when
                         // signed in (wave 2). Subtle placement in the discussion
@@ -170,7 +173,7 @@ struct ReaderView: View {
                             Button {
                                 saveToReddit(url)
                             } label: {
-                                Label("Save to Reddit", systemImage: "bookmark")
+                                Text("Save to Reddit")
                             }
                         }
                     }
@@ -180,7 +183,7 @@ struct ReaderView: View {
                 Button {
                     showingTypographyControls = true
                 } label: {
-                    Image(systemName: "textformat.size")
+                    Image(systemName: "textformat.size").uiGlyph()
                 }
                 .accessibilityLabel("Typography")
             }
@@ -309,7 +312,7 @@ struct ReaderView: View {
                 statusPill(systemImage: "lock.fill") {
                     Text("Member-only — Sign in to \(host)")
                     Image(systemName: "chevron.right")
-                        .font(.caption2.weight(.semibold))
+                        .uiGlyph(size: Font.GlyphSize.caption)
                         .foregroundStyle(Ink.secondary)
                 }
             }
@@ -337,7 +340,7 @@ struct ReaderView: View {
     ) -> some View {
         HStack(spacing: 8) {
             if let systemImage {
-                Image(systemName: systemImage)
+                Image(systemName: systemImage).uiGlyph(size: Font.GlyphSize.subheadline)
             }
             content()
         }
@@ -415,6 +418,8 @@ struct ReaderView: View {
                     // Quotes are styled by attribute over these ranges — the
                     // flowed reader's counterpart to the block reader's bar.
                     quoteRanges: blocksCache.quoteRanges(for: article),
+                    listItemRanges: blocksCache.structure(for: article).listItems,
+                    inlineCodeRanges: blocksCache.structure(for: article).inlineCode,
                     editingHighlightID: editingHighlight?.id,
                     onCreateHighlight: createHighlight,
                     onUpdateHighlight: updateHighlight,
@@ -463,35 +468,24 @@ struct ReaderView: View {
         .frame(maxWidth: .infinity, maxHeight: .infinity)
     }
 
+    /// **E2/E3.** The one empty-state template, in its failure dress: the same
+    /// mark and the same `Semantic.warning` the Library row shows (R7), so a
+    /// failed article looks the same wherever you meet it.
+    ///
+    /// Re-extract routes through `ArticleParsing.parse`, so a video URL
+    /// re-routes to `VideoArticleParser` (and its metadata fallback) rather
+    /// than re-running the article extractor that couldn't parse it.
     private var failedState: some View {
-        ContentUnavailableView {
-            // E3 / R7 — failure states get `Semantic.warning`; this is the
-            // same glyph and the same hue the Library row now shows, so a
-            // failed article looks the same wherever you meet it.
-            Label {
-                Text("Couldn't parse this page")
-            } icon: {
-                Image(systemName: "exclamationmark.triangle")
-                    .foregroundStyle(Semantic.warning)
-            }
-        } description: {
-            Text("The extractor didn't find readable content on \(article.url?.host ?? "this page").")
-        } actions: {
-            // Re-extract routes through ArticleParsing.parse, so a video URL
-            // re-routes to VideoArticleParser (and its metadata fallback) rather
-            // than re-running the article extractor that "couldn't parse" it.
-            Button {
-                reextract()
-            } label: {
-                Text("Try Again")
-            }
-            .buttonStyle(.borderedProminent)
-            .disabled(isReextracting)
-            if let url = article.url {
-                Link(destination: url) { Text("Open in Safari") }
-                    .buttonStyle(.bordered)
-            }
-        }
+        EmptyStateView(
+            mark: "exclamationmark.triangle",
+            title: "Couldn't parse this page",
+            message: "The extractor didn't find readable content on \(article.url?.host ?? "this page").",
+            isFailure: true,
+            actionTitle: isReextracting ? "Trying…" : "Try again",
+            action: { if !isReextracting { reextract() } },
+            secondaryActionTitle: article.url == nil ? nil : "Open in Safari",
+            secondaryAction: article.url.map { url in { UIApplication.shared.open(url) } }
+        )
     }
 
     private func startTTS() {
@@ -808,15 +802,21 @@ final class DecodedBlocksCache {
     private var decoded: [ArticleBlock]?
     private var quoteKey: String?
     private var quotes: [NSRange] = []
+    private var structureKey: String?
+    private var listItems: [ArticleBlocks.LocatedListItem] = []
+    private var inlineCode: [NSRange] = []
 
     func blocks(for article: Article) -> [ArticleBlock]? {
         let json = article.blocksJSON
         if json != lastJSON {
             lastJSON = json
             decoded = json.flatMap { ArticleBlocks.decode($0) }
-            // Any block change invalidates the derived quote ranges.
+            // Any block change invalidates every derived range set.
             quoteKey = nil
             quotes = []
+            structureKey = nil
+            listItems = []
+            inlineCode = []
         }
         return decoded
     }
@@ -833,5 +833,22 @@ final class DecodedBlocksCache {
             quotes = ArticleBlocks.quoteRanges(blocks, in: text)
         }
         return quotes
+    }
+
+    /// List-item and inline-code ranges over `plainText`, for the PLAIN reader.
+    /// Memoized together — they come off the same verification walk over the
+    /// same blocks, so computing them separately would walk twice per `body`.
+    func structure(for article: Article)
+        -> (listItems: [ArticleBlocks.LocatedListItem], inlineCode: [NSRange])
+    {
+        guard let blocks = blocks(for: article), !blocks.isEmpty else { return ([], []) }
+        let text = article.plainText
+        let key = "\(text.utf16.count)"
+        if key != structureKey {
+            structureKey = key
+            listItems = ArticleBlocks.listItemRanges(blocks, in: text)
+            inlineCode = ArticleBlocks.inlineCodeRanges(blocks, in: text)
+        }
+        return (listItems, inlineCode)
     }
 }

@@ -428,6 +428,56 @@ final class ArticleParser: NSObject {
             return codeText.length > 0 &&
                    normalize(el.textContent) === codeText;
         }
+        // UTF-16 ranges of inline <code>/<kbd>/<samp> spans within an
+        // element's NORMALIZED text — the same normalize() every text block
+        // runs through, so the offsets line up with the stored block text
+        // exactly. Carrying spans as metadata (rather than injecting markers
+        // into the text) is what keeps `plainText` — and therefore every
+        // highlight offset — byte-identical to what it was before.
+        function inlineCodeRanges(el, shift) {
+            var raw = "", flags = [];
+            (function collect(n, inCode) {
+                if (n.nodeType === 3) {
+                    var t = n.textContent || "";
+                    raw += t;
+                    for (var i = 0; i < t.length; i++) { flags.push(inCode); }
+                    return;
+                }
+                if (n.nodeType !== 1) { return; }
+                var c = inCode || n.tagName === "CODE" || n.tagName === "KBD"
+                     || n.tagName === "SAMP" || n.tagName === "TT";
+                for (var j = 0; j < n.childNodes.length; j++) {
+                    collect(n.childNodes[j], c);
+                }
+            })(el, false);
+            // Mirror normalize(): every whitespace run collapses to one space,
+            // then the result is trimmed.
+            var kept = [], keptSpace = [], prevSpace = false;
+            for (var k = 0; k < raw.length; k++) {
+                if (/\\s/.test(raw.charAt(k))) {
+                    if (!prevSpace) { kept.push(false); keptSpace.push(true); prevSpace = true; }
+                } else {
+                    kept.push(flags[k]); keptSpace.push(false); prevSpace = false;
+                }
+            }
+            var start = 0, end = kept.length;
+            if (end > start && keptSpace[start]) { start++; }
+            if (end > start && keptSpace[end - 1]) { end--; }
+            var ranges = [], run = -1;
+            for (var m = start; m < end; m++) {
+                if (kept[m]) { if (run < 0) { run = m; } }
+                else if (run >= 0) { ranges.push([run - start + shift, m - run]); run = -1; }
+            }
+            if (run >= 0) { ranges.push([run - start + shift, end - run]); }
+            return ranges;
+        }
+        // Attaches inline-code spans to a block, shifted past any text the
+        // block prepends to the element's own (a list item's baked marker).
+        function withCode(b, el, shift) {
+            var cr = inlineCodeRanges(el, shift);
+            if (cr.length > 0) { b.codeRanges = cr; }
+            return b;
+        }
         // Resolves a list item's marker as PLAIN TEXT baked into the block's
         // own text — "\\u2022 " for unordered, "N. " for ordered (honouring the
         // list's `start` attribute and the item's position among its LI
@@ -594,7 +644,7 @@ final class ArticleParser: NSObject {
                     var ct = normalize(cap.textContent);
                     if (ct) {
                         out.push(ct);
-                        pushText({ type: "caption", text: ct }, q);
+                        pushText(withCode({ type: "caption", text: ct }, cap, 0), q);
                     }
                 }
                 return;
@@ -621,27 +671,27 @@ final class ArticleParser: NSObject {
                         pushText({ type: "preformatted", text: t }, q);
                     } else if (HEADING[tag]) {
                         out.push(t);
-                        pushText({ type: "heading", text: t, level: HEADING[tag] }, q);
+                        pushText(withCode({ type: "heading", text: t, level: HEADING[tag] }, child, 0), q);
                     } else if (tag === "LI") {
                         var m = listItemMarker(child);
                         var lt = m.prefix + t;
                         out.push(lt);
                         var lb = { type: "listItem", text: lt, markerBaked: true };
                         if (m.style) { lb.listStyle = m.style; }
-                        pushText(lb, q);
+                        pushText(withCode(lb, child, m.prefix.length), q);
                     } else if (tag === "BLOCKQUOTE") {
                         // A LEAF blockquote (no block children): the whole
                         // quote is one block. Keeps the legacy type AND
                         // carries the flag, so both readers can key off the
                         // single `isQuoted` predicate.
                         out.push(t);
-                        pushText({ type: "blockquote", text: t }, q + 1);
+                        pushText(withCode({ type: "blockquote", text: t }, child, 0), q + 1);
                     } else if (tag === "FIGCAPTION") {
                         out.push(t);
-                        pushText({ type: "caption", text: t }, q);
+                        pushText(withCode({ type: "caption", text: t }, child, 0), q);
                     } else {
                         out.push(t);
-                        pushText({ type: "paragraph", text: t }, q);
+                        pushText(withCode({ type: "paragraph", text: t }, child, 0), q);
                     }
                 }
                 // Images nested inside a leaf block — the
@@ -916,6 +966,16 @@ final class ArticleParser: NSObject {
             // multi-paragraph quote keeps its paragraphs and a quoted list
             // item stays a list item.
             let isQuote = dict["isQuote"] as? Bool
+            // Inline `<code>` spans, LOCAL UTF-16 ranges into `text`. Additive
+            // and optional the same way the two flags above are; a malformed
+            // pair is dropped rather than trusted.
+            let codeRanges = (dict["codeRanges"] as? [[Any]])?.compactMap { pair -> [Int]? in
+                guard pair.count == 2,
+                      let location = intValue(pair[0]), let length = intValue(pair[1]),
+                      location >= 0, length > 0 else { return nil }
+                return [location, length]
+            }
+            let code = (codeRanges?.isEmpty ?? true) ? nil : codeRanges
 
             switch type {
             case .image:
@@ -932,7 +992,8 @@ final class ArticleParser: NSObject {
                     height: height
                 ))
             case .heading:
-                result.append(ArticleBlock(type: .heading, text: text, level: level, isQuote: isQuote))
+                result.append(ArticleBlock(type: .heading, text: text, level: level,
+                                           isQuote: isQuote, codeRanges: code))
             case .listItem:
                 let listStyle = (dict["listStyle"] as? String).flatMap { ListStyle(rawValue: $0) }
                 // `markerBaked` (additive, CloudKit-safe: old decoders ignore
@@ -941,12 +1002,13 @@ final class ArticleParser: NSObject {
                 let markerBaked = dict["markerBaked"] as? Bool
                 result.append(ArticleBlock(
                     type: .listItem, text: text, listStyle: listStyle,
-                    markerBaked: markerBaked, isQuote: isQuote
+                    markerBaked: markerBaked, isQuote: isQuote, codeRanges: code
                 ))
             case .divider:
                 result.append(ArticleBlock(type: .divider))
             case .paragraph, .blockquote, .preformatted, .caption:
-                result.append(ArticleBlock(type: type, text: text, isQuote: isQuote))
+                result.append(ArticleBlock(type: type, text: text, isQuote: isQuote,
+                                           codeRanges: code))
             }
         }
         return coalescePreformatted(result)

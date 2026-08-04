@@ -56,6 +56,16 @@ struct HighlightableTextView: UIViewRepresentable {
     /// shift every highlight offset after the quote. Empty for articles with no
     /// blocks (legacy parses), which then render exactly as before.
     var quoteRanges: [NSRange] = []
+    /// GLOBAL list-item ranges with their baked markers
+    /// (`ArticleBlocks.listItemRanges`). Drives the hanging indent and the
+    /// tighter intra-list spacing, both of which are paragraph-style
+    /// attributes here for the same reason quotes are: the text — and every
+    /// highlight offset over it — must not move.
+    var listItemRanges: [ArticleBlocks.LocatedListItem] = []
+    /// GLOBAL ranges of inline `<code>` spans
+    /// (`ArticleBlocks.inlineCodeRanges`). Empty for articles parsed before
+    /// the walker collected them, which then render exactly as before.
+    var inlineCodeRanges: [NSRange] = []
     /// When non-nil, the matching highlight's range is kept selected so the
     /// user can drag the system handles to resize it (e.g. while the edit
     /// sheet is open). Cleared when editing ends.
@@ -191,7 +201,11 @@ struct HighlightableTextView: UIViewRepresentable {
             .joined(separator: "|")
         let spoken = currentSpokenRange.map { "\($0.location)-\($0.length)" } ?? ""
         let quoteSig = quoteRanges.map { "\($0.location)-\($0.length)" }.joined(separator: ",")
-        return "\(text.utf16.count)|\(theme.rawValue)|\(fontSize)|\(fontRaw)|\(lineSpacing)|\(paragraphSpacing)|\(width.rawValue)|\(highlightSig)|\(spoken)|\(quoteSig)"
+        let listSig = listItemRanges
+            .map { "\($0.range.location)-\($0.range.length)-\($0.continuesList)" }
+            .joined(separator: ",")
+        let codeSig = inlineCodeRanges.map { "\($0.location)-\($0.length)" }.joined(separator: ",")
+        return "\(text.utf16.count)|\(theme.rawValue)|\(fontSize)|\(fontRaw)|\(lineSpacing)|\(paragraphSpacing)|\(width.rawValue)|\(highlightSig)|\(spoken)|\(quoteSig)|\(listSig)|\(codeSig)"
     }
 
     // MARK: - Rendering
@@ -260,6 +274,52 @@ struct HighlightableTextView: UIViewRepresentable {
                 guard range.location >= 0, range.length > 0,
                       range.location + range.length <= length else { continue }
                 str.addAttributes(quoteAttrs, range: range)
+            }
+        }
+
+        // **Hanging indents and list grouping** (fix #4). A marker-baked list
+        // item carries "• " / "3. " at the head of its own text, so with a
+        // plain paragraph style its wrapped lines align under the BULLET.
+        // Indenting continuation lines by the marker's measured width — and
+        // only continuation lines — restores the shape, and closing the gap
+        // between consecutive items makes the list read as one group instead
+        // of N paragraphs. Both are attributes over verified ranges; not one
+        // character of `text` changes.
+        if !listItemRanges.isEmpty {
+            let listSpacing = ReaderTypography.listItemSpacing(paragraphSpacing: paragraphSpacing)
+            let length = (text as NSString).length
+            for item in listItemRanges {
+                let range = item.range
+                guard range.location >= 0, range.length > 0,
+                      range.location + range.length <= length else { continue }
+                // Start from whatever style already applies (a quoted list item
+                // keeps its quote inset) rather than replacing it.
+                let base = str.attribute(.paragraphStyle, at: range.location, effectiveRange: nil)
+                    as? NSParagraphStyle
+                let style = (base?.mutableCopy() as? NSMutableParagraphStyle)
+                    ?? NSMutableParagraphStyle()
+                if base == nil {
+                    style.lineSpacing = lineSpacing
+                    style.paragraphSpacing = paragraphSpacing
+                }
+                let markerWidth = ReaderTypography.markerWidth(item.markerPrefix, font: font)
+                style.headIndent = style.firstLineHeadIndent + markerWidth
+                if item.continuesList { style.paragraphSpacing = listSpacing }
+                str.addAttribute(.paragraphStyle, value: style, range: range)
+            }
+        }
+
+        // **Inline code** (fix #4). Monospaced on the code panel's own wash, so
+        // a `snippet` inside a sentence reads as the same material as a fenced
+        // block instead of as undifferentiated body text.
+        if !inlineCodeRanges.isEmpty {
+            let codeFont = ReaderTypography.inlineCodeFont(bodySize: fontSize)
+            let wash = ReaderTypography.inlineCodeBackground(foreground: theme.foreground)
+            let length = (text as NSString).length
+            for range in inlineCodeRanges {
+                guard range.location >= 0, range.length > 0,
+                      range.location + range.length <= length else { continue }
+                str.addAttributes([.font: codeFont, .backgroundColor: wash], range: range)
             }
         }
 
@@ -608,22 +668,19 @@ struct HighlightableTextView: UIViewRepresentable {
             // make the same move; a change here must land in the block
             // reader's menu too (AGENTS.md, "There are two readers").
             let color = UIAction(
-                title: "Color",
-                image: UIImage(systemName: "highlighter")
+                title: "Color"
             ) { [weak self] _ in
                 self?.parent?.onTapHighlight(highlightID)
             }
             let addNote = UIAction(
-                title: "Add Note",
-                image: UIImage(systemName: "note.text.badge.plus")
+                title: "Add note"
             ) { [weak self] _ in
                 // Keep the selection + session so drag handles stay visible
                 // behind the edit sheet for in-place range adjustment.
                 self?.parent?.onRequestNote(highlightID)
             }
             let remove = UIAction(
-                title: "Remove Highlight",
-                image: UIImage(systemName: "trash"),
+                title: "Remove highlight",
                 attributes: .destructive
             ) { [weak self] _ in
                 self?.endSession(collapseSelection: true)
