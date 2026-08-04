@@ -1,81 +1,145 @@
 import SwiftData
 import SwiftUI
 
-/// Prototype navigation shell: a Readwise-Reader-style slide-in sidebar over a
-/// single content pane, instead of the TabView. Flag-gated by
-/// `AppSettings.useSidebarNavigation` — when the flag is off, `RootView`
-/// renders the tab bar exactly as before and none of this code runs.
+/// The app's navigation. Layered, not a drawer (Ellen, issue #57).
 ///
-/// Interaction model (iPhone):
-/// - drag from the leading edge (or tap the floating button) to open,
-/// - tap the dimmed content, drag left, or pick a row to close,
-/// - each destination keeps its own `NavigationStack`, so pushes still work.
+/// ```
+/// layer 2   reader          ── a normal NavigationStack push
+/// layer 1   group / list    ── a full-height card floating over the sidebar
+/// layer 0   sidebar         ── the root; sources, views, Settings
+/// ```
+///
+/// **One gesture peels one layer.** Inside the card the system's interactive
+/// pop takes reader → list, untouched. At the card's root our screen-edge pan
+/// takes list → sidebar: the card tracks the finger, the sidebar parallaxes up
+/// from behind and un-dims, and the throw decides whether it commits or snaps
+/// back (`PeelGeometry`). A trailing-edge pan brings the card back, so a peel
+/// is never a one-way door.
+///
+/// What this replaced: the tab bar, the `useSidebarNavigation` experiment flag,
+/// the floating sidebar button, and the old global edge-drag-from-anywhere
+/// drawer — that last one conflicted with the reader's back-swipe, which is
+/// what made the prototype fail its trial.
 struct SidebarShell: View {
     @Environment(AppModel.self) private var appModel
+    @Environment(\.modelContext) private var context
+    @Environment(\.colorScheme) private var colorScheme
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// Which group the card is showing.
     @State private var selection: SidebarDestination = .library
-    @State private var isOpen = false
-    @State private var dragOffset: CGFloat = 0
-
-    /// Panel width. ~78% of a 393pt phone, matching Reader's proportion.
-    private let panelWidth: CGFloat = 300
-    /// Width of the invisible strip that catches the open gesture.
-    private let edgeGrabWidth: CGFloat = 24
+    /// Layer 2. One stack per card; picking a new source starts a fresh one.
+    @State private var path = NavigationPath()
+    /// Whether the card covers the sidebar.
+    @State private var isCardPresented = true
+    /// Live peel translation while a finger is down; `nil` at rest.
+    @State private var dragTranslation: CGFloat?
+    /// Shell width, measured rather than read from a `GeometryReader` wrapper
+    /// so the layers keep their natural safe areas.
+    @State private var width: CGFloat = 0
 
     var body: some View {
-        ZStack(alignment: .leading) {
-            content
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
-
-            // Catches the edge swipe without stealing gestures from list rows.
-            Color.clear
-                .frame(width: edgeGrabWidth)
-                .frame(maxHeight: .infinity)
-                .contentShape(Rectangle())
-                .gesture(openDrag)
-                .allowsHitTesting(!isOpen)
-
-            Color.black
-                .opacity(0.35 * progress)
-                .ignoresSafeArea()
-                .allowsHitTesting(progress > 0.01)
-                .onTapGesture { setOpen(false) }
-                .gesture(closeDrag)
-
-            SidebarPanel(selection: $selection, onSelect: { setOpen(false) })
-                .frame(width: panelWidth)
-                .frame(maxHeight: .infinity)
-                .ignoresSafeArea(edges: .bottom)
-                .offset(x: panelX)
-                .shadow(color: .black.opacity(0.25 * progress), radius: 16, x: 4)
-                .gesture(closeDrag)
+        ZStack(alignment: .topLeading) {
+            sidebarLayer
+            cardLayer
         }
-        .overlay(alignment: .bottomLeading) {
-            menuButton
-                .padding(.leading, 16)
-                .padding(.bottom, 20)
-                .opacity(1 - progress)
-                .allowsHitTesting(!isOpen)
+        .background {
+            GeometryReader { geometry in
+                Color.clear.preference(key: ShellWidthKey.self, value: geometry.size.width)
+            }
         }
-        // Deep links (readlater://open, readlater://save) still route through
-        // AppModel.selectedTab, so mirror it onto the sidebar selection.
-        .onChange(of: appModel.selectedTab) { _, tab in
-            selection = Self.destination(for: tab)
-            setOpen(false)
+        .onPreferenceChange(ShellWidthKey.self) { width = $0 }
+        .background {
+            // Leading edge: peel the card off the sidebar. Only at the card's
+            // root — one layer deeper this gesture is the reader's own pop.
+            EdgePanCatcher(
+                edge: .leading,
+                isEnabled: isCardPresented && path.isEmpty,
+                onChanged: { dragTranslation = $0 },
+                onEnded: { endPeel(translation: $0, velocity: $1) }
+            )
+            // Trailing edge: put the card back without going via a row tap.
+            EdgePanCatcher(
+                edge: .trailing,
+                isEnabled: !isCardPresented,
+                onChanged: { dragTranslation = $0 },
+                onEnded: { endPeel(translation: $0, velocity: $1) }
+            )
+        }
+        .task(id: appModel.pendingArticleToOpen) {
+            await handlePendingOpen()
         }
     }
 
-    // MARK: - Content
+    // MARK: - Layer 0 — the sidebar
+
+    private var sidebarLayer: some View {
+        SidebarPanel(
+            selection: selection,
+            onSelect: { show($0) },
+            // A source that goes away (unsubscribe) must not leave the card
+            // pointing at a deleted model — but it is not a navigation either,
+            // so it never brings the card forward.
+            onInvalidate: { replacement in
+                selection = replacement
+                path = NavigationPath()
+            }
+        )
+        .offset(x: PeelGeometry.sidebarParallax(progress: progress, width: width))
+        .overlay {
+            Color.black
+                .opacity(PeelGeometry.dim(progress: progress))
+                .ignoresSafeArea()
+                .allowsHitTesting(false)
+        }
+        // While the card covers it the sidebar is decoration, not content.
+        .accessibilityHidden(progress < 0.5)
+    }
+
+    // MARK: - Layer 1 — the group/list card
+
+    private var cardLayer: some View {
+        NavigationStack(path: $path) {
+            destinationRoot
+                .navigationDestination(for: Article.self) { article in
+                    ReaderView(article: article)
+                }
+        }
+        // The card carries the page ground itself, so its corners never show
+        // the sidebar through as they round off.
+        .background(Surface.ground)
+        .clipShape(
+            .rect(cornerRadius: PeelGeometry.cornerRadius(progress: progress), style: .continuous)
+        )
+        .shadow(
+            color: .black.opacity(
+                (colorScheme == .dark ? 0.18 : 0.10) * PeelGeometry.shadowScale(progress: progress)
+            ),
+            radius: 16 / 2, // SwiftUI radius is ~half a CSS blur
+            x: -4
+        )
+        .offset(x: cardOffset)
+        .ignoresSafeArea()
+        // A card that has been peeled away is off-screen scenery: it must not
+        // keep hit-testing, or every tap on the sidebar beneath it is
+        // swallowed by an invisible list. (`.offset` alone does not move the
+        // interactive region out of the way once the layer ignores the safe
+        // area.)
+        .allowsHitTesting(isCardPresented)
+        // The affordance exists only where peeling is what "back" means.
+        .environment(\.peelToSidebar, path.isEmpty ? { peel() } : nil)
+        .accessibilityHidden(progress > 0.5)
+    }
 
     @ViewBuilder
-    private var content: some View {
+    private var destinationRoot: some View {
         switch selection {
         case .library:
             LibraryView()
         case .allItems:
-            SidebarFeedContainer(feed: nil)
+            FeedEntriesView(feed: nil, path: $path)
         case .feed(let feed):
-            SidebarFeedContainer(feed: feed)
+            FeedEntriesView(feed: feed, path: $path)
                 .id(feed.id)
         case .highlights:
             HighlightsView()
@@ -84,91 +148,97 @@ struct SidebarShell: View {
         }
     }
 
-    private var menuButton: some View {
-        Button {
-            setOpen(true)
-        } label: {
-            // Glass circle, Standard tier (§8.3, §7.1). No stroke (S2) — the
-            // material and its shadow are the separation.
-            Image(systemName: "line.3.horizontal")
-                .font(.system(size: ControlTier.standard.glyph, weight: .medium))
-                .foregroundStyle(Ink.primary)
-                .frame(width: ControlTier.standard.height,
-                       height: ControlTier.standard.height)
-                .floatingChrome(in: Circle())
-        }
-        .accessibilityLabel("Show navigation")
+    // MARK: - Peel mechanics
+
+    /// Where the card would sit with no finger down.
+    private var restingOffset: CGFloat { isCardPresented ? 0 : width }
+
+    private var cardOffset: CGFloat {
+        guard width > 0 else { return 0 }
+        return PeelGeometry.offset(
+            base: restingOffset,
+            translation: dragTranslation ?? 0,
+            width: width
+        )
     }
 
-    // MARK: - Slide math
-
-    private var panelX: CGFloat {
-        let base = isOpen ? 0 : -panelWidth
-        return min(0, max(-panelWidth, base + dragOffset))
-    }
-
-    /// 0 = fully closed, 1 = fully open. Drives the scrim, shadow and the
-    /// floating button's fade so a partial drag looks continuous.
     private var progress: CGFloat {
-        (panelX + panelWidth) / panelWidth
+        PeelGeometry.progress(offset: cardOffset, width: width)
     }
 
-    private var openDrag: some Gesture {
-        DragGesture(minimumDistance: 8)
-            .onChanged { value in
-                guard !isOpen else { return }
-                dragOffset = max(0, value.translation.width)
-            }
-            .onEnded { value in
-                let projected = value.translation.width + value.predictedEndTranslation.width / 4
-                setOpen(projected > panelWidth / 3)
-            }
+    private var peelAnimation: Animation {
+        Motion.resolve(Motion.standard, reduceMotion: reduceMotion)
     }
 
-    private var closeDrag: some Gesture {
-        DragGesture(minimumDistance: 8)
-            .onChanged { value in
-                guard isOpen else { return }
-                dragOffset = min(0, value.translation.width)
-            }
-            .onEnded { value in
-                let projected = value.translation.width + value.predictedEndTranslation.width / 4
-                setOpen(projected > -panelWidth / 3)
-            }
-    }
-
-    private func setOpen(_ open: Bool) {
-        withAnimation(.snappy(duration: 0.28)) {
-            isOpen = open
-            dragOffset = 0
+    private func endPeel(translation: CGFloat, velocity: CGFloat) {
+        let landed = PeelGeometry.offset(
+            base: restingOffset, translation: translation, width: width
+        )
+        let peels = PeelGeometry.shouldPeel(offset: landed, velocity: velocity, width: width)
+        withAnimation(peelAnimation) {
+            dragTranslation = nil
+            isCardPresented = !peels
         }
     }
 
-    /// Maps the legacy tab identity (still set by the deep-link handler) onto a
-    /// sidebar destination.
-    static func destination(for tab: AppModel.Tab) -> SidebarDestination {
-        switch tab {
-        case .library:    return .library
-        case .feeds:      return .allItems
-        case .highlights: return .highlights
-        case .search:     return .search
+    /// Peel to the sidebar (the toolbar chevron, and VoiceOver's route).
+    private func peel() {
+        withAnimation(peelAnimation) {
+            dragTranslation = nil
+            isCardPresented = false
         }
+    }
+
+    /// Show a group: the card slides back over the sidebar with that group at
+    /// the root of a fresh stack.
+    private func show(_ destination: SidebarDestination) {
+        if destination != selection {
+            path = NavigationPath()
+            selection = destination
+        }
+        withAnimation(peelAnimation) {
+            dragTranslation = nil
+            isCardPresented = true
+        }
+    }
+
+    // MARK: - Deep links
+
+    /// `readlater://open?id=…` and `readlater://save?url=…` both end here.
+    /// The article is layer 2, so the layers beneath it have to be right
+    /// before it lands: Library at layer 1, card presented over the sidebar,
+    /// and a stack with exactly the article on it — so the reader's back-swipe
+    /// returns to Library and a second peel reaches the sidebar.
+    private func handlePendingOpen() async {
+        guard let id = appModel.pendingArticleToOpen else { return }
+        selection = .library
+        show(.library)
+
+        // Poll briefly: the deep-link handler drains PendingSaves before
+        // setting this ID, but SwiftData's fetch may take a beat to surface
+        // the freshly-inserted row.
+        for _ in 0..<40 {
+            if let target = fetchArticle(id: id) {
+                path = NavigationPath()
+                path.append(target)
+                appModel.pendingArticleToOpen = nil
+                return
+            }
+            try? await Task.sleep(nanoseconds: 100_000_000) // 100ms
+        }
+        appModel.pendingArticleToOpen = nil
+    }
+
+    private func fetchArticle(id: UUID) -> Article? {
+        var descriptor = FetchDescriptor<Article>(predicate: #Predicate { $0.id == id })
+        descriptor.fetchLimit = 1
+        return try? context.fetch(descriptor).first
     }
 }
 
-/// Hosts the existing `FeedEntriesView` (all-items river or one feed) in its
-/// own NavigationStack, with the same Article → ReaderView destination the
-/// Feeds tab installs. Reuse only — no fork of the entry list.
-struct SidebarFeedContainer: View {
-    let feed: Feed?
-    @State private var path = NavigationPath()
-
-    var body: some View {
-        NavigationStack(path: $path) {
-            FeedEntriesView(feed: feed, path: $path)
-                .navigationDestination(for: Article.self) { article in
-                    ReaderView(article: article)
-                }
-        }
+private struct ShellWidthKey: PreferenceKey {
+    static var defaultValue: CGFloat = 0
+    static func reduce(value: inout CGFloat, nextValue: () -> CGFloat) {
+        value = max(value, nextValue())
     }
 }
