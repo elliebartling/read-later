@@ -10,13 +10,13 @@ import UIKit
 // in a `ZStack` so one of them had no disclosure at all. They are the same
 // information class — "things you might read" — so they get one component.
 //
-//     [unread rail] [ title (2 lines max) ]                [thumbnail]
-//                   [ summary (2 lines, optional) ]        [ 96×54 ]
-//                   [ meta · meta · meta ]
+//     [ title (2 lines max) ]                              [thumbnail]
+//     [ summary (2 lines, optional) ]                       [ 96×54 ]
+//     [ meta · meta · meta ]
 //
 // Library, All Items, per-feed lists and Search all render this. The source
-// identity mark (BR1/BR2, wave 3) rides in the `identity` slot, between the
-// rail and the text column.
+// identity mark (BR1/BR2, wave 3) rides in the `identity` slot, ahead of the
+// text column.
 
 /// **R2.** The metadata line: one `.caption` line, `Ink.tertiary`, fields
 /// joined by `" · "`, no glyphs (I5). The field order is fixed and identical
@@ -86,9 +86,18 @@ struct RowThumbnail: View {
 /// The one row component. `Identity` is the leading source mark (a
 /// `FaviconTile`, or `EmptyView` for a list whose rows are all one source).
 struct ReadableRow<Identity: View>: View {
-    /// **R1.** The unread signal is one thing: a 3pt `Accent.primary` leading
-    /// rail at inset 0. Not a dot, not a colour change, not both — a read row
-    /// drops the rail and shifts the title to `Ink.secondary`.
+    /// **R1 (amended, Ellen's review of PR #73).** The unread signal is *no
+    /// added chrome at all*. An unread row is simply the row at full ink; a
+    /// read row recedes — title to `Ink.secondary` at regular weight, thumbnail
+    /// faded. The original R1 drew a 3pt `Accent.primary` leading rail at inset
+    /// 0; in an all-unread list the per-row rails merged into one bar hugging
+    /// the container card's rounded left edge, and a one-sided border on a
+    /// rounded card is never right. It also had no job the title tone was not
+    /// already doing. Deleted rather than thinned.
+    ///
+    /// (The Highlights passage rail is a different thing and stays: it is
+    /// *inside* its card and it carries the marker colour, which no other
+    /// element encodes.)
     let isUnread: Bool
     let title: String
     var summary: String?
@@ -110,48 +119,39 @@ struct ReadableRow<Identity: View>: View {
     private var isAccessibilitySize: Bool { dynamicTypeSize >= .accessibility1 }
 
     var body: some View {
-        HStack(spacing: 0) {
-            rail
-            HStack(alignment: .top, spacing: 12) {
-                identity()
-                VStack(alignment: .leading, spacing: 4) {
-                    // §4.3 row title: `.body`, semibold unread / regular read,
-                    // 2 lines max.
-                    Text(title)
-                        .font(.body.weight(isUnread ? .semibold : .regular))
-                        .foregroundStyle(isUnread ? Ink.primary : Ink.secondary)
+        HStack(alignment: .top, spacing: 12) {
+            identity()
+            VStack(alignment: .leading, spacing: 4) {
+                // §4.3 row title: `.body`, semibold unread / regular read,
+                // 2 lines max. R1 (amended) — this tone shift *is* the read
+                // signal; nothing else marks it.
+                Text(title)
+                    .font(.body.weight(isUnread ? .semibold : .regular))
+                    .foregroundStyle(isUnread ? Ink.primary : Ink.secondary)
+                    .lineLimit(2)
+                if let summary, !summary.isEmpty {
+                    Text(summary)
+                        .font(.subheadline)
+                        .foregroundStyle(Ink.secondary)
+                        .lineSpacing(2)
                         .lineLimit(2)
-                    if let summary, !summary.isEmpty {
-                        Text(summary)
-                            .font(.subheadline)
-                            .foregroundStyle(Ink.secondary)
-                            .lineSpacing(2)
-                            .lineLimit(2)
-                    }
-                    metaLine
                 }
-                .frame(maxWidth: .infinity, minHeight: minimumTextHeight, alignment: .topLeading)
-                if reservesThumbnail, !isAccessibilitySize {
-                    RowThumbnail(url: thumbnailURL)
-                }
+                metaLine
             }
-            .padding(.horizontal, Metric.containerPadding)
-            .padding(.vertical, Metric.rowVerticalPadding)
+            .frame(maxWidth: .infinity, minHeight: minimumTextHeight, alignment: .topLeading)
+            if reservesThumbnail, !isAccessibilitySize {
+                RowThumbnail(url: thumbnailURL)
+                    // R1 (amended) — a read row recedes as a whole, image
+                    // included. Opacity, not a second colour.
+                    .opacity(isUnread ? 1 : RowLayout.readThumbnailOpacity)
+            }
         }
+        .padding(.horizontal, Metric.containerPadding)
+        .padding(.vertical, Metric.rowVerticalPadding)
         .frame(maxWidth: .infinity, alignment: .leading)
         .contentShape(Rectangle())
         .accessibilityElement(children: .combine)
         .accessibilityValue(isUnread ? Text("Unread") : Text("Read"))
-    }
-
-    /// **R1.** Full row height, inset 0. Always laid out — the read state
-    /// changes its colour, never the row's geometry.
-    private var rail: some View {
-        Rectangle()
-            .fill(isUnread ? Accent.primary : .clear)
-            .frame(width: RowRail.width)
-            .frame(maxHeight: .infinity)
-            .accessibilityHidden(true)
     }
 
     @ViewBuilder
@@ -177,21 +177,23 @@ struct ReadableRow<Identity: View>: View {
     }
 }
 
-/// Geometry shared by the row and the lists that host it: **R1**'s rail must
-/// sit at inset 0, so a `pageList()` row's `listRowInsets` are zero and the
-/// row owns its own padding.
-enum RowRail {
-    static let width: CGFloat = 3
-
+/// Geometry shared by the row and the lists that host it: the row measures its
+/// own padding (`Metric.containerPadding`), so the list must not add a second
+/// set on top of it.
+enum RowLayout {
     /// A `ReadableRow` measures its own insets, so the list must not add any.
     static let listRowInsets = EdgeInsets(top: 0, leading: 0, bottom: 0, trailing: 0)
+
+    /// **R1 (amended).** How far a read row's thumbnail recedes. Enough to
+    /// read as "done", not so far that the image becomes a smudge.
+    static let readThumbnailOpacity: Double = 0.7
 }
 
 extension View {
     /// A `ReadableRow` inside a `pageList()`: zero list insets (the row owns
-    /// its padding so R1's rail reaches inset 0) on the E1 container fill.
+    /// its padding) on the E1 container fill.
     func readableRowStyle() -> some View {
-        listRowInsets(RowRail.listRowInsets)
+        listRowInsets(RowLayout.listRowInsets)
             .containerRow()
     }
 }

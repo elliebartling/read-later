@@ -13,8 +13,9 @@ struct ArticleRow: View {
 
     var body: some View {
         ReadableRow(
-            // R1 — unread is one signal. An article is unread until it is
-            // opened; the rail carries that, and the title tone follows it.
+            // R1 (amended) — an article is unread until it is opened, and the
+            // row says so by *not* receding: full-ink title, full-strength
+            // thumbnail. Read rows dim. No rail, no dot, no badge.
             isUnread: article.readAt == nil,
             title: article.title,
             summary: nil,

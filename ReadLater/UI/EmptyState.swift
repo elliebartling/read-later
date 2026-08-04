@@ -11,7 +11,7 @@ import SwiftUI
 //
 //  - **E1** the empty state is always an `.overlay` on the scroll view,
 //    centred in the viewport. Never a list row, never boxed in a card.
-//  - **E2** structure: a 64pt line-art mark, a Lexend display-small title, one
+//  - **E2** structure: a 64pt line-art mark, a display-small title, one
 //    sentence naming the mechanism, and — if the copy names an action — that
 //    action as a prominent capsule.
 //  - **E3** failure states get `Semantic.warning`; empty states get no colour
@@ -53,9 +53,9 @@ struct EmptyStateView: View {
                 .accessibilityHidden(true)
             VStack(spacing: 8) {
                 Text(title)
-                    // §4.3 — empty-state titles are display tier (Lexend
-                    // display-small), the one place in a list surface that is
-                    // not SF Pro.
+                    // §4.3 — empty-state titles are display tier. Since
+                    // Ellen's review of PR #73 that tier is system type; the
+                    // modifier stays so a future type pass has one seam.
                     .displayType(DisplayType.displaySmall)
                     .foregroundStyle(Ink.primary)
                     .multilineTextAlignment(.center)

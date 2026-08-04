@@ -286,8 +286,9 @@ private struct FeedEntryRow: View {
 
     var body: some View {
         ReadableRow(
-            // R1 — one unread signal. The 8pt leading dot AND the title colour
-            // change (two signals for one fact) are both replaced by the rail.
+            // R1 (amended) — one unread signal, and it is the quietest one
+            // available. The 8pt leading dot is gone; what remains is the read
+            // row receding (title tone + faded thumbnail). No added chrome.
             isUnread: !entry.isRead,
             title: entry.title.isEmpty ? (entry.url?.absoluteString ?? "Untitled") : entry.title,
             summary: entry.summary,
