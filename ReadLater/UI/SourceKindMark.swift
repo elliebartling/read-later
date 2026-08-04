@@ -112,7 +112,10 @@ struct SourceKindChip: View {
     var tier: ControlTier = .small
 
     var body: some View {
-        Circle()
+        // Rounded square, matching `FaviconTile` — a source-kind chip and a
+        // subscription's artwork sit in the same column, so they share one
+        // geometry (Ellen, build 43: "closer to Reeder and Craft").
+        RoundedRectangle(cornerRadius: Radius.faviconTile, style: .continuous)
             .fill(kind.tint)
             .frame(width: tier.height, height: tier.height)
             .overlay {

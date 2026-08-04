@@ -111,8 +111,18 @@ struct FaviconTile: View {
                     }
                     .clipShape(.rect(cornerRadius: Radius.faviconTile, style: .continuous))
             } else {
-                // BR2 — monogram fallback.
-                Circle()
+                // BR2 — monogram fallback, on the SAME tile geometry as the
+                // favicon it stands in for.
+                //
+                // **Deviation from BR2, on Ellen's instruction (build 43
+                // review).** The constitution specifies a circle here. Ellen
+                // asked for the sidebar to sit closer to Reeder and Craft,
+                // whose source artwork is small rounded squares, and a column
+                // that alternates squares (sites with a favicon) and circles
+                // (sites without) is exactly the mixed-fidelity column BR1's
+                // tile exists to prevent. One geometry, two fills: real
+                // artwork on `Surface.control`, monogram on the source hue.
+                RoundedRectangle(cornerRadius: Radius.faviconTile, style: .continuous)
                     .fill(tint)
                     .overlay {
                         Text(SourceIdentity.monogram(title: title, host: host))
