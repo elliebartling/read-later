@@ -186,12 +186,49 @@ enum HighlightMarker {
 
 /// Transient machine state — reading position (TTS) and search matches. No hue
 /// at all, so a coloured band behind a paragraph always means the user put it
-/// there. Wave 3 wires this into the readers (H5).
+/// there. Wave 3 wires this into both readers (H5).
 enum SystemState {
     static let washUI = UIColor.scheme(dark: 0x31_2F2C, light: 0xE9_E7E5)
     static let wash = Color(uiColor: washUI)
     /// Width of the `Accent.primary` leading rail that accompanies the wash.
     static let railWidth: CGFloat = 3
+
+    /// The luminance step the wash makes from the page it sits on: **darker**
+    /// on a light page, **lighter** on a dark one, equal on every channel so no
+    /// hue is introduced (§2.2, "a luminance wash only").
+    ///
+    /// 16/255 is read straight off the token pair — `Surface.ground` `#211F1C`
+    /// → `#312F2C` is exactly +16 on all three channels, and `#F8F6F5` →
+    /// `#E9E7E5` is −15/−15/−16.
+    static let washStep: CGFloat = 16.0 / 255.0
+
+    /// The wash over an arbitrary reader page.
+    ///
+    /// §2.2 specifies the wash against `Surface.ground`, but the reader has
+    /// eight hand-tuned papers (T1/T2) and the wash has to work on all of them;
+    /// a fixed `#E9E7E5` band over sepia would be exactly the "coloured band"
+    /// the section forbids. So the *step* is the token and the paper is the
+    /// base: over `Surface.ground` this reproduces `SystemState.wash` to within
+    /// 1/255, and over every other paper it stays hueless.
+    ///
+    /// `darkBackground` is the reader theme's own darkness, not the UI scheme —
+    /// a light-mode app can be showing a dark paper.
+    static func washUI(overPaper paper: UIColor, darkBackground: Bool) -> UIColor {
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 1
+        guard paper.getRed(&r, green: &g, blue: &b, alpha: &a) else { return paper }
+        let step = darkBackground ? washStep : -washStep
+        func shift(_ c: CGFloat) -> CGFloat { min(1, max(0, c + step)) }
+        return UIColor(red: shift(r), green: shift(g), blue: shift(b), alpha: 1)
+    }
+
+    /// The wash's companion rail, resolved for the reader page's darkness
+    /// rather than the UI scheme. **A1** — it is `Accent.primary`, never
+    /// `Ink.primary`, because it marks machine state on the page.
+    static func railUI(darkBackground: Bool) -> UIColor {
+        Accent.primaryUI.resolvedColor(
+            with: UITraitCollection(userInterfaceStyle: darkBackground ? .dark : .light)
+        )
+    }
 }
 
 // MARK: - §7.1 Control tiers

@@ -42,11 +42,19 @@ struct FeedEntriesView: View {
                 .containerRow()
                 .accessibilityLabel("Loading")
             } else if let message = emptyStateMessage {
-                ContentUnavailableView(
-                    message.title,
-                    systemImage: message.icon,
-                    description: message.description.map(Text.init)
-                )
+                // E3 — a *failed* refresh is a failure state and gets
+                // `Semantic.warning`; an empty-but-healthy feed gets no colour
+                // at all.
+                ContentUnavailableView {
+                    Label {
+                        Text(message.title)
+                    } icon: {
+                        Image(systemName: message.icon)
+                            .foregroundStyle(refreshFailed ? Semantic.warning : Ink.tertiary)
+                    }
+                } description: {
+                    if let description = message.description { Text(description) }
+                }
                 .listRowSeparator(.hidden)
                 .containerRow()
             }

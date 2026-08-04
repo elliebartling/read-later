@@ -33,29 +33,16 @@ struct HighlightEditSheet: View {
         NavigationStack {
             Form {
                 Section("Color") {
-                    HStack(spacing: 18) {
-                        ForEach(HighlightColor.allCases) { color in
-                            Button {
-                                highlight.color = color
-                                lastHighlightColorRaw = color.rawValue
-                            } label: {
-                                Circle()
-                                    .fill(color.swiftUIColor)
-                                    .frame(width: 32, height: 32)
-                                    .overlay {
-                                        if highlight.color == color {
-                                            Image(systemName: "checkmark")
-                                                .font(.footnote.weight(.bold))
-                                                .foregroundStyle(HighlightMarker.onMarker)
-                                        }
-                                    }
-                            }
-                            .buttonStyle(.plain)
-                            .accessibilityLabel(color.displayName)
-                            .accessibilityAddTraits(highlight.color == color ? .isSelected : [])
-                        }
-                    }
-                    .frame(maxWidth: .infinity)
+                    // H1 — the one swatch component. This sheet is now the
+                    // app's only highlight-colour picker; the reader's
+                    // text-list menu was deleted in wave 3 and routes here.
+                    HighlightSwatchRow(
+                        selection: Binding(
+                            get: { highlight.color },
+                            set: { highlight.color = $0 }
+                        ),
+                        onPick: { lastHighlightColorRaw = $0.rawValue }
+                    )
                 }
                 Section("Note") {
                     TextField("Why does this matter?", text: $note, axis: .vertical)

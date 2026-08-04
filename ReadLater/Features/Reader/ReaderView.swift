@@ -6,6 +6,17 @@ struct ReaderView: View {
     @Environment(\.colorScheme) private var colorScheme
     @Query private var settingsRows: [AppSettings]
     let article: Article
+    /// Open at this UTF-16 offset into `plainText` instead of the article's
+    /// saved reading position. Set when the reader is pushed *at a passage* —
+    /// tapping a row in the Highlights destination (R6). Same offset space as
+    /// `readingCharacterOffset` and every highlight anchor, so both readers
+    /// honour it through the one `initialCharacterOffset` they already take.
+    var scrollToOffset: Int? = nil
+
+    /// Where the reader lands on open.
+    private var openingOffset: Int {
+        scrollToOffset ?? article.readingCharacterOffset
+    }
 
     @State private var tts = TTSController()
     @State private var editingHighlight: Highlight?
@@ -364,7 +375,6 @@ struct ReaderView: View {
                     editingHighlightID: editingHighlight?.id,
                     onCreateHighlight: createHighlight,
                     onUpdateHighlight: updateHighlight,
-                    onRecolorHighlight: recolorHighlight,
                     onDeleteHighlight: deleteHighlight,
                     onRequestNote: { id in
                         focusNoteOnAppear = true
@@ -381,7 +391,7 @@ struct ReaderView: View {
                     // `readingCharacterOffset`, so switching readers keeps the
                     // spot (AGENTS.md, "There are two readers").
                     onTopCharacterOffset: { latestTopOffset = $0 },
-                    initialCharacterOffset: article.readingCharacterOffset,
+                    initialCharacterOffset: openingOffset,
                     onTap: {
                         withAnimation(Self.chromeAnimation) { chromeVisible.toggle() }
                     }
@@ -409,7 +419,6 @@ struct ReaderView: View {
                     editingHighlightID: editingHighlight?.id,
                     onCreateHighlight: createHighlight,
                     onUpdateHighlight: updateHighlight,
-                    onRecolorHighlight: recolorHighlight,
                     onDeleteHighlight: deleteHighlight,
                     onRequestNote: { id in
                         focusNoteOnAppear = true
@@ -421,7 +430,7 @@ struct ReaderView: View {
                     },
                     onScrollProgress: handleScrollProgress,
                     onTopCharacterOffset: { latestTopOffset = $0 },
-                    initialCharacterOffset: article.readingCharacterOffset,
+                    initialCharacterOffset: openingOffset,
                     onTap: {
                         // Drive the chrome from a single explicit animation so both
                         // directions match. A redundant implicit `.animation(value:)`
@@ -457,7 +466,15 @@ struct ReaderView: View {
 
     private var failedState: some View {
         ContentUnavailableView {
-            Label("Couldn't parse this page", systemImage: "exclamationmark.triangle")
+            // E3 / R7 — failure states get `Semantic.warning`; this is the
+            // same glyph and the same hue the Library row now shows, so a
+            // failed article looks the same wherever you meet it.
+            Label {
+                Text("Couldn't parse this page")
+            } icon: {
+                Image(systemName: "exclamationmark.triangle")
+                    .foregroundStyle(Semantic.warning)
+            }
         } description: {
             Text("The extractor didn't find readable content on \(article.url?.host ?? "this page").")
         } actions: {
@@ -730,14 +747,6 @@ struct ReaderView: View {
             h.quotedText = quotedText
         }
         try? context.save()
-    }
-
-    private func recolorHighlight(id: UUID, color: HighlightColor) {
-        guard let h = findHighlight(id) else { return }
-        h.color = color
-        lastHighlightColorRaw = color.rawValue
-        try? context.save()
-        Task { exportToObsidian(silent: true) }
     }
 
     private func deleteHighlight(id: UUID) {

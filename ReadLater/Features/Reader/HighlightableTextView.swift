@@ -11,8 +11,9 @@ import QuartzCore
 ///    about to appear. (Do NOT attach a separate UIEditMenuInteraction —
 ///    UITextView owns its edit menu and never consults an extra interaction,
 ///    so custom items would simply never show.)
-/// 3. Presents a post-highlight edit menu over the selection: Color submenu,
-///    Add Note, Remove Highlight, plus the system actions (Copy, Share, …).
+/// 3. Presents a post-highlight edit menu over the selection: Color (which
+///    opens the edit sheet's swatch row — H1 deleted the text-only colour
+///    list), Add Note, Remove Highlight, plus the system actions.
 ///    Dragging the selection handles updates the same highlight instead of
 ///    creating duplicates — the coordinator tracks the "session" highlight ID
 ///    until the selection collapses.
@@ -23,8 +24,10 @@ import QuartzCore
 /// 5. Reports scroll progress (0...1) so the reader can mark articles read
 ///    when the user actually reaches the end.
 ///
-/// The current paragraph (spoken by TTS) can also be tinted by supplying
-/// `currentSpokenRange` — offsets are UTF-16, same as highlight offsets.
+/// The current paragraph (spoken by TTS) can also be marked by supplying
+/// `currentSpokenRange` — offsets are UTF-16, same as highlight offsets. It
+/// renders as the hueless `SystemState` wash plus an `Accent.primary` leading
+/// rail (H5), never as a tint that could be mistaken for a user's highlight.
 struct HighlightableTextView: UIViewRepresentable {
 
     struct HighlightIntent: Equatable {
@@ -62,7 +65,6 @@ struct HighlightableTextView: UIViewRepresentable {
     let onCreateHighlight: (HighlightIntent) -> UUID?
     /// The selection handles were dragged: update the session highlight's range.
     let onUpdateHighlight: (UUID, NSRange, String) -> Void
-    let onRecolorHighlight: (UUID, HighlightColor) -> Void
     let onDeleteHighlight: (UUID) -> Void
     let onRequestNote: (UUID) -> Void
     /// A single tap landed on an existing highlight.
@@ -145,6 +147,13 @@ struct HighlightableTextView: UIViewRepresentable {
         // Enter / leave sheet-edit mode: select the highlight so drag handles
         // appear, or collapse the selection when editing ends.
         context.coordinator.applyEditingSelectionIfNeeded()
+
+        // H5 — the wash is a text attribute (see `render()`); its rail is
+        // geometry, so it lives on the text view.
+        if let reader = tv as? ReaderTextView {
+            reader.spokenRailColor = SystemState.railUI(darkBackground: theme.isDark)
+            reader.spokenRailRange = currentSpokenRange
+        }
 
         // Keep the spoken paragraph on screen as TTS advances.
         if currentSpokenRange?.location != context.coordinator.lastSpokenLocation {
@@ -286,11 +295,18 @@ struct HighlightableTextView: UIViewRepresentable {
             }
         }
 
+        // **H5.** Reading position is machine state, not annotation. It used to
+        // paint a pale yellow band — visually identical to a yellow highlight,
+        // so while listening you couldn't tell your own marks from the cursor
+        // (audit theme 7). It is now the hueless `SystemState` wash, derived
+        // from this page's own paper, plus the leading rail drawn by
+        // `ReaderTextView`.
         if let range = currentSpokenRange, range.location + range.length <= (text as NSString).length {
-            let spokenTint: UIColor = darkBackground
-                ? UIColor(white: 1, alpha: 0.14)
-                : UIColor.systemYellow.withAlphaComponent(0.16)
-            str.addAttribute(.backgroundColor, value: spokenTint, range: range)
+            let wash = SystemState.washUI(
+                overPaper: theme.background,
+                darkBackground: darkBackground
+            )
+            str.addAttribute(.backgroundColor, value: wash, range: range)
         }
         return str
     }
@@ -310,7 +326,6 @@ struct HighlightableTextView: UIViewRepresentable {
         /// session ends when the selection collapses to zero length (unless
         /// sheet-edit mode is holding it open via `editingHighlightID`).
         private var activeHighlightID: UUID?
-        private var activeColor: HighlightColor?
         /// Last `editingHighlightID` we applied a selection for — avoids
         /// re-selecting on every SwiftUI tick while the sheet is open.
         private var appliedEditingHighlightID: UUID?
@@ -542,7 +557,6 @@ struct HighlightableTextView: UIViewRepresentable {
 
             let range = NSRange(located.range, in: parent.text)
             activeHighlightID = id
-            activeColor = h.color
             suppressSelectionChange = true
             tv.selectedRange = range
             suppressSelectionChange = false
@@ -585,28 +599,20 @@ struct HighlightableTextView: UIViewRepresentable {
                     return UIMenu(children: suggestedActions)
                 }
                 activeHighlightID = id
-                // Creation can merge into an existing highlight, which keeps
-                // its own color — sync the menu checkmark to the survivor.
-                activeColor = HighlightMerge.sessionColor(
-                    forCreated: id,
-                    existing: parent.highlights.map { ($0.id, $0.color) },
-                    defaultColor: parent.defaultColor
-                )
                 highlightID = id
             }
 
-            let colorActions = HighlightColor.allCases.map { color in
-                UIAction(title: color.displayName,
-                         state: color == activeColor ? .on : .off) { [weak self] _ in
-                    self?.activeColor = color
-                    self?.parent?.onRecolorHighlight(highlightID, color)
-                }
-            }
-            let colorMenu = UIMenu(
+            // H1 — the text-only colour list ("Yellow / Green / Blue / Pink",
+            // showing no colour at all) is deleted. `Color` opens the edit
+            // sheet, whose swatch row is the app's only picker. Both readers
+            // make the same move; a change here must land in the block
+            // reader's menu too (AGENTS.md, "There are two readers").
+            let color = UIAction(
                 title: "Color",
-                image: UIImage(systemName: "highlighter"),
-                children: colorActions
-            )
+                image: UIImage(systemName: "highlighter")
+            ) { [weak self] _ in
+                self?.parent?.onTapHighlight(highlightID)
+            }
             let addNote = UIAction(
                 title: "Add Note",
                 image: UIImage(systemName: "note.text.badge.plus")
@@ -623,7 +629,7 @@ struct HighlightableTextView: UIViewRepresentable {
                 self?.endSession(collapseSelection: true)
                 self?.parent?.onDeleteHighlight(highlightID)
             }
-            return UIMenu(children: [colorMenu, addNote, remove] + suggestedActions)
+            return UIMenu(children: [color, addNote, remove] + suggestedActions)
         }
 
         func textViewDidChangeSelection(_ textView: UITextView) {
@@ -640,14 +646,12 @@ struct HighlightableTextView: UIViewRepresentable {
             // on every pixel of movement.
             if textView.selectedRange.length == 0, parent?.editingHighlightID == nil {
                 activeHighlightID = nil
-                activeColor = nil
             }
         }
 
         /// Forgets the session highlight, optionally collapsing the selection.
         private func endSession(collapseSelection: Bool) {
             activeHighlightID = nil
-            activeColor = nil
             guard collapseSelection, let tv = textView, tv.selectedRange.length > 0 else { return }
             suppressSelectionChange = true
             tv.selectedRange = NSRange(location: tv.selectedRange.location, length: 0)
@@ -718,6 +722,69 @@ final class ReaderTextView: SelectionWashHidingTextView {
     /// coordinator uses it to restore the saved reading position on first paint.
     var onLayout: (() -> Void)?
 
+    /// **H5.** The spoken paragraph's leading rail — the companion to the
+    /// hueless `SystemState` wash painted as a background attribute. UTF-16
+    /// range, nil when TTS is idle. The block reader draws the same rail in
+    /// SwiftUI; the two must stay in step (AGENTS.md, "There are two readers").
+    var spokenRailRange: NSRange? {
+        didSet { if spokenRailRange != oldValue { setNeedsLayout() } }
+    }
+
+    /// Rail colour, resolved for the reader *page's* darkness rather than the
+    /// UI scheme (a light-mode app can be showing a dark paper).
+    var spokenRailColor: UIColor = SystemState.railUI(darkBackground: false) {
+        didSet { railLayer.backgroundColor = spokenRailColor.cgColor }
+    }
+
+    /// Gap between the rail and the text column's leading edge.
+    private static let railGap: CGFloat = 8
+
+    private lazy var railLayer: CALayer = {
+        let layer = CALayer()
+        layer.cornerRadius = SystemState.railWidth / 2
+        layer.cornerCurve = .continuous
+        layer.isHidden = true
+        // Not `.zero` — the layer lives in the scroll view's content space, so
+        // it must not animate as the content scrolls under it.
+        layer.actions = ["position": NSNull(), "bounds": NSNull(), "hidden": NSNull()]
+        self.layer.addSublayer(layer)
+        return layer
+    }()
+
+    /// Places (or hides) the rail beside the spoken range. Uses UITextInput
+    /// geometry rather than the layout manager so it works identically under
+    /// TextKit 2 and the TextKit 1 compatibility fallback.
+    private func layoutSpokenRail() {
+        guard let range = spokenRailRange,
+              range.length > 0,
+              range.location + range.length <= (text as NSString).length,
+              let start = position(from: beginningOfDocument, offset: range.location),
+              let end = position(from: start, offset: range.length),
+              let textRange = self.textRange(from: start, to: end)
+        else {
+            railLayer.isHidden = true
+            return
+        }
+        let rects = selectionRects(for: textRange)
+            .map(\.rect)
+            .filter { $0.height > 0 && $0.width.isFinite && $0.origin.y.isFinite }
+        guard let first = rects.first else {
+            railLayer.isHidden = true
+            return
+        }
+        let minY = rects.reduce(first.minY) { min($0, $1.minY) }
+        let maxY = rects.reduce(first.maxY) { max($0, $1.maxY) }
+        let x = max(2, textContainerInset.left - SystemState.railWidth - Self.railGap)
+        railLayer.backgroundColor = spokenRailColor.cgColor
+        railLayer.frame = CGRect(
+            x: x,
+            y: minY,
+            width: SystemState.railWidth,
+            height: max(SystemState.railWidth, maxY - minY)
+        )
+        railLayer.isHidden = false
+    }
+
     override func layoutSubviews() {
         // Re-assert the reader insets on EVERY layout pass, not only when the
         // safe area changes. UIKit can reset `textContainerInset` and
@@ -733,6 +800,7 @@ final class ReaderTextView: SelectionWashHidingTextView {
         // `super` (SelectionWashHidingTextView) lays out the text view and then
         // re-hides the selection wash; we only need to add the layout callback.
         super.layoutSubviews()
+        layoutSpokenRail()
         onLayout?()
     }
 

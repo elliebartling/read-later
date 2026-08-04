@@ -13,10 +13,15 @@ struct LibraryView: View {
         NavigationStack(path: $path) {
             List {
                 if !AppGroup.hasSharedContainer {
-                    Label(
-                        "Sharing is unavailable: the App Group isn't active for Read Later, so links shared from Safari can't reach the app. Enable the App Groups capability (group.com.ellenbartling.readlater) on the app target.",
-                        systemImage: "exclamationmark.triangle.fill"
-                    )
+                    // E3 — a failure state, so the glyph is `Semantic.warning`.
+                    // The prose stays `Ink.secondary`: the colour marks the
+                    // condition, it does not tint a paragraph (N3).
+                    Label {
+                        Text("Sharing is unavailable: the App Group isn't active for Read Later, so links shared from Safari can't reach the app. Enable the App Groups capability (group.com.ellenbartling.readlater) on the app target.")
+                    } icon: {
+                        Image(systemName: "exclamationmark.triangle")
+                            .foregroundStyle(Semantic.warning)
+                    }
                     .font(.footnote)
                     .foregroundStyle(Ink.secondary)
                     .listRowSeparator(.hidden)

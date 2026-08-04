@@ -35,7 +35,6 @@ struct BlockReaderView: View {
     // Same callback family as HighlightableTextView; ALL offsets are GLOBAL.
     let onCreateHighlight: (HighlightableTextView.HighlightIntent) -> UUID?
     let onUpdateHighlight: (UUID, NSRange, String) -> Void
-    let onRecolorHighlight: (UUID, HighlightColor) -> Void
     let onDeleteHighlight: (UUID) -> Void
     let onRequestNote: (UUID) -> Void
     let onTapHighlight: (UUID) -> Void
@@ -187,7 +186,6 @@ struct BlockReaderView: View {
                     editingHighlightID: editingHighlightID,
                     onCreateHighlight: onCreateHighlight,
                     onUpdateHighlight: onUpdateHighlight,
-                    onRecolorHighlight: onRecolorHighlight,
                     onDeleteHighlight: onDeleteHighlight,
                     onRequestNote: onRequestNote,
                     onTapHighlight: onTapHighlight,
