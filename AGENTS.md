@@ -34,7 +34,7 @@ CI ([.github/workflows/ci.yml](.github/workflows/ci.yml)) mirrors this: xcodegen
 
 Four targets (see [project.yml](project.yml)):
 
-1. **ReadLater** — main app. SwiftUI TabView (Library / Feeds / Highlights / Search / Settings) in `ReadLater/RootView.swift`; features under `ReadLater/Features/`, services under `ReadLater/Services/`.
+1. **ReadLater** — main app. Layered navigation (`ReadLater/Features/Sidebar/SidebarShell.swift`, hosted by `ReadLater/RootView.swift`): layer 0 the sidebar, layer 1 the group/list card over it (Library / All Items / a feed / Highlights / Search), layer 2 the reader pushed inside the card's `NavigationStack`. One edge gesture peels one layer. There is no tab bar. Features under `ReadLater/Features/`, services under `ReadLater/Services/`.
 2. **ShareExtension** — Share Sheet; writes a `PendingSave` JSON into the App Group container, then deep-links back via `readlater://open?id=<uuid>`.
 3. **SafariWebExtension** — MV3 extension (`SafariWebExtension/Resources/`); same `PendingSave` path.
 4. **ReadLaterTests** — XCTest unit tests.

@@ -172,14 +172,6 @@ private struct SettingsForm: View {
             }
 
             Section {
-                Toggle("Sidebar navigation (experiment)", isOn: $settings.useSidebarNavigation)
-            } header: {
-                Text("Experiments")
-            } footer: {
-                Text("Replaces the tab bar with a slide-in sidebar: Library and All Items on top, then subscriptions grouped by YouTube / Reddit / Websites. Swipe from the left edge or tap the button at the bottom-left to open it.")
-            }
-
-            Section {
                 // "Sign in with Reddit" (wave 2). Only shown once a client ID is
                 // configured (RedditAuthConfig.clientID); an unconfigured build
                 // hides the whole account row so there's no dead button.

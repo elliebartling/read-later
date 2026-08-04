@@ -89,6 +89,9 @@ struct FeedEntriesView: View {
         .pageList()
         .navigationTitle(title)
         .navigationBarTitleDisplayMode(.inline)
+        // A feed (or All Items) is a layer-1 root reached from the sidebar, so
+        // its leading slot peels back to the sidebar (#57).
+        .sidebarBackToolbarItem()
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {

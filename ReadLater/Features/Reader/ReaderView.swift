@@ -134,7 +134,6 @@ struct ReaderView: View {
         // is specified for both schemes so the two can't diverge again (N7).
         .toolbarBackground(.regularMaterial, for: .navigationBar)
         .toolbarBackgroundVisibility(.visible, for: .navigationBar)
-        .toolbar(.hidden, for: .tabBar)
         .toolbar(showChrome ? .visible : .hidden, for: .navigationBar)
         .statusBarHidden(!showChrome)
         .toolbar(.hidden, for: .bottomBar)

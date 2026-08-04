@@ -1,10 +1,10 @@
 import SwiftUI
 import SwiftData
 
-/// The Highlights destination, rebuilt in wave 3 (§8.4 H2/H3, §8.1 R6).
+/// Layer 1 — the Highlights group. The shell owns the `NavigationStack`.
 ///
-/// The audit called this the weakest full surface in the app, for three
-/// reasons this view now answers:
+/// Rebuilt in wave 3 (§8.4 H2/H3, §8.1 R6). The audit called this the weakest
+/// full surface in the app, for three reasons this view now answers:
 ///
 ///  - **H3** highlights group by article, one header per article. Two
 ///    highlights from one post used to print its full title twice.
@@ -24,38 +24,37 @@ struct HighlightsView: View {
     }
 
     var body: some View {
-        NavigationStack {
-            List {
-                if highlights.isEmpty {
-                    ContentUnavailableView(
-                        "No highlights yet",
-                        systemImage: "highlighter",
-                        description: Text("Select text in the reader to highlight.")
-                    )
-                    .listRowSeparator(.hidden)
-                    .containerRow()
-                }
-                ForEach(groups) { group in
-                    Section {
-                        ForEach(group.highlights) { highlight in
-                            row(for: highlight)
-                        }
-                    } header: {
-                        // §4.3 section header: sentence case, never all-caps.
-                        Text(group.title)
-                            .font(.subheadline.weight(.semibold))
-                            .foregroundStyle(Ink.secondary)
-                            .textCase(nil)
-                            .lineLimit(2)
-                    }
-                }
+        List {
+            if highlights.isEmpty {
+                ContentUnavailableView(
+                    "No highlights yet",
+                    systemImage: "highlighter",
+                    description: Text("Select text in the reader to highlight.")
+                )
+                .listRowSeparator(.hidden)
+                .containerRow()
             }
-            .pageList()
-            .navigationTitle("Highlights")
-            .navigationDestination(for: HighlightPassage.self) { passage in
-                ReaderView(article: passage.article, scrollToOffset: passage.offset)
+            ForEach(groups) { group in
+                Section {
+                    ForEach(group.highlights) { highlight in
+                        row(for: highlight)
+                    }
+                } header: {
+                    // §4.3 section header: sentence case, never all-caps.
+                    Text(group.title)
+                        .font(.subheadline.weight(.semibold))
+                        .foregroundStyle(Ink.secondary)
+                        .textCase(nil)
+                        .lineLimit(2)
+                }
             }
         }
+        .pageList()
+        .navigationTitle("Highlights")
+        .navigationDestination(for: HighlightPassage.self) { passage in
+            ReaderView(article: passage.article, scrollToOffset: passage.offset)
+        }
+        .sidebarBackToolbarItem()
     }
 
     @ViewBuilder
