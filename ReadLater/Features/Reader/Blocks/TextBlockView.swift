@@ -349,7 +349,9 @@ private struct BlockTextRepresentable: UIViewRepresentable {
         let highlightSig = locatedRanges
             .map { "\($0.id.uuidString):\($0.range.location):\($0.range.length):\($0.color.rawValue)" }
             .joined(separator: "|")
-        return "\(textLength)|\(block.type.rawValue)|\(block.level ?? 0)|\(block.isQuoted)|\(theme.rawValue)|\(fontSize)|\(fontRaw)|\(lineSpacing)|\(highlightSig)"
+        let codeSig = (block.codeRanges ?? []).map { $0.map(String.init).joined(separator: "-") }
+            .joined(separator: ",")
+        return "\(textLength)|\(block.type.rawValue)|\(block.level ?? 0)|\(block.isQuoted)|\(block.markerBaked == true)|\(theme.rawValue)|\(fontSize)|\(fontRaw)|\(lineSpacing)|\(highlightSig)|\(codeSig)"
     }
 
     // MARK: - Rendering
@@ -371,12 +373,40 @@ private struct BlockTextRepresentable: UIViewRepresentable {
             break
         }
 
+        // **Hanging indent** (fix #4). A marker-baked list item renders its
+        // "• " / "3. " inline, so without this its wrapped lines align under
+        // the bullet and the item loses its shape. The plain reader applies the
+        // same measured indent over the same marker — one number, two readers.
+        let blockFont = font(for: block)
+        if block.type == .listItem, block.markerBaked == true,
+           let prefix = ArticleBlocks.bakedMarkerPrefix(text)
+        {
+            paragraphStyle.headIndent = ReaderTypography.markerWidth(prefix, font: blockFont)
+        }
+
         let attrs: [NSAttributedString.Key: Any] = [
-            .font: font(for: block),
+            .font: blockFont,
             .foregroundColor: foreground(for: block),
             .paragraphStyle: paragraphStyle,
         ]
         let str = NSMutableAttributedString(string: text, attributes: attrs)
+
+        // **Inline code** (fix #4). Same face and same wash the plain reader
+        // uses, and the same wash the block-level code panel is filled with.
+        // Applied BEFORE highlights so a highlight over a snippet still wins.
+        if let ranges = block.codeRanges, !ranges.isEmpty, block.type != .preformatted {
+            let codeFont = ReaderTypography.inlineCodeFont(bodySize: fontSize)
+            let wash = ReaderTypography.inlineCodeBackground(foreground: theme.foreground)
+            let length = (text as NSString).length
+            for pair in ranges {
+                guard pair.count == 2, pair[0] >= 0, pair[1] > 0,
+                      pair[0] + pair[1] <= length else { continue }
+                str.addAttributes(
+                    [.font: codeFont, .backgroundColor: wash],
+                    range: NSRange(location: pair[0], length: pair[1])
+                )
+            }
+        }
 
         let darkBackground = theme.isDark
         let length = (text as NSString).length
@@ -493,20 +523,17 @@ private struct BlockTextRepresentable: UIViewRepresentable {
             // is deleted and `Color` opens the edit sheet's swatch row, the
             // app's only picker. Keep the two menus identical.
             let color = UIAction(
-                title: "Color",
-                image: UIImage(systemName: "highlighter")
+                title: "Color"
             ) { [weak self] _ in
                 self?.parent?.onTapHighlight(highlightID)
             }
             let addNote = UIAction(
-                title: "Add Note",
-                image: UIImage(systemName: "note.text.badge.plus")
+                title: "Add note"
             ) { [weak self] _ in
                 self?.parent?.onRequestNote(highlightID)
             }
             let remove = UIAction(
-                title: "Remove Highlight",
-                image: UIImage(systemName: "trash"),
+                title: "Remove highlight",
                 attributes: .destructive
             ) { [weak self] _ in
                 self?.endSession(collapseSelection: true)

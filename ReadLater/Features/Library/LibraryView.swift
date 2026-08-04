@@ -18,6 +18,7 @@ struct LibraryView: View {
                     Text("Sharing is unavailable: the App Group isn't active for Read Later, so links shared from Safari can't reach the app. Enable the App Groups capability (group.com.ellenbartling.readlater) on the app target.")
                 } icon: {
                     Image(systemName: "exclamationmark.triangle")
+                        .uiGlyph(size: Font.GlyphSize.subheadline)
                         .foregroundStyle(Semantic.warning)
                 }
                 .font(.footnote)
@@ -25,25 +26,15 @@ struct LibraryView: View {
                 .listRowSeparator(.hidden)
                 .containerRow()
             }
-            if articles.isEmpty {
-                ContentUnavailableView(
-                    "No articles yet",
-                    systemImage: "books.vertical",
-                    description: Text("Share links from Safari, or tap + to paste one.")
-                )
-                .listRowSeparator(.hidden)
-                .containerRow()
-            }
             ForEach(articles) { article in
-                ZStack {
-                    NavigationLink(value: article) { EmptyView() }.opacity(0)
+                // **R6.** A real `NavigationLink` with the system disclosure.
+                // This used to be a `NavigationLink` hidden at `opacity(0)`
+                // behind the row in a `ZStack`, so Library rows had no chevron
+                // while the same `ArticleRow` in Search did.
+                NavigationLink(value: article) {
                     ArticleRow(article: article)
                 }
-                .listRowInsets(EdgeInsets(
-                    top: Metric.rowVerticalPadding, leading: Metric.containerPadding,
-                    bottom: Metric.rowVerticalPadding, trailing: Metric.containerPadding
-                ))
-                .containerRow()
+                .readableRowStyle()
                 .swipeActions(edge: .trailing) {
                     Button(role: .destructive) { delete(article) } label: {
                         Label("Delete", systemImage: "trash")
@@ -61,6 +52,10 @@ struct LibraryView: View {
             }
         }
         .pageList()
+        // **E1.** The empty state is an overlay centred in the viewport, never
+        // a list row — it used to sit high under the title while Search's
+        // equivalent was correctly centred.
+        .emptyStateOverlay(articles.isEmpty ? emptyState : nil)
         .navigationTitle("Library")
         // Leading slot is the back-to-sidebar affordance now; the Settings
         // gear that used to live here moved into the sidebar (#57).
@@ -68,9 +63,8 @@ struct LibraryView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showingAddSheet = true } label: {
-                    Image(systemName: "plus")
-                        .imageScale(.medium)
-                        .fontWeight(.medium)
+                    // I2/I4 — one weight, one scale, monochrome.
+                    Image(systemName: "plus").uiGlyph()
                 }
                 .accessibilityLabel("Add link")
             }
@@ -78,6 +72,18 @@ struct LibraryView: View {
         .sheet(isPresented: $showingAddSheet) {
             AddArticleSheet()
         }
+    }
+
+    /// **E2.** One sentence naming the mechanism, and the action the copy
+    /// names rendered as the screen's one prominent capsule.
+    private var emptyState: EmptyStateView {
+        EmptyStateView(
+            mark: "books.vertical",
+            title: "Nothing saved yet",
+            message: "Share a link from Safari, or paste one here, and it lands in your library ready to read.",
+            actionTitle: "Add a link",
+            action: { showingAddSheet = true }
+        )
     }
 
     private func delete(_ article: Article) {

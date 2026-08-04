@@ -92,7 +92,7 @@ struct ImageZoomViewer: View {
 
     private var failureLayer: some View {
         VStack(spacing: 12) {
-            Image(systemName: "photo")
+            Image(systemName: "photo").uiGlyph(size: Font.GlyphSize.emptyStateMark)
                 .font(.system(size: 44))
             Text("Couldn't load image")
                 .font(.callout)
@@ -104,8 +104,7 @@ struct ImageZoomViewer: View {
         Button { dismiss() } label: {
             // Glass circle, Standard tier (§8.3). `.ultraThinMaterial` is out
             // — S4 sets `.regularMaterial` as the floor for floating chrome.
-            Image(systemName: "xmark")
-                .font(.system(size: ControlTier.standard.glyph, weight: .medium))
+            Image(systemName: "xmark").uiGlyph()
                 .foregroundStyle(Ink.primary)
                 .frame(width: ControlTier.standard.height,
                        height: ControlTier.standard.height)

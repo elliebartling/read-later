@@ -21,6 +21,30 @@ enum SourceIdentity {
         host.hasPrefix("www.") ? String(host.dropFirst(4)) : host
     }
 
+    /// **R3.** The source string has ONE format, from ONE helper: `siteName`
+    /// if present, else the host with `www.` stripped.
+    ///
+    /// The audit found three formats in three adjacent Library rows —
+    /// `www.reddit.com`, `overreacted.io`, `YouTube` — because two call sites
+    /// each wrote their own `siteName ?? host`. Everything that needs a source
+    /// label goes through here now; a fourth format is a rule change, not a
+    /// local choice.
+    static func sourceString(siteName: String?, host: String?) -> String? {
+        if let siteName = siteName?.trimmingCharacters(in: .whitespacesAndNewlines),
+           !siteName.isEmpty {
+            return siteName
+        }
+        guard let host = host?.trimmingCharacters(in: .whitespacesAndNewlines),
+              !host.isEmpty else { return nil }
+        let stripped = strippingWWW(host)
+        return stripped.isEmpty ? nil : stripped
+    }
+
+    /// R3 for a saved article.
+    static func sourceString(for article: Article) -> String? {
+        sourceString(siteName: article.siteName, host: article.url?.host)
+    }
+
     /// The monogram for a source: the first letter or digit of its title,
     /// uppercased. Falls back to the host, then to a placeholder, so a row can
     /// always render something.
@@ -87,8 +111,18 @@ struct FaviconTile: View {
                     }
                     .clipShape(.rect(cornerRadius: Radius.faviconTile, style: .continuous))
             } else {
-                // BR2 — monogram fallback.
-                Circle()
+                // BR2 — monogram fallback, on the SAME tile geometry as the
+                // favicon it stands in for.
+                //
+                // **Deviation from BR2, on Ellen's instruction (build 43
+                // review).** The constitution specifies a circle here. Ellen
+                // asked for the sidebar to sit closer to Reeder and Craft,
+                // whose source artwork is small rounded squares, and a column
+                // that alternates squares (sites with a favicon) and circles
+                // (sites without) is exactly the mixed-fidelity column BR1's
+                // tile exists to prevent. One geometry, two fills: real
+                // artwork on `Surface.control`, monogram on the source hue.
+                RoundedRectangle(cornerRadius: Radius.faviconTile, style: .continuous)
                     .fill(tint)
                     .overlay {
                         Text(SourceIdentity.monogram(title: title, host: host))

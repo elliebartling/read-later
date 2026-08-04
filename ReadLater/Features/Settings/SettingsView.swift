@@ -36,14 +36,17 @@ private struct SettingsForm: View {
     var body: some View {
         Form {
             Section {
+                // **I5.** Settings rows get no icons. The audit found three
+                // different icon treatments in the first three sections —
+                // a monochrome grey cloud, a tinted blue person-key, then no
+                // icons at all — which is most of why Settings reads as three
+                // apps stacked. The label already carries the meaning (N3).
                 HStack {
-                    Image(systemName: syncStatus.isSyncing ? "checkmark.icloud" : "icloud.slash")
-                        .foregroundStyle(syncStatus.isSyncing ? Semantic.success : Ink.secondary)
                     Text(syncStatus.summary)
                     Spacer()
                 }
             } header: {
-                Text("iCloud Sync")
+                Text("iCloud sync")
             } footer: {
                 if let detail = syncStatus.detail {
                     Text(detail)
@@ -58,7 +61,8 @@ private struct SettingsForm: View {
                 NavigationLink {
                     SiteLoginsView()
                 } label: {
-                    Label("Site Logins", systemImage: "person.badge.key")
+                    // I5 — no row icon. T7 — sentence case.
+                    Text("Site logins")
                 }
             } header: {
                 Text("Privacy")
@@ -66,7 +70,7 @@ private struct SettingsForm: View {
                 Text("Sites you've signed into to read member-only articles. Sign out to clear a site's cookies on this device.")
             }
 
-            Section("Read Aloud") {
+            Section("Read aloud") {
                 Picker("Provider", selection: $settings.ttsProvider) {
                     ForEach(TTSProvider.allCases) { p in
                         Text(p.displayName).tag(p)
@@ -75,7 +79,7 @@ private struct SettingsForm: View {
                 switch settings.ttsProvider {
                 case .apple:
                     Picker("Voice", selection: $settings.appleVoiceID) {
-                        Text("System Default").tag("")
+                        Text("System default").tag("")
                         ForEach(VoiceCatalog.appleVoices(), id: \.identifier) { voice in
                             Text("\(voice.name) (\(voice.language))").tag(voice.identifier)
                         }
@@ -136,21 +140,25 @@ private struct SettingsForm: View {
                     showingFolderPicker = true
                 } label: {
                     HStack {
-                        Text("Choose Vault Folder…")
+                        // T7 — sentence case throughout Settings.
+                        Text("Choose vault folder…")
                         Spacer()
+                        // I5 — no glyph: the chosen state is said in words.
                         if settings.obsidianBookmarkData != nil {
-                            Image(systemName: "checkmark.circle.fill").foregroundStyle(Semantic.success)
+                            Text("Chosen")
+                                .font(.footnote)
+                                .foregroundStyle(Ink.secondary)
                         }
                     }
                 }
                 TextField("Sub-folder", text: $settings.obsidianSubfolder)
                     .autocorrectionDisabled()
-                Button("Export All Articles") { exportAll() }
+                Button("Export all articles") { exportAll() }
                 if let status = lastExportStatus {
                     Text(status).font(.footnote).foregroundStyle(Ink.secondary)
                 }
             } header: {
-                Text("Obsidian Export")
+                Text("Obsidian export")
             } footer: {
                 Text("Pick any folder in Files — iCloud Drive, Dropbox, local, etc. The app only rewrites the marked section of each note, so your own edits in exported notes are preserved.")
             }
@@ -165,7 +173,7 @@ private struct SettingsForm: View {
                     }
                 }
                 VStack(alignment: .leading) {
-                    Text("Font Size: \(Int(settings.readerFontSize)) pt")
+                    Text("Font size: \(Int(settings.readerFontSize)) pt")
                     Slider(value: $settings.readerFontSize, in: 12...32, step: 1)
                 }
                 Toggle("Block reader (beta)", isOn: $settings.useBlockReader)
@@ -180,14 +188,14 @@ private struct SettingsForm: View {
                         RedditAccountView()
                     } label: {
                         HStack {
-                            Label("Reddit Account", systemImage: "person.crop.circle.badge.checkmark")
+                            Text("Reddit account")
                             Spacer()
                             if let account = reddit.account {
                                 Text("u/\(account.name)")
                                     .font(.footnote)
                                     .foregroundStyle(Ink.secondary)
                             } else {
-                                Text("Sign In")
+                                Text("Sign in")
                                     .font(.footnote)
                                     .foregroundStyle(Ink.secondary)
                             }
@@ -240,7 +248,8 @@ private struct SettingsForm: View {
         Section {
             if let exportError = syncStatus.exportFailureText {
                 HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle.fill")
+                    Image(systemName: "exclamationmark.triangle")
+                        .uiGlyph(size: Font.GlyphSize.subheadline)
                         .foregroundStyle(Semantic.destructive)
                     VStack(alignment: .leading, spacing: 2) {
                         Text("Export failed")
@@ -347,23 +356,31 @@ private struct SyncEventRow: View {
         }
     }
 
+    /// The sync event's status. Not a settings-row icon (I5): this is the
+    /// row's *value* — a developer-facing readout with no text equivalent —
+    /// so it keeps a glyph while every decorative Settings icon loses one.
+    /// **I3** is honoured: unresolved states are outline, resolved states are
+    /// filled, never mixed within the group.
     @ViewBuilder
     private var statusIcon: some View {
-        if let record {
-            if !record.isFinished {
-                Image(systemName: "arrow.triangle.2.circlepath")
-                    .foregroundStyle(Ink.secondary)
-            } else if record.succeeded {
-                Image(systemName: "checkmark.circle.fill")
-                    .foregroundStyle(Semantic.success)
+        Group {
+            if let record {
+                if !record.isFinished {
+                    Image(systemName: "arrow.triangle.2.circlepath")
+                        .foregroundStyle(Ink.secondary)
+                } else if record.succeeded {
+                    Image(systemName: "checkmark.circle.fill")
+                        .foregroundStyle(Semantic.success)
+                } else {
+                    Image(systemName: "xmark.circle.fill")
+                        .foregroundStyle(Semantic.destructive)
+                }
             } else {
-                Image(systemName: "xmark.circle.fill")
-                    .foregroundStyle(Semantic.destructive)
+                Image(systemName: "circle.dashed")
+                    .foregroundStyle(Ink.secondary)
             }
-        } else {
-            Image(systemName: "circle.dashed")
-                .foregroundStyle(Ink.secondary)
         }
+        .uiGlyph(size: Font.GlyphSize.body)
     }
 
     private func timestamp(for record: SyncStatus.SyncEventRecord) -> String {

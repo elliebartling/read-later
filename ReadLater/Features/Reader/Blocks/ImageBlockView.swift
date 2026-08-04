@@ -65,7 +65,7 @@ struct ImageBlockView: View {
             .fill(placeholderFill)
             .frame(maxWidth: .infinity, minHeight: 40)
             .overlay(
-                Image(systemName: "photo")
+                Image(systemName: "photo").uiGlyph(size: Font.GlyphSize.body)
                     .font(.system(size: 22))
                     .foregroundStyle(Color(uiColor: theme.foreground).opacity(0.3))
             )

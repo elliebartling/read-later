@@ -98,9 +98,14 @@ struct BlockReaderView: View {
             let lineY = deviceInsets.top + ReaderChrome.topReading
             ScrollViewReader { proxy in
                 ScrollView {
-                    LazyVStack(alignment: .leading, spacing: paragraphSpacing) {
+                    // Spacing is per-pair, not uniform (fix #4): consecutive
+                    // list items close up so a list reads as one group instead
+                    // of N paragraphs. The stack itself therefore carries no
+                    // spacing — each block pads its own leading gap.
+                    LazyVStack(alignment: .leading, spacing: 0) {
                         ForEach(Array(blocks.enumerated()), id: \.element.id) { pair in
                             blockView(index: pair.offset, block: pair.element, contentWidth: contentWidth)
+                                .padding(.top, spacingBefore(index: pair.offset))
                                 .id(pair.element.id)
                         }
                     }
@@ -157,6 +162,18 @@ struct BlockReaderView: View {
                 }
             }
         }
+    }
+
+    /// The gap above block `index`. Paragraph spacing everywhere, except
+    /// between two consecutive list items, where it closes to
+    /// `ReaderTypography.listItemSpacing` — the plain reader applies the same
+    /// number through `paragraphSpacing` on the item's own paragraph style.
+    private func spacingBefore(index: Int) -> CGFloat {
+        guard index > 0 else { return 0 }
+        if blocks[index].type == .listItem, blocks[index - 1].type == .listItem {
+            return ReaderTypography.listItemSpacing(paragraphSpacing: paragraphSpacing)
+        }
+        return paragraphSpacing
     }
 
     @ViewBuilder

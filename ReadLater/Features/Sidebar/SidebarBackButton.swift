@@ -30,7 +30,7 @@ struct SidebarBackButton: View {
         if let peel {
             Button(action: peel) {
                 // I2 — one weight, one scale, sized to the adjacent nav title.
-                Image(systemName: "chevron.left")
+                Image(systemName: "chevron.left").uiGlyph()
                     .imageScale(.medium)
                     .fontWeight(.medium)
             }

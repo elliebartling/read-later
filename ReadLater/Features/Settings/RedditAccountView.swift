@@ -46,7 +46,7 @@ struct RedditAccountView: View {
     private func signedInSections(account: RedditAccount) -> some View {
         Section {
             HStack {
-                Image(systemName: "person.crop.circle.fill.badge.checkmark")
+                Image(systemName: "person.crop.circle").uiGlyph(size: Font.GlyphSize.emptyStateMark)
                     .foregroundStyle(Semantic.success)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Connected")
@@ -89,7 +89,7 @@ struct RedditAccountView: View {
                 Task { await reddit.signIn() }
             } label: {
                 HStack {
-                    Image(systemName: "arrow.right.circle.fill")
+                    Image(systemName: "arrow.right.circle").uiGlyph(size: Font.GlyphSize.body)
                     Text("Sign in with Reddit")
                     Spacer()
                     if reddit.isAuthenticating {

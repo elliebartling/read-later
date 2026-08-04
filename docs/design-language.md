@@ -188,7 +188,22 @@ New York at 18pt / 6pt leading / 12pt paragraph spacing, the eight-theme ink+pap
 - **T2.** The reader canvas may be darker than `Surface.ground`; it may never be lighter in dark mode, or darker in light mode. Entering the reader is a step *into* sanctuary.
 - **T3.** Serif faces are legal **only** for reader body content (N4).
 
-### 4.2 The UI type POV: system for text, one bundled face for display
+### 4.2 The UI type POV: system, everywhere
+
+> **Amended by Ellen's review of PR #73.** The position below — SF Pro under 28pt, Lexend for the display tier — shipped and was rejected on sight:
+>
+> > "Lexend is not a brand font… either a full typography pad with a real perspective, or keep everything system."
+>
+> **T4–T6 are superseded.** The display tier is San Francisco bold at the matching text style; no UI surface loads a bundled face. `DisplayType` survives as the *name* of the tier (screen titles, sheet titles, the sidebar header, empty-state titles) so a future pass has one seam, not a scatter of `.font(.largeTitle)` calls.
+>
+> The unresolved question is not "which bundled face" — it is that this app has no typographic point of view yet, and picking a face off the reading catalogue was a shortcut past that. **A real typography exploration is its own piece of work**; until it happens, system type is the honest default, not a placeholder.
+>
+> Lexend remains bundled and remains offered in the reader's *reading*-face catalogue (`ReaderFont`). A user-chosen body face for article text is a different thing from a brand face for chrome, and the audit graded that catalogue good.
+>
+> The superseded reasoning is kept below because the next attempt should know what was already tried and why it failed.
+
+<details>
+<summary>Superseded — system for text, one bundled face for display (T4–T6)</summary>
 
 The app already bundles and registers five sans families (`project.yml` → `UIAppFonts`: Lexend, Inter, Geist, Atkinson Hyperlegible Next, plus serif Literata), so "use a bundled face" costs zero new dependencies. The question is only *where*.
 
@@ -203,14 +218,16 @@ The app already bundles and registers five sans families (`project.yml` → `UIA
 - **T5.** Display type is still Dynamic Type — `Font.custom(_:size:relativeTo:)`, never a fixed size.
 - **T6.** If Lexend fails to register, the display tier falls back to SF Pro `.bold` silently. Never a layout change, never a crash.
 
+</details>
+
 ### 4.3 The UI scale
 
 Line heights are the face's default for the text style unless stated.
 
 | Role | Face | Style / size | Weight | Colour | Notes |
 |---|---|---|---|---|---|
-| Display | Lexend | `.largeTitle` (34) | 600 | `Ink.primary` | Screen titles, sidebar header, empty-state titles |
-| Display small | Lexend | `.title2` (28) | 600 | `Ink.primary` | Sheet titles, bento tile leads |
+| Display | SF Pro | `.largeTitle` (34) | `.bold` | `Ink.primary` | Screen titles, sidebar header, empty-state titles |
+| Display small | SF Pro | `.title2` (28) | `.bold` | `Ink.primary` | Sheet titles, bento tile leads |
 | Section header | SF Pro | `.subheadline` (15) | `.semibold` | `Ink.secondary` | Sentence case, never all-caps |
 | Row title | SF Pro | `.body` (17) | `.semibold` unread / `.regular` read | `Ink.primary` / `Ink.secondary` | 2 lines max |
 | Row summary | SF Pro | `.subheadline` (15) | `.regular` | `Ink.secondary` | 2 lines, `lineSpacing 2` |
@@ -377,12 +394,15 @@ Library and Feeds currently share nothing: two unread signals, two metadata gram
 **There is one row component, `ReadableRow`, with declared slots.** Library, All Items, per-feed lists and Search all use it.
 
 ```
-[unread rail] [ title (2 lines max) ]                [thumbnail]
-              [ summary (2 lines, optional) ]        [ 96×54 ]
-              [ meta · meta · meta ]
+[ title (2 lines max) ]                              [thumbnail]
+[ summary (2 lines, optional) ]                       [ 96×54 ]
+[ meta · meta · meta ]
 ```
 
-- **R1. Unread signal is one thing: a 3pt `Accent.primary` leading rail**, full row height, inset 0. Not a dot, not a colour change, not both. Read rows drop the rail and shift the title to `Ink.secondary`.
+- ~~**R1. Unread signal is one thing: a 3pt `Accent.primary` leading rail**, full row height, inset 0. Not a dot, not a colour change, not both. Read rows drop the rail and shift the title to `Ink.secondary`.~~
+  **R1 (amended — Ellen's review of PR #73). Unread signal is no added chrome at all.** An unread row is the row at full ink (`.semibold` title, `Ink.primary`, full-strength thumbnail); a read row recedes — `.regular` title at `Ink.secondary`, thumbnail at 0.7. No rail, no dot, no badge.
+  Two things killed the rail. In an all-unread list the per-row rails merge into one continuous bar hugging the container card's rounded left edge — *never put a border on one side of a rounded card*. And underneath that: the rail had no articulable job. The title tone already carried the fact.
+  The Highlights passage rail is untouched and is the counter-example worth copying: it sits **inside** its card, and it encodes the marker colour, which nothing else does.
 - **R2. Metadata is a single `.caption` line, `Ink.tertiary`, fields joined by `" · "`.** No glyphs (I5), no bare spaces. Field order is fixed and identical everywhere: `source · relative date · duration/count`. A field duplicating the screen's nav title is omitted (per-feed lists drop `source`).
 - **R3. Source string has one format**, from one helper: `siteName` if present, else host with `www.` stripped. Never three formats in three adjacent rows.
 - **R4. Thumbnails are trailing, 96×54, 8pt corner, and every row reserves the slot** when the list can contain them — an empty slot renders `Surface.control`, so rhythm never goes ragged. Library gets thumbnails.
@@ -462,8 +482,8 @@ Seven button vocabularies today. **There are three.**
 Playfulness is **attention direction with a personality**, and the budget is deliberately small: "inviting, rather than needy or performative" (N3). It is spent in four moments and no more.
 
 1. **Source identity chips** (§6). The GoodLinks icon-chip dialect, and genuinely high-utility: the only way to tell a subreddit from a channel at a glance.
-2. **The unread rail** (R1). The most-repeated colour event in the app, so it stays a rail and never a badge.
-3. **Save confirmation.** When a link lands from the share sheet, the new row enters with the §10 attention spring and its rail flashes `Semantic.success` for 600ms before settling. One event, self-cancelling.
+2. ~~**The unread rail** (R1). The most-repeated colour event in the app, so it stays a rail and never a badge.~~ **Withdrawn** with R1 (PR #73 review). The budget line is unspent, not respent — read/unread is now a tone shift and costs no playfulness at all.
+3. **Save confirmation.** When a link lands from the share sheet, the new row enters with the §10 attention spring. (The original rule flashed the row's rail `Semantic.success`; with R1 amended there is no rail, so a future implementation needs a different carrier — unbuilt either way.)
 4. **First-run import moments** (YouTube subscription import, feed add). A live count ticking up as sources land. Numbers moving is the whole effect.
 
 **The NOT list, straight from the brief:** no confetti, no badge counts that beg, no bounce, no mascot, no illustration style, no washi tape, no paper textures, no page curls, no drop caps, no serif chrome, no gradient text, no rainbow accent rings, no multicolour SF Symbols, no skeuomorphism, no sound. Nothing decorative that answers no question (N3).
@@ -549,7 +569,7 @@ Six waves, each independently mergeable and reviewable. Wave 1 gates everything 
 |---|---|---|
 | Sidebar becomes the default navigation; the flag becomes an opt-out or is deleted | #57 | code + **taste-check** on flag disposition |
 | Nav restructure: list views' Settings gear becomes the back-to-sidebar affordance; no separate floating sidebar button; Settings lives in the sidebar | #57 | code |
-| Sidebar visual cleanup to constitution standards: one separator inset (S3), `ReadableRow` grammar, wave-3 kind chips, Lexend header, selection via `Accent.muted` at every level | audit "sidebar experiment" | code |
+| Sidebar visual cleanup to constitution standards: one separator inset (S3), `ReadableRow` grammar, wave-3 kind chips, display-tier header, selection via `Accent.muted` at every level | audit "sidebar experiment" | code |
 | Retire or re-scope the tab bar; reconcile deep links and `readlater://` routing with the new root | — | code |
 
 The sidebar's IA was already the best in the app; everything here brings prototype-grade execution up to the constitution — chaotic separator insets (four different left insets in one list), selection styling on only one row type, and a trigger button style used nowhere else.
@@ -567,7 +587,7 @@ The sidebar's IA was already the best in the app; everything here brings prototy
 | Reader action bar downsizing (§7.3) + fixed capsule width + state-awareness (C2, C3) | §7.3 | code |
 | Sheet contract: verbs, detents, dismiss controls (SH1–SH5) | theme 6 | code |
 | Button vocabulary 7 → 3 (§8.3) | button inventory | code |
-| Display type: adopt Lexend ≥28pt (T4–T6) | §4.2 | **taste-check** (Lexend vs Geist) |
+| ~~Display type: adopt Lexend ≥28pt (T4–T6)~~ → **a real typography exploration** (T4–T6 superseded; system type until then) | §4.2 | **taste-check**, own piece of work |
 | Custom glyph set: highlight mark + five empty-state marks (I9) | §5.3 | **taste-check** |
 | Typography sheet → bento grid (§8.6) | typography sheet | **taste-check** |
 | Settings: dismiss control, no row icons, de-duplicate Reader / Read Aloud | Settings | code |

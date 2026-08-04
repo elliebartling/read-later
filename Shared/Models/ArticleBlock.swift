@@ -31,6 +31,17 @@ struct ArticleBlock: Codable, Identifiable, Equatable {
     /// decoders ignore the unknown JSON key and blocks parsed before this
     /// shipped decode as `nil`.
     var isQuote: Bool? = nil
+    /// UTF-16 ranges of inline `<code>` (and `<kbd>`/`<samp>`) spans inside
+    /// `text`, as `[[location, length], …]` LOCAL to this block.
+    ///
+    /// The audit's "inline code is undifferentiated" — the parser flattened a
+    /// `<code>` span into ordinary body text, so there was nothing to render
+    /// differently. This carries the spans as *metadata beside* the text
+    /// instead of markers *inside* it, which is the only safe shape: `text` is
+    /// unchanged, so `plainText` is unchanged, so the UTF-16 highlight offset
+    /// space is unchanged. Additive and optional, so it is CloudKit-safe the
+    /// same way `markerBaked` and `isQuote` are.
+    var codeRanges: [[Int]]? = nil
 
     /// Whether this block should render as quoted. Reads the additive flag and
     /// falls back to the legacy `.blockquote` type, so blocks stored before
@@ -181,6 +192,110 @@ enum ArticleBlocks {
             }
         }
         return markers
+    }
+
+    /// The leading marker baked into a `.listItem`'s text — the nesting indent
+    /// (`\u{00a0}` pairs) plus `"• "` or `"7. "`. Nil when the text carries no
+    /// marker (a render-time-marker block, or anything that isn't a list item).
+    ///
+    /// This is what a hanging indent has to measure: the marker lives IN the
+    /// text, so a wrapped line aligns under the bullet unless the paragraph
+    /// style indents continuation lines by exactly the marker's width. It was
+    /// the audit's "most visible defect in the type system".
+    static func bakedMarkerPrefix(_ text: String) -> String? {
+        let ns = text as NSString
+        var i = 0
+        while i < ns.length, ns.character(at: i) == 0x00A0 { i += 1 }
+        let indentEnd = i
+        if i < ns.length, ns.character(at: i) == 0x2022 { // "•"
+            i += 1
+        } else {
+            var digits = 0
+            while i < ns.length, let scalar = Unicode.Scalar(ns.character(at: i)),
+                  Character(scalar).isNumber {
+                i += 1
+                digits += 1
+            }
+            guard digits > 0, i < ns.length, ns.character(at: i) == 0x002E else { return nil }
+            i += 1
+        }
+        guard i < ns.length, ns.character(at: i) == 0x0020 else { return nil }
+        i += 1
+        guard i > indentEnd else { return nil }
+        return ns.substring(to: i)
+    }
+
+    /// One list item located in `plainText`: its GLOBAL range, the marker
+    /// baked into it, and whether the item immediately following it is also a
+    /// list item (so a list can close up into a group instead of sitting at
+    /// full paragraph spacing between every line).
+    struct LocatedListItem: Equatable {
+        let range: NSRange
+        let markerPrefix: String
+        let continuesList: Bool
+    }
+
+    /// GLOBAL ranges of every marker-baked list item within `plainText` — the
+    /// PLAIN reader's route to hanging indents and list grouping, since it
+    /// renders `plainText` alone and has no per-block views.
+    ///
+    /// Verified exactly like `quoteRanges`: a candidate range must actually
+    /// hold that block's text before it is returned, so a `plainText`/blocks
+    /// pair that has drifted degrades to "no list styling" rather than
+    /// indenting the wrong paragraph. Purely presentational — the text is never
+    /// mutated, so highlight offsets are untouched.
+    static func listItemRanges(_ blocks: [ArticleBlock], in plainText: String) -> [LocatedListItem] {
+        let ns = plainText as NSString
+        var located: [(index: Int, item: LocatedListItem)] = []
+        var textBearing: [Int] = []
+        var cursor = 0
+        for b in blocks where b.type.isTextBearing {
+            guard let t = b.text, !t.isEmpty else { continue }
+            let len = (t as NSString).length
+            let position = textBearing.count
+            textBearing.append(b.type == .listItem ? 1 : 0)
+            defer { cursor += len + 2 } // "\n\n"
+            guard b.type == .listItem, let prefix = bakedMarkerPrefix(t) else { continue }
+            guard cursor >= 0, cursor + len <= ns.length else { continue }
+            let range = NSRange(location: cursor, length: len)
+            guard ns.substring(with: range) == t else { continue }
+            located.append((position, LocatedListItem(
+                range: range, markerPrefix: prefix, continuesList: false
+            )))
+        }
+        return located.map { entry in
+            let next = entry.index + 1
+            let continues = next < textBearing.count && textBearing[next] == 1
+            return LocatedListItem(
+                range: entry.item.range,
+                markerPrefix: entry.item.markerPrefix,
+                continuesList: continues
+            )
+        }
+    }
+
+    /// Inline-code ranges (`ArticleBlock.codeRanges`) lifted into `plainText`'s
+    /// GLOBAL offset space, for the plain reader. Same verification contract as
+    /// `quoteRanges`, and each range is additionally clamped to its own block.
+    static func inlineCodeRanges(_ blocks: [ArticleBlock], in plainText: String) -> [NSRange] {
+        let ns = plainText as NSString
+        var result: [NSRange] = []
+        var cursor = 0
+        for b in blocks where b.type.isTextBearing {
+            guard let t = b.text, !t.isEmpty else { continue }
+            let len = (t as NSString).length
+            defer { cursor += len + 2 } // "\n\n"
+            guard let ranges = b.codeRanges, !ranges.isEmpty else { continue }
+            guard cursor >= 0, cursor + len <= ns.length else { continue }
+            guard ns.substring(with: NSRange(location: cursor, length: len)) == t else { continue }
+            for pair in ranges {
+                guard pair.count == 2 else { continue }
+                let location = pair[0], length = pair[1]
+                guard location >= 0, length > 0, location + length <= len else { continue }
+                result.append(NSRange(location: cursor + location, length: length))
+            }
+        }
+        return result
     }
 
     /// Maps each TTS paragraph index to the index of the block it belongs to.

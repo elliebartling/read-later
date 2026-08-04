@@ -25,15 +25,6 @@ struct HighlightsView: View {
 
     var body: some View {
         List {
-            if highlights.isEmpty {
-                ContentUnavailableView(
-                    "No highlights yet",
-                    systemImage: "highlighter",
-                    description: Text("Select text in the reader to highlight.")
-                )
-                .listRowSeparator(.hidden)
-                .containerRow()
-            }
             ForEach(groups) { group in
                 Section {
                     ForEach(group.highlights) { highlight in
@@ -50,11 +41,24 @@ struct HighlightsView: View {
             }
         }
         .pageList()
+        // **E1.** Centred overlay, not a list row — this was one of the three
+        // placements the same component had across the app.
+        .emptyStateOverlay(highlights.isEmpty ? emptyState : nil)
         .navigationTitle("Highlights")
         .navigationDestination(for: HighlightPassage.self) { passage in
             ReaderView(article: passage.article, scrollToOffset: passage.offset)
         }
         .sidebarBackToolbarItem()
+    }
+
+    /// **E2.** The mechanism, not the void. Wave 5 replaces the mark with the
+    /// app's one identity glyph (§5.3, the highlight mark).
+    private var emptyState: EmptyStateView {
+        EmptyStateView(
+            mark: "highlighter",
+            title: "Nothing highlighted yet",
+            message: "Select any passage while reading and it is saved here, in the colour you picked."
+        )
     }
 
     @ViewBuilder
