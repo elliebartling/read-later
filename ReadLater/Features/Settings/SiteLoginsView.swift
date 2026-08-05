@@ -15,7 +15,7 @@ struct SiteLoginsView: View {
             } else if model.loadFailed {
                 // E2/E3 — one template, and a failure takes the warning hue.
                 EmptyStateView(
-                    mark: .warning,
+                    mark: "exclamationmark.triangle",
                     title: "Can't load site logins",
                     message: "The browser data store didn't respond. Try again in a moment.",
                     isFailure: true,
@@ -28,7 +28,7 @@ struct SiteLoginsView: View {
                 // empty state copies: it explains the mechanism that would fill
                 // the void rather than naming the void.
                 EmptyStateView(
-                    mark: .key,
+                    mark: "person.badge.key",
                     title: "No site logins",
                     message: "When you sign in to a member-only article from its reader banner, that site shows up here so you can manage it or sign out."
                 )

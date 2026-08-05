@@ -11,23 +11,25 @@ import SwiftUI
 //
 //  - **E1** the empty state is always an `.overlay` on the scroll view,
 //    centred in the viewport. Never a list row, never boxed in a card.
-//  - **E2** structure: a 64pt line-art mark, a display-small title, one
+//  - **E2** structure: a 64pt mark, a display-small title, one
 //    sentence naming the mechanism, and — if the copy names an action — that
 //    action as a prominent capsule.
 //  - **E3** failure states get `Semantic.warning`; empty states get no colour
 //    at all.
 //
-// **The marks are real now (wave 5).** Wave 2 shipped this template with SF
-// Symbols standing in the 64pt slot, precisely so the layout, spacing and copy
-// could settle first and the artwork could drop into a fixed hole. `Mark` (§5.3,
-// `Marks.swift`) is that artwork: custom line art at I9's one spec, 2pt on a
-// 24pt grid. No empty state renders an SF Symbol any more — a system symbol
-// blown up to 64pt is exactly what Ellen's "feels unbranded" note was about.
+// **The mark is a system symbol, on purpose (Ellen, wave-5 review).** Wave 5
+// drew a set of custom line-art marks for this slot; Ellen struck them —
+// *"why are we creating custom line art? I asked for an iconography strategy
+// and suggested a specific library… Use phosphor."* Iconography is ratified as
+// **Phosphor** (§5.4) and lands as its own app-wide adoption wave. Until that
+// wave, the mark is an SF Symbol at the 64pt slot, `Ink.tertiary`, at one
+// weight — the interim substrate §5.1–5.2 already govern, and a fixed hole for
+// Phosphor to drop into.
 
 /// One empty (or failed) state, composed to E2.
 struct EmptyStateView: View {
-    /// The 64pt mark — custom line art (§5.3), never a system symbol.
-    let mark: Mark
+    /// The 64pt mark. An SF Symbol until the Phosphor adoption wave (§5.4).
+    let mark: String
     let title: String
     /// One sentence naming the mechanism that fills this void.
     let message: String
@@ -46,7 +48,8 @@ struct EmptyStateView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            MarkView(mark: mark)
+            Image(systemName: mark)
+                .uiGlyph(size: Font.GlyphSize.emptyStateMark)
                 // E3 — emptiness gets no colour at all; failure gets exactly
                 // one, on the mark.
                 .foregroundStyle(isFailure ? Semantic.warning : Ink.tertiary)

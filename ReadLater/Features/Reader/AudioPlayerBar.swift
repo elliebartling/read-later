@@ -148,11 +148,13 @@ struct AudioPlayerBar: View {
 /// Idle counterpart to `AudioPlayerBar`: the glass capsule shown when the
 /// reader chrome is up but nothing is playing. Overflow · share · tag · play.
 ///
-/// **C2 — one width.** Both bars fill the reading measure, so pressing play
-/// reshapes the capsule's *contents* instead of growing the capsule from an
-/// intrinsic 200-odd points to full width. The audit's note was about the
-/// growth reading as a different object arriving; a fixed width plus the §10
-/// Standard spring makes it one object changing its mind.
+/// **C2 — the capsule HUGS its content.** Wave 5 made both bars fill the
+/// reading measure; Ellen struck it — *"the capsule should be 'hug' width not
+/// a fixed width; revert that change it looks very strange."* A four-glyph
+/// cluster stretched across the measure reads as a toolbar, not as a floating
+/// control. The capsule is as wide as what it holds, in every state, so the
+/// idle dress and the C3 recovery dress are visibly the same object at two
+/// sizes.
 ///
 /// **C3 — state-aware.** An article with no readable text offers Retry and
 /// Share only. Offering Play on an empty article was the bar's worst tell that
@@ -185,7 +187,6 @@ struct IdlePlayerBar: View {
         // §7.3 — 44pt tall, 16pt horizontal padding, 17pt glyphs on a 24pt
         // frame (was 56pt tall, 24pt padding, 20pt glyphs on 30pt).
         .foregroundStyle(Ink.primary)
-        .frame(maxWidth: .infinity)
         .frame(height: ControlTier.standard.height)
         .padding(.horizontal, Metric.capsuleHorizontalPadding)
         .playerGlassCapsule()
@@ -193,7 +194,7 @@ struct IdlePlayerBar: View {
 
     /// The C3 recovery dress: no Play, no Tags, nothing that needs text.
     private var recoveryControls: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: Self.glyphGap) {
             Button(action: onReextract) {
                 if isReextracting {
                     ProgressView()
@@ -209,8 +210,6 @@ struct IdlePlayerBar: View {
             .disabled(isReextracting)
             .accessibilityLabel(isReextracting ? "Re-extracting" : "Try again")
 
-            Spacer(minLength: 8)
-
             if let url = article.url {
                 ShareLink(item: url) {
                     capsuleGlyph("square.and.arrow.up")
@@ -221,7 +220,7 @@ struct IdlePlayerBar: View {
     }
 
     private var fullControls: some View {
-        HStack(spacing: 0) {
+        HStack(spacing: Self.glyphGap) {
             Menu {
                 Button {
                     onExport()
@@ -259,15 +258,11 @@ struct IdlePlayerBar: View {
             }
             .accessibilityLabel(isReextracting ? "Re-extracting" : "More")
 
-            Spacer(minLength: 8)
-
             if let url = article.url {
                 ShareLink(item: url) {
                     capsuleGlyph("square.and.arrow.up")
                 }
                 .accessibilityLabel("Share")
-
-                Spacer(minLength: 8)
             }
 
             Button(action: onTags) {
@@ -275,8 +270,6 @@ struct IdlePlayerBar: View {
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Tags")
-
-            Spacer(minLength: 8)
 
             Button(action: onPlay) {
                 capsuleGlyph("play.fill")
@@ -288,6 +281,9 @@ struct IdlePlayerBar: View {
 
     /// §7.3 glyph frame, down from 30.
     private static let glyphFrame: CGFloat = 24
+    /// The gap between glyphs in a hugging capsule. Fixed, not distributed —
+    /// a `Spacer` here is what made the capsule want the whole measure.
+    private static let glyphGap: CGFloat = 22
 
     private func capsuleGlyph(_ name: String) -> some View {
         // I2 — one weight, one scale, sized to the adjacent text's optical size.
@@ -428,8 +424,10 @@ private struct SilkWaveformView: View {
 }
 
 extension View {
-    /// **E3.** The reader's floating action capsule: `.regularMaterial` plus
-    /// `Surface.chromeTint` in both schemes (S4).
+    /// **E3.** The reader's floating action capsule: the system glass material
+    /// in both schemes (S4). Genuinely translucent — the article blurs through
+    /// it, which is what makes it read as chrome floating over the page rather
+    /// than a slab parked on it.
     ///
     /// `Color.playerPink` (`#FF2D55` at full saturation) is retired. It was
     /// the app's loudest colour, it appeared on exactly one surface, and N5

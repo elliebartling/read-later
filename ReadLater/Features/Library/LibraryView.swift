@@ -78,7 +78,7 @@ struct LibraryView: View {
     /// names rendered as the screen's one prominent capsule.
     private var emptyState: EmptyStateView {
         EmptyStateView(
-            mark: .save,
+            mark: "books.vertical",
             title: "Nothing saved yet",
             message: "Share a link from Safari, or paste one here, and it lands in your library ready to read.",
             actionTitle: "Add a link",

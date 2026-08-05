@@ -109,14 +109,14 @@ struct FeedEntriesView: View {
         guard entries.isEmpty, !isRefreshing else { return nil }
         if refreshFailed {
             return EmptyStateView(
-                mark: .warning,
+                mark: "wifi.exclamationmark",
                 title: "Couldn't load",
                 message: "The feed didn't answer. Pull down to try again.",
                 isFailure: true
             )
         }
         return EmptyStateView(
-            mark: .stream,
+            mark: "tray",
             title: "Nothing new",
             message: feed == nil
                 ? "New items from your subscriptions collect here as they publish."
@@ -196,7 +196,7 @@ struct FeedEntryReader: View {
                 // The entry had no URL, or the save produced no article. Never
                 // a blank screen (E2/E3).
                 EmptyStateView(
-                    mark: .warning,
+                    mark: "exclamationmark.triangle",
                     title: "Couldn't open",
                     message: "This item has no readable link.",
                     isFailure: true

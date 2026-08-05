@@ -113,8 +113,7 @@ struct ImageZoomViewer: View {
 
     private var closeButton: some View {
         Button { dismiss() } label: {
-            // Glass circle, Standard tier (§8.3). `.ultraThinMaterial` is out
-            // — S4 sets `.regularMaterial` as the floor for floating chrome.
+            // Glass circle, Standard tier (§8.3), on the S4 system glass.
             Image(systemName: "xmark").uiGlyph()
                 .foregroundStyle(Ink.primary)
                 .frame(width: ControlTier.standard.height,

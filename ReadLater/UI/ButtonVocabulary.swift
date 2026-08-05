@@ -10,8 +10,8 @@ import SwiftUI
 //
 // | Vocabulary          | Shape                                              | Use |
 // |---------------------|----------------------------------------------------|-----|
-// | **Glass circle**    | 44pt circle, `.regularMaterial` + chromeTint       | Every nav-bar and floating single action. |
-// | **Glass capsule**   | 44pt tall, `.regularMaterial` + chromeTint         | Multi-glyph clusters and the audio capsule (§7.3). |
+// | **Glass circle**    | 44pt circle, system glass (`floatingChrome`)       | Every nav-bar and floating single action. |
+// | **Glass capsule**   | 44pt tall, system glass (`floatingChrome`)         | Multi-glyph clusters and the audio capsule (§7.3). |
 // | **Prominent capsule** | `Accent.fill` / `Accent.onFill`, 52pt            | The one primary action on a screen. Max one. |
 //
 //  - **C1.** Plain tinted text as a button is banned. The constitution names
@@ -22,6 +22,9 @@ import SwiftUI
 //  - **A1/A2.** Interactive colour reaches these only through `Accent.*`, and
 //    `onFill` is never hardcoded to white or black.
 //  - **S2.** No strokes on any of them. Separation is material and value.
+//  - **S4.** The two glass vocabularies are *actually glass* — the system
+//    material, translucent, never a tint painted over a material until the
+//    blur is gone. See `floatingChrome(in:)`.
 
 /// **§8.3.** The prominent capsule — `Accent.fill` behind an `Accent.onFill`
 /// label at the 52pt prominent tier (§7.1). One per screen, maximum.
@@ -47,9 +50,9 @@ struct ProminentCapsuleButton: View {
     }
 }
 
-/// **§8.3.** The glass capsule — `.regularMaterial` plus `Surface.chromeTint`
-/// at the 44pt standard tier, with an `Ink.primary` label. The quieter of the
-/// two legal capsules, and the only thing a secondary action may be.
+/// **§8.3.** The glass capsule — the system glass material at the 44pt standard
+/// tier, with an `Ink.primary` label. The quieter of the two legal capsules,
+/// and the only thing a secondary action may be.
 struct GlassCapsuleButton: View {
     let title: String
     let action: () -> Void
@@ -68,10 +71,10 @@ struct GlassCapsuleButton: View {
     }
 }
 
-/// **§8.3.** The glass circle — a 44pt circle of `.regularMaterial` plus
-/// `Surface.chromeTint` carrying one `Ink.primary` glyph (I2/I4). Every
-/// floating single action wears this; the sidebar header's add button used to
-/// wear a `Surface.control` fill that appeared nowhere else in the app.
+/// **§8.3.** The glass circle — a 44pt circle of the system glass material
+/// carrying one `Ink.primary` glyph (I2/I4). Every floating single action wears
+/// this; the sidebar header's add button used to wear a `Surface.control` fill
+/// that appeared nowhere else in the app.
 ///
 /// Wraps a `Menu` as readily as a `Button` — pass the presentation through
 /// `label`, which is why this is a container rather than a `Button` subtype.

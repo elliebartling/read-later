@@ -137,16 +137,18 @@ struct ReaderView: View {
         .overlay(alignment: .top) { topStatusOverlay }
         .animation(chromeAnimation, value: isReextracting)
         .animation(chromeAnimation, value: reextractToast)
-        // C2 — the capsule reshapes rather than resizing, so idle→playing is
-        // one Standard spring on a fixed-width object (§10).
+        // C2 — idle and playing are two widths of one hugging capsule; the
+        // resize is one §10 Standard spring.
         .animation(chromeAnimation, value: tts.isActive)
         .readerTitleBar(title: article.title, subtitle: subtitleText)
-        // S4 — the material floor for chrome over long-form text. The default
-        // glass bar is transparent enough in LIGHT mode that body text renders
-        // straight through the article title (audit theme 3); dark mode gets
-        // away with it, which is why the defect went unnoticed. `.regularMaterial`
-        // is specified for both schemes so the two can't diverge again (N7).
-        .toolbarBackground(.regularMaterial, for: .navigationBar)
+        // S4 — the top chrome is GLASS. Wave 1 forced `.regularMaterial` here
+        // to chase a light-mode legibility complaint; Ellen struck it on the
+        // wave-5 build ("we've lost the glass effect… actually legible as a
+        // distinct surface"). The bar keeps its background pinned VISIBLE in
+        // both schemes — that is what makes it a distinct surface — but the
+        // surface is the system's own glass, so the article blurs through it
+        // instead of hiding behind a wash.
+        .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .toolbarBackgroundVisibility(.visible, for: .navigationBar)
         .toolbar(showChrome ? .visible : .hidden, for: .navigationBar)
         .statusBarHidden(!showChrome)
@@ -492,7 +494,7 @@ struct ReaderView: View {
     /// than re-running the article extractor that couldn't parse it.
     private var failedState: some View {
         EmptyStateView(
-            mark: .warning,
+            mark: "exclamationmark.triangle",
             title: "Couldn't parse this page",
             message: "The extractor didn't find readable content on \(article.url?.host ?? "this page").",
             isFailure: true,

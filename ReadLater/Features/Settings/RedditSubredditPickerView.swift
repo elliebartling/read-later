@@ -17,7 +17,7 @@ struct RedditSubredditPickerView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let error = model.loadError {
                 EmptyStateView(
-                    mark: .warning,
+                    mark: "exclamationmark.triangle",
                     title: "Couldn't load subreddits",
                     message: error,
                     isFailure: true,
@@ -27,14 +27,14 @@ struct RedditSubredditPickerView: View {
                 .pageBackground()
             } else if model.subreddits.isEmpty {
                 EmptyStateView(
-                    mark: .stream,
+                    mark: "person.2.slash",
                     title: "No subreddits",
                     message: "Subreddits you subscribe to on Reddit show up here, ready to add as feeds."
                 )
                 .pageBackground()
             } else if let summary = model.importSummary {
                 EmptyStateView(
-                    mark: .done,
+                    mark: "checkmark.circle",
                     title: "Subscribed",
                     message: summary,
                     actionTitle: "Done",

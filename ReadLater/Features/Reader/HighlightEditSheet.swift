@@ -5,19 +5,18 @@ import SwiftData
 /// after an instant highlight ("Add Note" in the selection menu) and when the
 /// user taps an existing highlight in the reader.
 ///
-/// **SH5 — an editor sheet shows the thing it edits.** The passage leads the
-/// sheet, carrying its own marker rail in the highlight's colour (the H2
-/// grammar the Highlights list uses), so recolouring is visibly a change *to
-/// this passage* rather than an abstract swatch pick. It used to be absent on
-/// the reasoning that the reader behind the medium detent still shows the
-/// selection — true, and exactly the argument SH5 exists to overrule: the
-/// keyboard covers that reader the moment you tap the note field.
+/// **The quoted text is deliberately NOT shown here (SH5, as amended).** It was
+/// deleted from this sheet once already, and wave 5 put it back on an SH5
+/// reading that Ellen struck: *"we previously removed highlighted copy of the
+/// text from the highlight sheet because it is unnecessary, the same text is
+/// literally right there on screen."* The sheet takes the `.medium` detent
+/// precisely so the passage stays visible behind it, and the reader keeps the
+/// selection handles on the highlight so the range can be adjusted in place.
 ///
-/// The reader keeps the selection handles on the highlight so the range can
-/// still be adjusted in place. Changes are written to the model as they happen
-/// so the reader updates live; the presenting view saves the context and
-/// re-exports on dismiss. Deletion is deferred to the presenter via `onDelete`
-/// so this sheet never renders a deleted model.
+/// Changes are written to the model as they happen so the reader updates live;
+/// the presenting view saves the context and re-exports on dismiss. Deletion is
+/// deferred to the presenter via `onDelete` so this sheet never renders a
+/// deleted model.
 struct HighlightEditSheet: View {
     @Bindable var highlight: Highlight
     /// When true (Add Note), the note field becomes first responder on appear.
@@ -36,41 +35,9 @@ struct HighlightEditSheet: View {
         _note = State(initialValue: highlight.note ?? "")
     }
 
-    /// **SH5 / H2.** The passage, with the marker-colour rail the Highlights
-    /// list uses — the one rail the constitution kept when R1's row rail was
-    /// struck, because it sits *inside* its card and encodes the marker colour,
-    /// which nothing else does.
-    private var passage: some View {
-        HStack(alignment: .top, spacing: 12) {
-            RoundedRectangle(cornerRadius: Self.railWidth / 2, style: .continuous)
-                .fill(highlight.color.marker)
-                .frame(width: Self.railWidth)
-                .frame(maxHeight: .infinity)
-                // §10 Micro — recolouring a rail is a tint change.
-                .motionMicro(value: highlight.color)
-                .accessibilityHidden(true)
-            Text(highlight.quotedText)
-                .font(.body)
-                .foregroundStyle(Ink.primary)
-                .lineLimit(5)
-                .frame(maxWidth: .infinity, alignment: .leading)
-        }
-        .padding(.vertical, 2)
-        .fixedSize(horizontal: false, vertical: true)
-        .accessibilityElement(children: .combine)
-        .accessibilityLabel("Highlighted passage: \(highlight.quotedText)")
-    }
-
-    /// H2 — 4pt, full height.
-    private static let railWidth: CGFloat = 4
-
     var body: some View {
         NavigationStack {
             Form {
-                // SH5 — the thing being edited, first.
-                Section {
-                    passage
-                }
                 Section("Colour") {
                     // H1 — the one swatch component. This sheet is now the
                     // app's only highlight-colour picker; the reader's

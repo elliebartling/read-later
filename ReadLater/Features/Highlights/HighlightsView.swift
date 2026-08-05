@@ -55,7 +55,7 @@ struct HighlightsView: View {
     /// app's one identity glyph (§5.3, the highlight mark).
     private var emptyState: EmptyStateView {
         EmptyStateView(
-            mark: .highlight,
+            mark: "highlighter",
             title: "Nothing highlighted yet",
             message: "Select any passage while reading and it is saved here, in the colour you picked."
         )

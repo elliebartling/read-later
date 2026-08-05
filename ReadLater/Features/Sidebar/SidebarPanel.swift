@@ -70,9 +70,7 @@ struct SidebarPanel: View {
                     }
                 }
 
-                // §5.3 — the identity mark marks the Highlights destination.
                 row(.highlights, title: "Highlights", systemImage: "highlighter",
-                    mark: .highlight,
                     count: highlights.count, topGap: Metric.containerGap)
                 row(.search, title: "Search", systemImage: "magnifyingglass", count: 0)
                 Button {
@@ -145,7 +143,6 @@ struct SidebarPanel: View {
         _ destination: SidebarDestination,
         title: String,
         systemImage: String,
-        mark: Mark? = nil,
         count: Int,
         topGap: CGFloat = 0
     ) -> some View {
@@ -155,7 +152,6 @@ struct SidebarPanel: View {
             SidebarRowLabel(
                 title: title,
                 systemImage: systemImage,
-                mark: mark,
                 count: count,
                 isSelected: selection == destination
             )
@@ -236,25 +232,16 @@ struct SidebarRowLabel: View {
 
     let title: String
     let systemImage: String
-    /// **§5.3.** When set, the row wears the app's own line art instead of a
-    /// system symbol. Exactly one row does: Highlights, which is where the
-    /// identity mark lives.
-    var mark: Mark? = nil
     let count: Int
     let isSelected: Bool
 
     var body: some View {
         HStack(spacing: 10) {
             // I2 — one weight, one scale, sized to the label beside it.
-            Group {
-                if let mark {
-                    MarkView(mark: mark, size: ControlTier.standard.glyph, lineWidth: 1.5)
-                } else {
-                    Image(systemName: systemImage).uiGlyph()
-                }
-            }
-            .foregroundStyle(isSelected ? Accent.primary : Ink.secondary)
-            .frame(width: 24)
+            Image(systemName: systemImage)
+                .uiGlyph()
+                .foregroundStyle(isSelected ? Accent.primary : Ink.secondary)
+                .frame(width: 24)
             Text(title)
                 .font(.body.weight(isSelected ? .semibold : .regular))
                 .foregroundStyle(Ink.primary)

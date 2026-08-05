@@ -175,7 +175,7 @@ Today Feeds is `.plain` on `systemBackground` and Highlights is grouped, so two 
 | **E0 — ground** | The page. One per screen. | `Surface.ground` | — | none |
 | **E1 — container** | Grouped list container, card, field, note bubble. | `Surface.raised` | 16pt continuous | none in dark; `y2 blur8 α0.05` in light |
 | **E2 — modal** | Sheets, popovers, menus. | `Surface.elevated` | system | system |
-| **E3 — floating glass chrome** | Anything hovering over scrolling content: nav pills, sidebar affordance, audio capsule, reader toolbars. | material, see S4 | 22pt or capsule | `y4 blur16 α0.18` dark / `α0.10` light |
+| **E3 — floating glass chrome** | Anything hovering over scrolling content: nav pills, sidebar affordance, audio capsule, reader toolbars. | system glass, see S4 | 22pt or capsule | the material's own shadow |
 
 - **S1.** Every list is `.listStyle(.insetGrouped)` on `Surface.ground` with `.scrollContentBackground(.hidden)`. Delete every other `listStyle` in the app. One page surface, one container surface — that is the whole system.
 
@@ -184,7 +184,13 @@ Today Feeds is `.plain` on `systemBackground` and Highlights is grouped, so two 
   Ellen, reviewing build 43 against Reeder and Craft: the sidebar "may have too much layering: let's get closer to Reeder and Craft." An inset-grouped sidebar puts a floating `Surface.raised` card under every section, then a selection pill inside that card, on top of the peel card already floating over the sidebar — surface on surface on surface, three deep, for a list of eight rows. The layer model itself (§ wave 4) is unchanged: the list card above keeps its elevation. It is the *internal* layering that is struck.
 - **S2. No strokes.** No `.border`, no `.overlay(RoundedRectangle().stroke())`, no `.background(...).cornerRadius()` faking an outline, on any container or control. Separation is the E0→E1 value step plus 16pt of ground (N2).
 - **S3. One exception, tightly scoped:** rows *inside* one E1 container may be separated by a 0.5pt `Surface.divider` inset to the text column. This is the only line in the app. It is not a border; it never surrounds anything.
-- **S4. Floating chrome material floor.** Over long-form text: `.regularMaterial` in **both** schemes, plus the `Surface.chromeTint` overlay defined here and nowhere else — `#262421` at 0.35 alpha (dark), `#FBFAF8` at 0.45 alpha (light). `.ultraThinMaterial` and `.thinMaterial` are banned over the reader: they are the reason body text currently renders through the nav bar in light mode. Over short/static content (a settings header) `.thinMaterial` is fine.
+- **S4. Floating chrome is GLASS, and that is not negotiable** *(amended, ratified by Ellen on the wave-5 build)*. Every floating chrome surface — the reader's top nav, the action capsule, the audio capsule, the status pill, the glass circles — takes the **system glass material** (`.glassEffect`), in **both** schemes, with **nothing painted over it**.
+
+  Ellen, on the wave-5 build: *"the capsule and top nav read as way too opaque — we've lost the glass effect that made these elements feel native and dynamic and actually legible as a distinct surface."* That last clause is the rule's whole rationale: **translucency is what makes the surface legible as a surface.** Real glass blurs, dims and desaturates what is behind it, and that live optical difference is what separates chrome from content. A flat wash separates nothing — it just puts a lighter rectangle on the page, and it reads as a slab parked on the article rather than chrome floating over it.
+
+  This strikes S4's original wording, which specified `.regularMaterial` plus a `Surface.chromeTint` overlay (`#262421`/0.35 dark, `#FBFAF8`/0.45 light) as a "material floor". That tint chased a genuine light-mode legibility defect — body text reading through the nav bar — but it fixed it by killing the blur, which cost more than the defect did. **The `Surface.chromeTint` token is deleted.** Content must be visibly blurring through every floating surface, in both schemes; that is the acceptance test, and it is checked on a real article, not on an empty screen.
+
+  Implementation follows **N6**: prefer the current-generation Apple material over a hand-rolled equivalent. `.glassEffect` carries its own shadow and its own scheme adaptation, so neither is re-applied. Over short/static content (a settings header) an ordinary system material is still fine — this rule governs chrome that floats over scrolling content.
 - **S5. Chrome reserves its own space.** Every floating chrome element publishes `its height + 12pt` as a `safeAreaInset(edge:)` on the scroll view. Content never passes under chrome at rest. This is [fix #1](design-audit-2026-08.md#if-we-fix-only-ten-things) stated as a rule.
 - **S6. Revealing chrome must not move text.** The inset is reserved whether chrome is shown or hidden. The plain reader already does this with a frozen inset; the block reader must match.
 - **S7. Never put a border on only one side of a rounded card.** Ellen's words, verbatim, from the PR #73 review that struck R1: *"never ever add a border to only one side of a rounded card."* This is the general rule the unread rail broke — in an all-unread list the per-row rails merged into one continuous bar hugging the container's rounded left edge, a straight line trying to follow a curve. It is a standing rule, not a note about that one component: leading rails, top hairlines, trailing accents and bottom rules on a rounded container are all the same defect. **A rail is legal only when it sits fully *inside* its card** with the card's own padding around it, and only when it encodes something nothing else does — the Highlights passage rail, which carries the marker colour, is the one built example (H2).
@@ -244,7 +250,7 @@ Line heights are the face's default for the text style unless stated.
 | Role | Face | Style / size | Weight | Colour | Notes |
 |---|---|---|---|---|---|
 | Display | SF Pro | `.largeTitle` (34) | `.bold` | `Ink.primary` | Screen titles, sidebar header, empty-state titles |
-| Display small | SF Pro | `.title2` (28) | `.bold` | `Ink.primary` | Sheet titles, bento tile leads |
+| Display small | SF Pro | `.title2` (28) | `.bold` | `Ink.primary` | Sheet titles |
 | Section header | SF Pro | `.subheadline` (15) | `.semibold` | `Ink.secondary` | Sentence case, never all-caps |
 | Row title | SF Pro | `.body` (17) | `.semibold` unread / `.regular` read | `Ink.primary` / `Ink.secondary` | 2 lines max |
 | Row summary | SF Pro | `.subheadline` (15) | `.regular` | `Ink.secondary` | 2 lines, `lineSpacing 2` |
@@ -265,9 +271,9 @@ Line heights are the face's default for the text style unless stated.
 
 Ellen's note: Apple's default glyphs "look clinical, and we overuse them"; the result "feels unbranded". Both halves are true and they have different fixes. **Clinical** is mostly a *usage* problem — mixed weights, mixed fills, glyphs as decoration. **Unbranded** is a *coverage* problem — there is nowhere in the app that a drawing of ours appears.
 
-**Interim position: SF Symbols are the substrate, not the personality. They stay for system verbs; we go custom in exactly three places; and we cut the glyph count roughly in half.**
+**THE ICON SET IS DECIDED: PHOSPHOR** *(ratified by Ellen on the wave-5 build; supersedes the three-way comp)*. Ellen, striking wave 5's hand-drawn marks: *"why are we creating custom line art? I asked for an iconography strategy and suggested a specific library… Use phosphor."* Phosphor is the app's icon substrate. Tabler is out, the comp is cancelled, and **drawing our own line art is banned** — see I9.
 
-**End state (Ellen, ratification):** *"I'd like to consider a full glyph pass with something more like Tabler or Phosphor icons. But we can do that last."* §5.1–5.3 are therefore the **interim standard**, and they are written so the swap is mechanical rather than a redesign: one weight, one scale, semantic fill, and a glyph inventory small enough to migrate in an afternoon. Every rule below survives the migration — only the source of the artwork changes. §5.4 is the migration.
+**Interim position, until the Phosphor adoption wave lands:** SF Symbols are the substrate, not the personality. They stay for system verbs, they render at one weight and one scale, and the glyph count comes down by roughly half. §5.1–5.2 are written so the swap is mechanical rather than a redesign, and every rule in them survives it — only the source of the artwork changes. §5.4 is the migration.
 
 ### 5.1 SF Symbols usage — interim standard
 
@@ -291,22 +297,20 @@ Everything here is about *how many* glyphs exist and *where*, not who drew them.
 - **I7. Enclosure rule.** A glyph sits inside a filled circular chip **only when it identifies a thing** (a source, a smart list, a saved search). Actions are never chipped — they get the glass-circle vocabulary (§8.3). This is the GoodLinks distinction, and it is what stops the navigation list becoming coloured-circle soup.
 - **I8.** No emoji as UI iconography, ever.
 
-### 5.3 Where we go custom — three places, permanent
+### 5.3 Where we go custom — ONE place
 
-These are the whole answer to "unbranded", they are deliberately few (N3: playfulness is budgeted), and **they survive the §5.4 migration regardless of which set wins.** A third-party set replaces the system-verb substrate; it never supplies the app's identity marks.
+~~**Three places, permanent:** the highlight mark, one line-art mark per empty state, and the source-kind glyphs.~~ **Struck** *(Ellen, on the wave-5 build)*. Wave 5 drew seven custom marks to this spec and shipped them into every empty state and the Highlights row; Ellen deleted them on sight — *"why are we creating custom line art? I asked for an iconography strategy and suggested a specific library."*
 
-1. **The highlight mark.** One custom glyph — the app's single identity mark — for the Highlights destination, the highlighting empty state, and as the lineage for the app icon. Drawn as a mark, not a marker-pen skeuomorph (N4).
-2. **Empty-state illustrations.** One custom line-art mark per empty state: 64pt, 2pt uniform stroke, `Ink.tertiary`, one visual idea each. An SF Symbol scaled to 64pt is exactly what "unbranded" looks like, and the app has five empty states to fix anyway.
-3. **Source-kind glyphs** (§6): three platform silhouettes redrawn to one stroke weight and one optical size, so YouTube, Reddit and a website sit in a column as siblings.
+- **I9. We do not draw line art. Use Phosphor.** No hand-authored glyph set, no per-empty-state marks, no bespoke UI drawings, however consistent their spec. A glyph the icon set does not have is either composed from glyphs it does have or the concept changes. The old I9 spec (2pt stroke on a 24pt grid, round caps, no fills) survives only as the **harmonisation target** an occasional composite must match — it is not a licence to draw a new one.
+- **I10. One exception, and it is not UI: the app's identity mark.** The Highlights identity mark and the app icon are brand assets, commissioned once and drawn deliberately. They are not part of the icon substrate, they are not per-state artwork, and they do not license anything else. **Empty states use the icon set** — 64pt, `Ink.tertiary`, one weight.
+- **I10a.** No mascot, no illustration *style*, no spot illustrations.
+- **I10b. Source-kind glyphs** (§6) are third-party *brand* marks, not our drawings: normalised to one stroke weight and one optical size so YouTube, Reddit and a website sit in a column as siblings. Unaffected by this rule.
 
-- **I9.** Custom glyphs share one spec: 2pt stroke on a 24pt grid, round caps, no fills, no gradients, no two-tone. A glyph that cannot be drawn at 2pt/24 is out of scope.
-- **I10.** No mascot, no illustration *style*, no spot illustrations beyond the empty states.
+### 5.4 The Phosphor adoption wave (next)
 
-### 5.4 Full glyph migration (planned, last wave)
+**The set is chosen. This section is now an implementation plan, not a comparison.** Ellen ratified Phosphor on the wave-5 build; the twelve-glyph three-way comp described below is **cancelled**, and Tabler is recorded only as the alternative that lost.
 
-Replacing the whole system-verb substrate with a third-party set is the last thing the pretty pass does. Sequenced last on Ellen's instruction, and structurally correct: waves 2–5 touch icon call sites, so migrating earlier means churning every glyph twice.
-
-**Candidates** (licenses verified 2026-08-03):
+~~**Candidates** (licenses verified 2026-08-03):~~ **Reference** — what was weighed, kept for the record:
 
 | | Tabler Icons | Phosphor |
 |---|---|---|
@@ -317,20 +321,20 @@ Replacing the whole system-verb substrate with a third-party set is the last thi
 
 Each has one structural advantage the other lacks, which is what makes this a real comparison rather than a taste poll:
 
-- **Tabler's 24×24 / 2px grid is already our I9 custom-glyph spec.** Choosing Tabler means the three permanent custom marks (§5.3) sit natively in the set instead of being visibly hand-drawn next to it. That is the single strongest argument in either direction.
-- **Phosphor's six weights map cleanly onto both SF Pro's weight range and our I3 outline-vs-fill semantics**, and give the set somewhere to go at Bold Text and accessibility sizes. Tabler has one stroke weight plus a filled variant, so I3 works but weight response does not.
+- ~~**Tabler's 24×24 / 2px grid is already our I9 custom-glyph spec**, so the permanent custom marks sit natively in the set.~~ Moot: the amended I9 deletes the custom marks, which deletes the argument.
+- **Phosphor's six weights map cleanly onto both SF Pro's weight range and our I3 outline-vs-fill semantics**, and give the set somewhere to go at Bold Text and accessibility sizes. **This is the winning argument.**
 
 **Evaluation criteria** — all four, in order:
 
 1. **Stroke harmony with our type at real sizes.** Glyphs render at 14pt (small tier), 17pt (standard) and 20pt (prominent) beside SF Pro body text and Lexend display. A 2px-on-24 stroke is heavier than SF Symbols `.medium` at 17pt; whether that reads as confident or clunky next to our type is the first question and it cannot be answered from a specimen sheet.
-2. **Coverage of our core glyph set.** The app references **28 distinct SF Symbols** today, and §5.2 will cut that. Both sets trivially cover the common verbs. The risk is Apple's *composite/badged* symbols, which have no third-party equivalent: `note.text.badge.plus`, `person.crop.circle.fill.badge.checkmark`, `play.rectangle.fill`, `textformat.size`, `highlighter`. Each must be matched, composed from two glyphs, or redrawn to I9 — count them before choosing, not after.
+2. **Coverage of our core glyph set.** The app references **28 distinct SF Symbols** today, and §5.2 will cut that. Both sets trivially cover the common verbs. The risk is Apple's *composite/badged* symbols, which have no third-party equivalent: `note.text.badge.plus`, `person.crop.circle.fill.badge.checkmark`, `play.rectangle.fill`, `textformat.size`, `highlighter`. Each must be matched or composed from two Phosphor glyphs — **not redrawn** (I9). Count them at the start of the adoption wave.
 3. **Rendering approach — SF Symbol templates, not plain images.** Third-party SVGs get authored into a custom `.symbolset` via the SF Symbols app's template flow. This preserves Dynamic Type scaling, `.imageScale`, text-baseline alignment inside label runs, weight variants and `symbolRenderingMode`. A plain asset-catalog `Image(...).renderingMode(.template)` loses all of it, and would silently break T9 (`.accessibility3` support) and I2 (scale matched to adjacent text). **Asset images are not an acceptable shortcut.**
 4. **Weight degradation.** Whichever set wins, check it at Bold Text and `.accessibility3`. A single-weight source may need a manually thickened variant; a set that only looks right at one size is disqualified.
 
-**Decision procedure.** Build a comp rendering **12 glyphs inside real screens** — not a specimen grid — three ways: current SF, Tabler, Phosphor. The twelve are the app's most-used plus its hardest: `plus`, `checkmark`, `trash`, `xmark`, `globe`, `photo`, `line.3.horizontal`, `checkmark.circle.fill`, `play.rectangle.fill`, `textformat.size`, `note.text.badge.plus`, `highlighter`. The last three are deliberately included because a comp of easy glyphs proves nothing. Screens: a populated Library list, the sidebar, and the reader with chrome revealed, in both schemes. **Ellen picks.**
+~~**Decision procedure.** Build a comp rendering 12 glyphs inside real screens, three ways: current SF, Tabler, Phosphor. **Ellen picks.**~~ **Cancelled — Ellen picked Phosphor without it.** The twelve hard glyphs it named are still the right *audit* list for criterion 2: `plus`, `checkmark`, `trash`, `xmark`, `globe`, `photo`, `line.3.horizontal`, `checkmark.circle.fill`, `play.rectangle.fill`, `textformat.size`, `note.text.badge.plus`, `highlighter`.
 
-- **I11.** Until that comp is run and a set is chosen, no third-party icon ships. No partial migration, no "just this one glyph from Tabler" — a mixed set is worse than either pure set.
-- **I12.** Whichever set wins, it replaces the substrate wholesale in one change. The three custom marks (§5.3) and every rule in §5.1–5.2 carry over unchanged.
+- **I11. No partial migration.** Until the adoption wave lands, the app stays on SF Symbols end to end. No "just this one glyph from Phosphor" — a mixed set is worse than either pure set. The adoption wave gets its own branch and its own dependency decision (SPM package vs vendored `.symbolset`); it is not smuggled into an unrelated PR.
+- **I12.** Phosphor replaces the substrate wholesale in one change. Every rule in §5.1–5.2 carries over unchanged.
 
 ---
 
@@ -397,7 +401,7 @@ Ellen's note, and the measurements confirm it. Current `AudioPlayerBar`: idle is
 | Waveform height | 30 | **22** |
 | Bottom offset | — | **16pt above the safe area** |
 
-A 21% height reduction and a third off the horizontal padding. Paired with C2 (one fixed width across states) and the retirement of the pink tint, the capsule stops competing with the article and becomes chrome that yields to it.
+A 21% height reduction and a third off the horizontal padding. Paired with C2 (hug width — the capsule is never wider than its contents) and the retirement of the pink tint, the capsule stops competing with the article and becomes chrome that yields to it.
 
 ---
 
@@ -445,7 +449,9 @@ Four dismissal verbs, three heights, three selection idioms today.
 - **SH4. Explanatory subtitles are never tinted.** If a row is a `Button`, its subtitle is explicitly `Ink.secondary` — the Import sheet paints its own explanation blue:
 
   ![Import](https://raw.githubusercontent.com/elliebartling/read-later/main/audit/31-youtube-import-light.png)
-- **SH5. An editor sheet shows the thing it edits.** The highlight sheet must render the quoted passage.
+- **SH5. An editor sheet shows the thing it edits — but it never REPEATS what is already on screen** *(amended, ratified by Ellen on the wave-5 build)*. Where the thing being edited is off-screen or covered, the sheet renders it. Where the sheet is presented *over* the thing at a partial detent, the sheet must not draw a second copy of it. **The highlight sheet is the named case: it does not render the quoted passage.** The quoted text was deleted from that sheet once already; wave 5 resurrected it on an SH5 reading Ellen struck — *"we previously removed highlighted copy of the text from the highlight sheet because it is unnecessary, the same text is literally right there on screen."* The `.medium` detent exists precisely so the passage stays visible behind the sheet.
+
+  **The general lesson, and it is not about this sheet:** before adding UI, check whether it was previously removed. `git log` is the record of what has already been decided. Re-litigating a settled deletion from first principles costs a review round every time.
 
 ### 8.3 Floating chrome, pills and buttons
 
@@ -453,12 +459,12 @@ Seven button vocabularies today. **There are three.**
 
 | Vocabulary | Shape | Use |
 |---|---|---|
-| **Glass circle** | 44pt circle, `.regularMaterial` + chromeTint, `Ink.primary` glyph | Every nav-bar and floating single action: back, add, mark-all-read, sidebar affordance. |
-| **Glass capsule** | 44pt tall, `.regularMaterial` + chromeTint | Multi-glyph clusters and the audio capsule (§7.3). |
+| **Glass circle** | 44pt circle, system glass (S4), `Ink.primary` glyph | Every nav-bar and floating single action: back, add, mark-all-read, sidebar affordance. |
+| **Glass capsule** | 44pt tall, system glass (S4), hug width (C2) | Multi-glyph clusters and the audio capsule (§7.3). |
 | **Prominent capsule** | `Accent.fill`, `Accent.onFill` label, `.body/.semibold`, 52pt | The one primary action on a screen. Max one. |
 
 - **C1.** Plain tinted text as a button is banned. "Export all articles" and "Save key" become prominent capsules or rows with disclosure.
-- **C2. The audio capsule has one width.** It reserves its playing-state width at idle; it does not grow from 340pt to full-width when you press play.
+- **C2. The capsule is HUG width** *(amended, ratified by Ellen on the wave-5 build)*. It is exactly as wide as the controls it holds, in every state. Wave 5 read the original C2 — "the capsule has one width", reserving the playing-state width at idle — as *fill the reading measure*; Ellen struck that: *"the capsule should be 'hug' width not a fixed width; revert that change it looks very strange."* A four-glyph cluster stretched across the measure stops reading as a floating control and starts reading as a bottom toolbar, which is the opposite of what §7.3 is for. Idle and playing are two widths of the same hugging object, and the resize is one §10 Standard spring.
 - **C3. The capsule is state-aware.** On an article with no content it offers Retry and Share only — not Play.
 - **C4.** Chrome over the reader obeys S4, S5, S6 and §7.3. No exceptions for "just this one bar".
 
@@ -481,18 +487,21 @@ Seven button vocabularies today. **There are three.**
 ![Site Logins](https://raw.githubusercontent.com/elliebartling/read-later/main/audit/30-sitelogins-empty-light.png)
 
 - **E1.** `ContentUnavailableView` is always an `.overlay` on the scroll view, centred in the viewport. Never a list row, never boxed in a card. (Three placements exist today.)
-- **E2.** Structure: custom 64pt line-art mark (I9), Lexend display-small title, one sentence naming the mechanism, and — if the copy names an action — that action as a prominent capsule.
+- **E2.** Structure: a 64pt mark **from the icon set** (I9 — never hand-drawn), display-small title, one sentence naming the mechanism, and — if the copy names an action — that action as a prominent capsule.
 - **E3.** Failure states get `Semantic.warning`; empty states get no colour at all.
 
-### 8.6 The bento grid
+### 8.6 The typography sheet
 
-**Reserved for exactly one surface: the reader's typography/appearance picker.** Mixed-size tiles on `Surface.raised`, each a live self-illustrating preview (the theme tile renders real ink on real paper; the font tile renders its own face). It collapses today's four grouped sections, four headers and two slider treatments into one spatial panel, and it is the only place in the app where a grid replaces a list.
+~~**The bento grid.** Reserved for exactly one surface: the reader's typography/appearance picker. Mixed-size tiles on `Surface.raised`, each a live self-illustrating preview.~~ **Struck** *(Ellen, on the wave-5 build)*: *"the bento box concept is not landing, and just makes the text size (the one thing people are most likely to change?) most difficult to manage by making its scale smaller."*
 
-![Typography sheet today](https://raw.githubusercontent.com/elliebartling/read-later/main/audit/13-typography-sheet-light.png)
+**The typography sheet is a plain grouped list, and text size leads it.** There is no bento grid anywhere in the app. A spatial panel allocates its biggest tiles by visual interest, which put theme and face — chosen once — above the fold and squeezed the control people touch constantly into a half-width cell. The list allocates by frequency instead.
 
-- **B1.** No paper-swatch fans, no page curls, no textures on the tiles (N4). The preview *is* the decoration.
-- **B2.** Numeric controls put their value trailing the control, never on their own row. One slider treatment: bare track, trailing value.
-- **B3.** The sheet is `.medium` so the article stays visible while being tuned. Read Aloud lives in Settings only — the duplicate is removed here.
+![Typography sheet](https://raw.githubusercontent.com/elliebartling/read-later/main/audit/13-typography-sheet-light.png)
+
+- **B0. Text size is the sheet's primary control.** First section, full measure, with a live specimen in the chosen face at the chosen size. Nothing sits above it and nothing sits beside it. **A control's prominence follows how often it is used, not how interesting it is to draw.**
+- **B1.** No paper-swatch fans, no page curls, no textures (N4). The live preview *is* the decoration.
+- **B2.** Numeric controls put their value trailing the control, never on their own row. One slider treatment app-wide: bare track, trailing value.
+- **B3.** The sheet opens at `.medium` so the article stays visible while being tuned. Read Aloud lives in Settings only — the duplicate is removed here.
 
 ---
 
@@ -544,7 +553,7 @@ Six waves, each independently mergeable and reviewable. Wave 1 gates everything 
 | Ship §2.1–2.2 as a token file; delete `Color.playerPink` | theme 2 | code |
 | Accent plumbing: `Accent.primary/fill/onFill/muted` bound to neutrals (A1–A3) | §2.3 | code |
 | One list style app-wide; delete every ad-hoc `listStyle` | theme 1, fix #2 | code |
-| Reader chrome to `.regularMaterial` + chromeTint, both schemes | theme 3, fix #1 | code |
+| ~~Reader chrome to `.regularMaterial` + chromeTint, both schemes~~ → **struck by the amended S4: system glass, both schemes** | theme 3, fix #1 | code |
 | `safeAreaInset` for every floating chrome element (S5, S6) | theme 3 | code |
 | Strip every stroke/border (S2); introduce E0–E3 | theme 1 | code |
 | Sizing standards: control tiers, radii, padding (§7.1–7.2) | §7 | code |
@@ -578,7 +587,7 @@ Six waves, each independently mergeable and reviewable. Wave 1 gates everything 
 | Highlights list: rail, content-first hierarchy, group by article, tap through (H2, H3, R6) | fix #7 | code + **taste-check** on the group header |
 | Semantic roles applied (success / destructive / warning) | theme 2 | code |
 | Favicon tiles + monogram fallback (BR1, BR2) | §6 | code |
-| Kind chips: three silhouettes at one stroke weight, normalised hues (BR3, I9) | §6 | **taste-check** (custom glyphs) |
+| Kind chips: three brand silhouettes at one stroke weight, normalised hues (BR3, I10b) | §6 | **taste-check** |
 
 ### Wave 4 — Navigation
 
@@ -603,23 +612,25 @@ The sidebar's IA was already the best in the app; everything here brings prototy
 
 | Item | Ref | Kind |
 |---|---|---|
-| Reader action bar downsizing (§7.3) + fixed capsule width + state-awareness (C2, C3) | §7.3 | code |
+| Reader action bar downsizing (§7.3) + hug capsule width + state-awareness (C2, C3) | §7.3 | code |
 | Sheet contract: verbs, detents, dismiss controls (SH1–SH5) | theme 6 | code |
 | Button vocabulary 7 → 3 (§8.3) | button inventory | code |
 | ~~Display type: adopt Lexend ≥28pt (T4–T6)~~ → **a real typography exploration** (T4–T6 superseded; system type until then) | §4.2 | **taste-check**, own piece of work |
-| Custom glyph set: highlight mark + five empty-state marks (I9) | §5.3 | **taste-check** |
-| Typography sheet → bento grid (§8.6) | typography sheet | **taste-check** |
+| ~~Custom glyph set: highlight mark + five empty-state marks (I9)~~ → **struck; iconography is Phosphor (§5)** | §5.3 | — |
+| ~~Typography sheet → bento grid (§8.6)~~ → **struck; simple list, text size first (B0)** | typography sheet | code |
+| Restore genuine glass on all floating chrome (S4) | S4 | code |
 | Settings: dismiss control, no row icons, de-duplicate Reader / Read Aloud | Settings | code |
 | Motion pass: §10 curve tokens, Reduce Motion wrapper, the four playful moments | §9, §10 | **taste-check** on save confirmation |
 
-### Wave 6 — The glyph pass
+### Wave 6 — The Phosphor pass
 
-*Last, per Ellen. Every earlier wave touches icon call sites, so migrating before they settle means churning every glyph twice.*
+*Last, per Ellen, and now unblocked: the set is chosen (§5.4). Every earlier wave touches icon call sites, so migrating before they settle means churning every glyph twice. Own branch, own dependency decision (I11).*
 
 | Item | Ref | Kind |
 |---|---|---|
-| Build the twelve-glyph three-way comp in real screens, both schemes | §5.4 | code (throwaway) + **taste-check — Ellen picks the set** |
-| Audit the composite/badged symbols with no third-party equivalent; match, compose or redraw to I9 | §5.4 criterion 2 | code |
+| ~~Build the twelve-glyph three-way comp~~ → **cancelled; Ellen ratified Phosphor** | §5.4 | — |
+| Decide the dependency shape: SPM package vs vendored `.symbolset` | §5.4 / I11 | code |
+| Audit the composite/badged symbols with no Phosphor equivalent; match or compose from two glyphs | §5.4 criterion 2 | code |
 | Author the chosen set as a custom `.symbolset` via SF Symbols templates — never plain asset images | §5.4 criterion 3 | code |
 | Wholesale substrate swap (I12); verify at Bold Text and `.accessibility3` | §5.4 criterion 4 | code |
 

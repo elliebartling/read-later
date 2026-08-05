@@ -155,7 +155,7 @@ struct YouTubeImportView: View {
         Group {
             if model.newChannels.isEmpty {
                 EmptyStateView(
-                    mark: .done,
+                    mark: "checkmark.circle",
                     title: "Nothing new to import",
                     message: model.alreadySubscribedCount > 0
                         ? "All \(model.alreadySubscribedCount) channels we found are already in your feeds."
@@ -226,7 +226,7 @@ struct YouTubeImportView: View {
 
     private func doneView(added: Int) -> some View {
         EmptyStateView(
-            mark: .done,
+            mark: "checkmark.circle",
             title: "Import complete",
             message: doneMessage(added: added),
             actionTitle: "Done",
@@ -249,7 +249,7 @@ struct YouTubeImportView: View {
 
     private func failureView(_ message: String) -> some View {
         EmptyStateView(
-            mark: .warning,
+            mark: "exclamationmark.triangle",
             title: "Import didn't work",
             message: message,
             isFailure: true,
