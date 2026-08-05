@@ -106,17 +106,21 @@ struct AddArticleSheet: View {
                     .textInputAutocapitalization(.never)
             }
             .pageForm()
-            .navigationTitle("Add URL")
+            .navigationTitle("Add link")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
                     Button("Cancel") { dismiss() }
                 }
                 ToolbarItem(placement: .confirmationAction) {
-                    Button("Save") {
+                    // SH3 — verb + object. "Save" alone was the bare verb the
+                    // constitution calls out beside Add feed's bare "Subscribe".
+                    Button("Save link") {
                         if let url = URL(string: urlString) {
                             let pending = PendingSave(url: url, source: .manual)
                             try? pending.write()
+                            // §9's save moment: the one haptic M4 allows here.
+                            Haptic.success()
                             Task { await PendingSaveIngest.drain(context: context) }
                             dismiss()
                         }
@@ -125,5 +129,7 @@ struct AddArticleSheet: View {
                 }
             }
         }
+        // §8.2 — a **Form** sheet. One field never gets a full screen.
+        .presentationDetents([.height(Metric.formSheetHeight)])
     }
 }

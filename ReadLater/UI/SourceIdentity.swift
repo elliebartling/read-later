@@ -135,7 +135,7 @@ struct FaviconTile: View {
         // it rides the row's tap target.
         .frame(width: Metric.faviconTile, height: Metric.faviconTile)
         // §10 Micro — the monogram→favicon swap is a glyph swap.
-        .animation(.easeOut(duration: 0.18), value: icon != nil)
+        .motionMicro(value: icon != nil)
         .accessibilityHidden(true)
         .task(id: host) {
             guard let host, !host.isEmpty else { return }

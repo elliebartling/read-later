@@ -3,21 +3,42 @@ import SwiftData
 import AVFoundation
 import UniformTypeIdentifiers
 
+/// Settings, presented as a sheet from the sidebar (issue #57 moved it there
+/// when the list views' leading slot became the back-to-sidebar affordance).
+///
+/// §8.2 classes this as an **Informational** sheet: nothing to commit, `Done`
+/// trailing, `.large`. The `Done` is new in wave 5 — the constitution's SH1
+/// names this screen by name ("Settings currently has no exit at all"), and
+/// with the tab bar retired a swipe was genuinely the only way out.
 struct SettingsView: View {
     @Query private var settingsRows: [AppSettings]
+    @Environment(\.dismiss) private var dismiss
 
     var body: some View {
         NavigationStack {
             // A single AppSettings row is seeded at startup (RootView). Never
             // insert here — inserting during body evaluation is a SwiftUI
             // anti-pattern and double-inserts under concurrent evaluation.
-            if let settings = settingsRows.first {
-                SettingsForm(settings: settings)
-            } else {
-                ProgressView()
-                    .navigationTitle("Settings")
+            Group {
+                if let settings = settingsRows.first {
+                    SettingsForm(settings: settings)
+                } else {
+                    ProgressView()
+                        .frame(maxWidth: .infinity, maxHeight: .infinity)
+                        .pageBackground()
+                        .navigationTitle("Settings")
+                }
+            }
+            // **SH1.** Every sheet has a visible dismiss control. Swipe is
+            // never the only exit.
+            .toolbar {
+                ToolbarItem(placement: .confirmationAction) {
+                    Button("Done") { dismiss() }
+                }
             }
         }
+        // §8.2 — an Informational sheet is `.large`.
+        .presentationDetents([.large])
     }
 }
 
@@ -101,7 +122,7 @@ private struct SettingsForm: View {
             Section {
                 if hasStoredKey {
                     HStack {
-                        Text("OpenAI Key")
+                        Text("OpenAI key")
                         Spacer()
                         Text("sk-••••••••")
                             .font(.body.monospaced())
@@ -117,8 +138,16 @@ private struct SettingsForm: View {
                         .autocorrectionDisabled()
                         .submitLabel(.done)
                         .onSubmit(saveKey)
-                    Button("Save Key", action: saveKey)
-                        .disabled(trimmedKeyInput.isEmpty)
+                    // **C1.** "Save key" is one of the two buttons the
+                    // constitution names as banned plain tinted text. It takes
+                    // the row vocabulary rather than a prominent capsule,
+                    // because §8.3 allows one prominent capsule per screen and
+                    // Settings has no single primary action to spend it on.
+                    FormRowButton(
+                        title: "Save key",
+                        isEnabled: !trimmedKeyInput.isEmpty,
+                        action: saveKey
+                    )
                 }
                 if let apiKeyStatus {
                     Text(apiKeyStatus)
@@ -126,7 +155,7 @@ private struct SettingsForm: View {
                         .foregroundStyle(apiKeyStatusIsError ? Semantic.destructive : Ink.secondary)
                 }
             } header: {
-                Text("OpenAI API Key")
+                Text("OpenAI API key")
             } footer: {
                 if hasStoredKey {
                     Text("Swipe the key row to remove it. Only used when OpenAI is the active TTS provider.")
@@ -136,24 +165,17 @@ private struct SettingsForm: View {
             }
 
             Section {
-                Button {
-                    showingFolderPicker = true
-                } label: {
-                    HStack {
-                        // T7 — sentence case throughout Settings.
-                        Text("Choose vault folder…")
-                        Spacer()
-                        // I5 — no glyph: the chosen state is said in words.
-                        if settings.obsidianBookmarkData != nil {
-                            Text("Chosen")
-                                .font(.footnote)
-                                .foregroundStyle(Ink.secondary)
-                        }
-                    }
-                }
+                // C1 — the row vocabulary. T7 — sentence case throughout
+                // Settings. I5 — no glyph: the chosen state is said in words.
+                FormRowButton(
+                    title: "Choose vault folder…",
+                    value: settings.obsidianBookmarkData != nil ? "Chosen" : nil,
+                    showsDisclosure: true
+                ) { showingFolderPicker = true }
                 TextField("Sub-folder", text: $settings.obsidianSubfolder)
                     .autocorrectionDisabled()
-                Button("Export all articles") { exportAll() }
+                // **C1.** The other button the constitution names by name.
+                FormRowButton(title: "Export all articles") { exportAll() }
                 if let status = lastExportStatus {
                     Text(status).font(.footnote).foregroundStyle(Ink.secondary)
                 }
@@ -163,20 +185,21 @@ private struct SettingsForm: View {
                 Text("Pick any folder in Files — iCloud Drive, Dropbox, local, etc. The app only rewrites the marked section of each note, so your own edits in exported notes are preserved.")
             }
 
-            Section("Reader") {
-                Picker("Appearance", selection: .init(
-                    get: { settings.readerAppearance },
-                    set: { settings.readerAppearance = $0 }
-                )) {
-                    ForEach(ReaderAppearance.allCases) { a in
-                        Text(a.displayName).tag(a)
-                    }
-                }
-                VStack(alignment: .leading) {
-                    Text("Font size: \(Int(settings.readerFontSize)) pt")
-                    Slider(value: $settings.readerFontSize, in: 12...32, step: 1)
-                }
+            // **De-duplicated (wave 5).** Appearance and font size lived here
+            // *and* in the reader's typography sheet, in two different
+            // treatments — a segmented picker plus a labelled slider here, a
+            // theme grid plus an A→A slider there. §8.6 makes the typography
+            // panel the one place reading appearance is tuned, because it is
+            // the only one where you can see what you are changing; B3's
+            // converse ("Read aloud lives in Settings only") keeps voice and
+            // speed here. What is left in this section is the one thing that
+            // is not typography: which reader engine renders the article.
+            Section {
                 Toggle("Block reader (beta)", isOn: $settings.useBlockReader)
+            } header: {
+                Text("Reader")
+            } footer: {
+                Text("Theme, font, size and spacing are tuned in the reader itself — open an article and tap the typography button.")
             }
 
             Section {
@@ -271,7 +294,7 @@ private struct SettingsForm: View {
                 )
             }
         } header: {
-            Text("Sync Diagnostics")
+            Text("Sync diagnostics")
         } footer: {
             Text("Live iCloud mirroring events this session. If Export never appears or shows an error, the export engine isn't flushing records to CloudKit.")
         }

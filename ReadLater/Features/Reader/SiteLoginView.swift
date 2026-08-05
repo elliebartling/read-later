@@ -42,7 +42,7 @@ struct SiteLoginView: View {
                             .transition(.opacity)
                     }
                 }
-                .animation(.default, value: model.isLoading)
+                .motionMicro(value: model.isLoading)
                 .navigationTitle(host)
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
