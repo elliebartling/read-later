@@ -39,6 +39,43 @@ final class ArticleParser: NSObject {
         /// the quality gate — a preview is real prose and may pass — so it
         /// never blocks saving; it just flags it.
         let isPaywalledPartial: Bool
+        /// For a media post (`MediaArticleParser`): the asset this article IS
+        /// — the full-resolution image, the video, or the gallery permalink.
+        /// Nil for every ordinary article. Persisted to `Article.mediaURL`.
+        let mediaURL: URL?
+        /// What `mediaURL` points at. Persisted to `Article.mediaKindRaw`.
+        let mediaKind: MediaKind?
+
+        /// Explicit rather than memberwise so the two media fields can default
+        /// to nil: every ordinary parser builds a `Parsed` without knowing
+        /// media exists.
+        init(
+            title: String,
+            author: String?,
+            siteName: String?,
+            plainText: String,
+            extractedHTML: String,
+            heroImageURL: URL?,
+            estimatedReadingMinutes: Int,
+            blocks: [ArticleBlock],
+            removedBlocks: [ArticleBlock],
+            isPaywalledPartial: Bool,
+            mediaURL: URL? = nil,
+            mediaKind: MediaKind? = nil
+        ) {
+            self.title = title
+            self.author = author
+            self.siteName = siteName
+            self.plainText = plainText
+            self.extractedHTML = extractedHTML
+            self.heroImageURL = heroImageURL
+            self.estimatedReadingMinutes = estimatedReadingMinutes
+            self.blocks = blocks
+            self.removedBlocks = removedBlocks
+            self.isPaywalledPartial = isPaywalledPartial
+            self.mediaURL = mediaURL
+            self.mediaKind = mediaKind
+        }
     }
 
     static let shared = ArticleParser()
@@ -73,16 +110,61 @@ final class ArticleParser: NSObject {
     private var loadContinuation: CheckedContinuation<Void, Error>?
     private var watchdog: Task<Void, Never>?
     private var isParsing = false
+    private var prewarmTask: Task<Void, Never>?
 
     override init() {
         super.init()
         webView.navigationDelegate = self
     }
 
+    /// Builds the WebView and runs one throwaway navigation, so the first real
+    /// parse doesn't also pay for launching a WebContent process and JIT-ing
+    /// the JS engine. Called once at launch from `PendingSaveIngest.drain`.
+    ///
+    /// Idempotent, and `parse` awaits the resulting task before it loads
+    /// anything, so a prewarm navigation can never resolve a real parse's load
+    /// continuation.
+    func prewarm() {
+        guard prewarmTask == nil, !isParsing else { return }
+        prewarmTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            self.webView.loadHTMLString("<html><body></body></html>", baseURL: nil)
+            // Bounded: we want the process warm, not a guaranteed load.
+            try? await Task.sleep(for: .milliseconds(500))
+        }
+    }
+
     func parse(url: URL, prefetchedHTML: String? = nil) async throws -> Parsed {
+        // Short-captured-fragment fast path (issue #75, latency half).
+        //
+        // Readability abandons any document under its character threshold, so
+        // for a captured body SHORTER than that the WebView round trip has a
+        // known outcome before it starts: spin up a WebContent process, load,
+        // pump to settle, extract, fail the gate — and then land on exactly
+        // the floor below. Returning that same floor now is output-identical
+        // and seconds cheaper, and it leaves the single-slot WebView free.
+        //
+        // Deliberately capped at the threshold rather than applied to every
+        // fragment: PR #70's counter-fixture ("the floor is a last resort, not
+        // the new route for captured content") is still the rule for a
+        // substantial self post, which Readability CAN handle and might handle
+        // better.
+        //
+        // Scoped like the floor too: `isBodyFragment` is false for the Safari
+        // extension's whole-page captures, whose scripts really do need to run.
+        if let html = prefetchedHTML, CapturedHTMLBlocks.isBodyFragment(html),
+           let floor = CapturedHTMLBlocks.floorParsed(capturedHTML: html, url: url),
+           floor.plainText.count < Self.readabilityCharThreshold {
+            return floor
+        }
+
         guard !isParsing else { throw ParseError.busy }
         isParsing = true
         defer { isParsing = false }
+
+        // A prewarm navigation may still be settling; let it land before we
+        // steal the WebView, so its `didFinish` can't resume our continuation.
+        await prewarmTask?.value
 
         if let html = prefetchedHTML {
             webView.loadHTMLString(html, baseURL: url)
@@ -391,6 +473,11 @@ final class ArticleParser: NSObject {
     /// (together with the inter-attempt backoff) gives a JS-rendered page time
     /// to swap its app shell for the real article.
     private static let maxParseAttempts = 3
+
+    /// Readability's own `charThreshold` default: it returns nothing for a
+    /// document whose extracted text is shorter than this. Mirrored here so the
+    /// fast path above can recognise "this extraction is already decided".
+    static let readabilityCharThreshold = 500
 
     /// JS source defining `__rlWalk(rootEl)` → `{ text, blocks }`: the single
     /// block-level DOM walk + classification used by BOTH the Readability
@@ -1325,6 +1412,10 @@ extension Article {
         // Overwritten on every parse so the flag always describes the current
         // plainText — a later re-extract that reaches the full article clears it.
         isPaywalledPartial = parsed.isPaywalledPartial
+        // Also overwritten (and cleared) every parse: an article that stops
+        // resolving to media must stop claiming to be media.
+        mediaURL = parsed.mediaURL
+        mediaKind = parsed.mediaKind
     }
 }
 

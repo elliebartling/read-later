@@ -137,24 +137,32 @@ enum FeedRefresher {
     /// post can't bloat a CloudKit record. Comfortably above a normal post.
     static let maxRedditContentHTMLChars = 100_000
 
-    /// Reddit-only derived fields for an item. For a link post, `externalURL` is
-    /// the post's external destination and no body HTML is stored (the external
-    /// article is parsed instead). For a self post, `externalURL` is nil and the
-    /// body HTML is kept (capped) so it can render through the prefetched-HTML
-    /// path. Non-Reddit feeds get (nil, nil). Pure — unit-testable directly.
+    /// Reddit-only derived fields for an item, from `RedditFeed.postKind`.
+    ///
+    /// - **Link post** → `externalURL` is the destination and no body is kept;
+    ///   the external article is what gets parsed.
+    /// - **Self post** → `externalURL` nil, body HTML kept (capped) so it
+    ///   renders through the prefetched-HTML path with no re-fetch.
+    /// - **Media post** (image / video / gallery) and Reddit-internal links
+    ///   (crossposts) → *also* `externalURL` nil with the body kept. This is
+    ///   the issue-#75 fix: those `[link]` targets are not readable pages, so
+    ///   the entry opens under its own permalink and `MediaArticleParser`
+    ///   renders the picture from the captured body. Keeping the body is what
+    ///   preserves an image post's self-text, which the old split discarded.
+    ///
+    /// Non-Reddit feeds get (nil, nil). Pure — unit-testable directly.
     nonisolated static func redditFields(
         for item: ParsedFeedItem,
         isReddit: Bool
     ) -> (externalURL: URL?, contentHTML: String?) {
         guard isReddit else { return (nil, nil) }
-        let external = RedditFeed.externalURL(fromContentHTML: item.contentHTML)
-        if external != nil {
-            // Link post: parse the external URL, no body to keep.
-            return (external, nil)
+        switch RedditFeed.postKind(fromContentHTML: item.contentHTML) {
+        case .link(let url):
+            return (url, nil)
+        case .selfPost, .captured:
+            let body = item.contentHTML.map { String($0.prefix(maxRedditContentHTMLChars)) }
+            return (nil, body)
         }
-        // Self post: keep the (capped) body HTML for the prefetched-HTML render.
-        let body = item.contentHTML.map { String($0.prefix(maxRedditContentHTMLChars)) }
-        return (nil, body)
     }
 
     /// Keeps the newest `maxEntriesPerFeed` entries (by publication date,

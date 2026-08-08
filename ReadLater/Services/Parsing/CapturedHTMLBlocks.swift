@@ -256,8 +256,16 @@ enum CapturedHTMLBlocks {
 
     /// Builds a `Parsed` straight from captured HTML — the never-fail floor for
     /// content we already hold. Returns nil when the input is a whole captured
-    /// page (see `isBodyFragment`) or yields no text at all — in both cases the
-    /// caller's real error is the honest answer.
+    /// page (see `isBodyFragment`) or yields no blocks at all — in both cases
+    /// the caller's real error is the honest answer.
+    ///
+    /// The bar is *blocks*, not text (issue #75). A captured body whose only
+    /// content is a picture — a Reddit crosspost of an image post, a self post
+    /// that is just a screenshot — has an empty `plainText` and used to fail
+    /// here, which meant showing "Couldn't parse this page" over a picture we
+    /// were holding. An image-only article is a legitimate article; the block
+    /// reader renders it, and `ReaderView` falls back to the block reader
+    /// whenever `plainText` is empty precisely so this can never be blank.
     ///
     /// `title` is deliberately empty: `Article.apply(_:updateTitle:)` only
     /// adopts a non-empty parsed title, so the item keeps the title the save
@@ -269,8 +277,8 @@ enum CapturedHTMLBlocks {
         let all = blocks(fromCapturedHTML: html, baseURL: url)
         let trimmed = CruftFilter.trimmingTrailingBoilerplate(all)
         let blocks = trimmed.kept
+        guard !blocks.isEmpty else { return nil }
         let plainText = ArticleBlocks.derivePlainText(blocks)
-        guard !plainText.trimmingCharacters(in: .whitespacesAndNewlines).isEmpty else { return nil }
         let words = plainText.split(whereSeparator: { $0.isWhitespace }).count
         return ArticleParser.Parsed(
             title: "",
@@ -279,7 +287,7 @@ enum CapturedHTMLBlocks {
             plainText: plainText,
             extractedHTML: html,
             heroImageURL: nil,
-            estimatedReadingMinutes: max(1, words / 220),
+            estimatedReadingMinutes: words == 0 ? 0 : max(1, words / 220),
             blocks: blocks,
             removedBlocks: trimmed.removed,
             isPaywalledPartial: false

@@ -165,6 +165,9 @@ struct ReaderView: View {
                     .accessibilityLabel("Watch on YouTube")
                 }
             }
+            if let kind = article.mediaKind, let media = article.mediaPlaybackURL {
+                MediaPlaybackToolbarItem(kind: kind, url: media)
+            }
             if article.discussionURL != nil {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: openDiscussion) {
@@ -377,7 +380,13 @@ struct ReaderView: View {
         case .failed:
             failedState
         case .ready:
-            if let blocks = blocksCache.blocks(for: article), !blocks.isEmpty, settings.useBlockReader {
+            // `|| article.plainText.isEmpty` — an image post is all blocks and
+            // no text, so the plain reader (which renders `plainText` alone)
+            // would show a blank page. Falling back to the block reader when
+            // there is nothing for the plain one to draw is a correctness
+            // guard, not a preference override.
+            if let blocks = blocksCache.blocks(for: article), !blocks.isEmpty,
+               settings.useBlockReader || article.plainText.isEmpty {
                 BlockReaderView(
                     blocks: blocks,
                     plainText: article.plainText,

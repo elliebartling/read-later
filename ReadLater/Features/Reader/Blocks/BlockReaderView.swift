@@ -120,6 +120,20 @@ struct BlockReaderView: View {
                     // S5 — the floating action bar's height + offset + 12pt of
                     // clearance, so the capsule never bisects a line.
                     .padding(.bottom, ReaderChrome.bottomReserve + deviceInsets.bottom)
+                    // Chrome toggle for taps that land in the margins rather
+                    // than on a block. Every text block already toggles chrome
+                    // on tap, so this only mattered once an article could have
+                    // NO text at all — a Reddit image post (issue #75), whose
+                    // single `.image` block hands its tap to the zoom viewer,
+                    // leaving nothing on screen that could bring the bars back.
+                    // Behind the content (`.background`), so a `UITextView`'s
+                    // own selection gestures keep priority and nothing about
+                    // highlighting changes in either reader.
+                    .background {
+                        Color.clear
+                            .contentShape(Rectangle())
+                            .onTapGesture { handleTap() }
+                    }
                 }
                 // Measure block frames against the scroll view's visible rect.
                 .coordinateSpace(.named(Self.scrollSpace))

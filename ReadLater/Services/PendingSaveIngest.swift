@@ -23,7 +23,17 @@ enum PendingSaveIngest {
     /// Parses are serialized too because ArticleParser's WKWebView is single-slot.
     private static var parseChain: Task<Void, Never>?
 
+    /// Set once the parser WebView has been asked to warm up.
+    private static var didPrewarm = false
+
     static func drain(context: ModelContext) async {
+        // First drain of the process is the app's launch pass, which is the
+        // cheapest moment to pay for a WebContent process. Doing it here (not
+        // in a view) keeps the launch sequence out of the UI layer.
+        if !didPrewarm {
+            didPrewarm = true
+            ArticleParser.shared.prewarm()
+        }
         let prior = chain
         let mine = Task { @MainActor in
             _ = await prior?.value
@@ -121,18 +131,32 @@ enum PendingSaveIngest {
             try? context.save()
             return
         }
+        // Wall-clock cost of one open, from "the reader put up its spinner" to
+        // "the reader has content". This is the number issue #75 is about
+        // ("parsing from feed takes a long time"), so it is measured rather
+        // than guessed — see docs/reddit-media-posts.md §4.
+        let started = ContinuousClock.now
         do {
-            // Routes YouTube video URLs to VideoArticleParser and everything
-            // else to ArticleParser (pure decision: YouTubeURL.isVideoURL).
+            // Routes YouTube video URLs to VideoArticleParser, direct media
+            // (and captured Reddit media posts) to the WebView-free
+            // MediaArticleParser, and everything else to ArticleParser.
             let parsed = try await ArticleParsing.parse(url: url, prefetchedHTML: prefetchedHTML)
             article.apply(parsed, updateTitle: true)
             article.parseStatus = .ready
             try context.save()
+            NSLog("PendingSaveIngest parse OK in %d ms for %@",
+                  Self.milliseconds(since: started), url.absoluteString)
         } catch {
-            NSLog("PendingSaveIngest parse failed for %@: %@",
-                  url.absoluteString, String(describing: error))
+            NSLog("PendingSaveIngest parse failed in %d ms for %@: %@",
+                  Self.milliseconds(since: started), url.absoluteString,
+                  String(describing: error))
             article.parseStatus = .failed
             try? context.save()
         }
+    }
+
+    private static func milliseconds(since start: ContinuousClock.Instant) -> Int {
+        let elapsed = ContinuousClock.now - start
+        return Int(elapsed / .milliseconds(1))
     }
 }

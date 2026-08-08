@@ -56,11 +56,38 @@ final class Article {
     /// generically (not Reddit-specific) so other sources can reuse it. Drives
     /// the reader's "View discussion" affordance. CloudKit-safe optional.
     var discussionURL: URL?
+    /// For a media post (issue #75): the asset this article IS — the
+    /// full-resolution image, the `v.redd.it` video, or the gallery permalink.
+    /// The lead `.image` block already carries what we can *render*; this
+    /// carries what the user can *open*, which for video and gallery is not
+    /// the same URL. Nil for every ordinary article. CloudKit-safe optional.
+    var mediaURL: URL?
+    /// `MediaKind.rawValue` for `mediaURL`. Stored as a string (not an enum)
+    /// for the usual reason `parseStatusRaw` is an Int: SwiftData persists the
+    /// primitive, and an unrecognised value from a newer build decodes to nil
+    /// — "an ordinary article" — instead of failing. CloudKit-safe optional.
+    var mediaKindRaw: String?
     private var parseStatusRaw: Int = ParseStatus.pending.rawValue
 
     var parseStatus: ParseStatus {
         get { ParseStatus(rawValue: parseStatusRaw) ?? .pending }
         set { parseStatusRaw = newValue.rawValue }
+    }
+
+    var mediaKind: MediaKind? {
+        get { mediaKindRaw.flatMap(MediaKind.init(rawValue:)) }
+        set { mediaKindRaw = newValue?.rawValue }
+    }
+
+    /// The URL worth handing to the system when the reader can't show the
+    /// thing itself: a video we don't play in-app, or the rest of a gallery we
+    /// can't enumerate without the Reddit API. Nil for images (the reader
+    /// already shows the full asset, zoomable) and for ordinary articles.
+    var mediaPlaybackURL: URL? {
+        switch mediaKind {
+        case .video, .gallery: return mediaURL
+        case .image, nil: return nil
+        }
     }
 
     var blocks: [ArticleBlock]? {
