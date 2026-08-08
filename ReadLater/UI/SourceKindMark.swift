@@ -17,9 +17,10 @@ import SwiftUI
 // ("three platform silhouettes redrawn to one stroke weight and one optical
 // size, so YouTube, Reddit and a website sit in a column as siblings") and to
 // **I9**: 2pt stroke on a 24pt grid, round caps, no fills, no gradients, no
-// two-tone. They are ours, so **I11** — "until the comp is run, no third-party
-// icon ships" — is satisfied: nothing here comes from Tabler or Phosphor, and
-// §5.3 says these survive that migration unchanged anyway.
+// two-tone. **I10b** exempts them from the amended I9 and from the Phosphor
+// migration alike: these are third-party *brand* marks, not UI iconography, so
+// they are neither ours to restyle nor Phosphor's to supply. Nothing here comes
+// from the icon set, and nothing here changed when the set did.
 //
 // **BR7.** They exist solely to identify the source of user-saved content. No
 // mark is recoloured *within* its own silhouette, none appears in our branding,

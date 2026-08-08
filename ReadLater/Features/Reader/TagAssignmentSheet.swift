@@ -40,7 +40,7 @@ struct TagAssignmentSheet: View {
                                         .foregroundStyle(Ink.primary)
                                     Spacer()
                                     if isAssigned(tag) {
-                                        Image(systemName: "checkmark").uiGlyph(size: Font.GlyphSize.subheadline)
+                                        Image(.check).uiGlyph(size: Font.GlyphSize.subheadline)
                                             .foregroundStyle(Accent.primary)
                                     }
                                 }

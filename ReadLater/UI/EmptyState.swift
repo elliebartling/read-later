@@ -17,19 +17,18 @@ import SwiftUI
 //  - **E3** failure states get `Semantic.warning`; empty states get no colour
 //    at all.
 //
-// **The mark is a system symbol, on purpose (Ellen, wave-5 review).** Wave 5
-// drew a set of custom line-art marks for this slot; Ellen struck them —
-// *"why are we creating custom line art? I asked for an iconography strategy
-// and suggested a specific library… Use phosphor."* Iconography is ratified as
-// **Phosphor** (§5.4) and lands as its own app-wide adoption wave. Until that
-// wave, the mark is an SF Symbol at the 64pt slot, `Ink.tertiary`, at one
-// weight — the interim substrate §5.1–5.2 already govern, and a fixed hole for
-// Phosphor to drop into.
+// **The mark comes from the icon set, never from us (I10).** Wave 5 drew a set
+// of custom line-art marks for this slot; Ellen struck them — *"why are we
+// creating custom line art? I asked for an iconography strategy and suggested a
+// specific library… Use phosphor."* The adoption wave has since landed, so the
+// mark is a Phosphor glyph (`Icon`) at the 64pt slot, `Ink.tertiary`, at one
+// weight. The hole this comment described is now filled; the shape of it is
+// unchanged, which was the point.
 
 /// One empty (or failed) state, composed to E2.
 struct EmptyStateView: View {
-    /// The 64pt mark. An SF Symbol until the Phosphor adoption wave (§5.4).
-    let mark: String
+    /// The 64pt mark, from the Phosphor set (§5.3, I10).
+    let mark: Icon
     let title: String
     /// One sentence naming the mechanism that fills this void.
     let message: String
@@ -48,7 +47,7 @@ struct EmptyStateView: View {
 
     var body: some View {
         VStack(spacing: 16) {
-            Image(systemName: mark)
+            Image(mark)
                 .uiGlyph(size: Font.GlyphSize.emptyStateMark)
                 // E3 — emptiness gets no colour at all; failure gets exactly
                 // one, on the mark.

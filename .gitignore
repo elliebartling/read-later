@@ -46,3 +46,7 @@ Config/Local.xcconfig
 .claude/worktrees/
 .tmp/
 .xcodebuildmcp/
+
+# Python bytecode from tools/
+__pycache__/
+*.pyc

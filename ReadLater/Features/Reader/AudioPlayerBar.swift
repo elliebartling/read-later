@@ -73,7 +73,7 @@ struct AudioPlayerBar: View {
             Button {
                 controller.skipBackward()
             } label: {
-                Image(systemName: "backward.fill")
+                Image(.rewindFill)
                     .uiGlyph()
                     .contentShape(.rect)
             }
@@ -83,7 +83,7 @@ struct AudioPlayerBar: View {
             Button {
                 controller.skipForward()
             } label: {
-                Image(systemName: "forward.fill")
+                Image(.fastForwardFill)
                     .uiGlyph()
                     .contentShape(.rect)
             }
@@ -111,7 +111,7 @@ struct AudioPlayerBar: View {
                     // I2 — ONE weight. This was the transport cluster's odd
                     // one out at `.semibold` beside its `.medium` siblings.
                     // I3's transport exception covers the fill, not the weight.
-                    Image(systemName: controller.isPlaying ? "pause.fill" : "play.fill")
+                    Image(controller.isPlaying ? .pauseFill : .playFill)
                         .uiGlyph()
                 }
             }
@@ -203,7 +203,7 @@ struct IdlePlayerBar: View {
                         .frame(width: Self.glyphFrame, height: Self.glyphFrame)
                         .contentShape(.rect)
                 } else {
-                    capsuleGlyph("arrow.clockwise")
+                    capsuleGlyph(.arrowClockwise)
                 }
             }
             .buttonStyle(.plain)
@@ -212,7 +212,7 @@ struct IdlePlayerBar: View {
 
             if let url = article.url {
                 ShareLink(item: url) {
-                    capsuleGlyph("square.and.arrow.up")
+                    capsuleGlyph(.export)
                 }
                 .accessibilityLabel("Share")
             }
@@ -225,24 +225,24 @@ struct IdlePlayerBar: View {
                 Button {
                     onExport()
                 } label: {
-                    Label("Export to Obsidian", systemImage: "square.and.arrow.up")
+                    Label("Export to Obsidian", icon: .export)
                 }
                 Button {
                     onToggleRead()
                 } label: {
                     Label(article.readAt == nil ? "Mark as Read" : "Mark as Unread",
-                          systemImage: article.readAt == nil ? "checkmark.circle" : "circle")
+                          icon: article.readAt == nil ? .checkCircle : .circle)
                 }
                 if let url = article.url {
                     Divider()
                     Button {
                         onReextract()
                     } label: {
-                        Label("Re-extract", systemImage: "arrow.clockwise")
+                        Label("Re-extract", icon: .arrowClockwise)
                     }
                     .disabled(isReextracting)
                     Link(destination: url) {
-                        Label("Open Original", systemImage: "safari")
+                        Label("Open Original", icon: .compass)
                     }
                 }
             } label: {
@@ -253,26 +253,26 @@ struct IdlePlayerBar: View {
                         .frame(width: Self.glyphFrame, height: Self.glyphFrame)
                         .contentShape(.rect)
                 } else {
-                    capsuleGlyph("ellipsis")
+                    capsuleGlyph(.dotsThree)
                 }
             }
             .accessibilityLabel(isReextracting ? "Re-extracting" : "More")
 
             if let url = article.url {
                 ShareLink(item: url) {
-                    capsuleGlyph("square.and.arrow.up")
+                    capsuleGlyph(.export)
                 }
                 .accessibilityLabel("Share")
             }
 
             Button(action: onTags) {
-                capsuleGlyph("tag.fill")
+                capsuleGlyph(.tagFill)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Tags")
 
             Button(action: onPlay) {
-                capsuleGlyph("play.fill")
+                capsuleGlyph(.playFill)
             }
             .buttonStyle(.plain)
             .accessibilityLabel("Listen")
@@ -285,9 +285,9 @@ struct IdlePlayerBar: View {
     /// a `Spacer` here is what made the capsule want the whole measure.
     private static let glyphGap: CGFloat = 22
 
-    private func capsuleGlyph(_ name: String) -> some View {
+    private func capsuleGlyph(_ icon: Icon) -> some View {
         // I2 — one weight, one scale, sized to the adjacent text's optical size.
-        Image(systemName: name)
+        Image(icon)
             .uiGlyph()
             .frame(width: Self.glyphFrame, height: Self.glyphFrame)
             .contentShape(.rect)
@@ -307,7 +307,7 @@ private struct BufferingCancelControl: View {
                     .trim(from: 0, to: 0.72)
                     .stroke(Accent.primary, style: StrokeStyle(lineWidth: 2, lineCap: .round))
                     .rotationEffect(.degrees(turns * 360))
-                Image(systemName: "stop.fill")
+                Image(.stopFill)
                     .uiGlyph(size: 10)
             }
             .frame(width: 28, height: 28)

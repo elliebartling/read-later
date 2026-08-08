@@ -46,7 +46,7 @@ struct RedditAccountView: View {
     private func signedInSections(account: RedditAccount) -> some View {
         Section {
             HStack {
-                Image(systemName: "person.crop.circle").uiGlyph(size: Font.GlyphSize.emptyStateMark)
+                Image(.userCircle).uiGlyph(size: Font.GlyphSize.emptyStateMark)
                     .foregroundStyle(Semantic.success)
                 VStack(alignment: .leading, spacing: 2) {
                     Text("Connected")
@@ -62,12 +62,12 @@ struct RedditAccountView: View {
             NavigationLink {
                 RedditSubredditPickerView()
             } label: {
-                Label("Import Subreddits", systemImage: "checklist")
+                Label("Import Subreddits", icon: .listChecks)
             }
             NavigationLink {
                 RedditSavedImportView()
             } label: {
-                Label("Import Saved Posts", systemImage: "bookmark")
+                Label("Import Saved Posts", icon: .bookmark)
             }
         } header: {
             Text("Import")
@@ -89,7 +89,7 @@ struct RedditAccountView: View {
                 Task { await reddit.signIn() }
             } label: {
                 HStack {
-                    Image(systemName: "arrow.right.circle").uiGlyph(size: Font.GlyphSize.body)
+                    Image(.arrowCircleRight).uiGlyph(size: Font.GlyphSize.body)
                     Text("Sign in with Reddit")
                     Spacer()
                     if reddit.isAuthenticating {

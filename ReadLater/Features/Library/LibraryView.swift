@@ -17,7 +17,7 @@ struct LibraryView: View {
                 Label {
                     Text("Sharing is unavailable: the App Group isn't active for Read Later, so links shared from Safari can't reach the app. Enable the App Groups capability (group.com.ellenbartling.readlater) on the app target.")
                 } icon: {
-                    Image(systemName: "exclamationmark.triangle")
+                    Image(.warning)
                         .uiGlyph(size: Font.GlyphSize.subheadline)
                         .foregroundStyle(Semantic.warning)
                 }
@@ -37,7 +37,7 @@ struct LibraryView: View {
                 .readableRowStyle()
                 .swipeActions(edge: .trailing) {
                     Button(role: .destructive) { delete(article) } label: {
-                        Label("Delete", systemImage: "trash")
+                        Label("Delete", icon: .trash)
                     }
                     // No tint: the audit found archive wearing an ad-hoc
                     // orange that answers no question (N3). The system's
@@ -46,7 +46,7 @@ struct LibraryView: View {
                         article.isArchived.toggle()
                     } label: {
                         Label(article.isArchived ? "Unarchive" : "Archive",
-                              systemImage: "archivebox")
+                              icon: .archive)
                     }
                 }
             }
@@ -64,7 +64,7 @@ struct LibraryView: View {
             ToolbarItem(placement: .topBarTrailing) {
                 Button { showingAddSheet = true } label: {
                     // I2/I4 — one weight, one scale, monochrome.
-                    Image(systemName: "plus").uiGlyph()
+                    Image(.plus).uiGlyph()
                 }
                 .accessibilityLabel("Add link")
             }
@@ -78,7 +78,7 @@ struct LibraryView: View {
     /// names rendered as the screen's one prominent capsule.
     private var emptyState: EmptyStateView {
         EmptyStateView(
-            mark: "books.vertical",
+            mark: .books,
             title: "Nothing saved yet",
             message: "Share a link from Safari, or paste one here, and it lands in your library ready to read.",
             actionTitle: "Add a link",

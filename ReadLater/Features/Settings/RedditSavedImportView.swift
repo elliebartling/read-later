@@ -46,7 +46,7 @@ struct RedditSavedImportView: View {
             Button {
                 start()
             } label: {
-                Label("Import My Saved Posts", systemImage: "square.and.arrow.down")
+                Label("Import My Saved Posts", icon: .downloadSimple)
             }
         } footer: {
             Text("Brings up to \(RedditImporter.defaultSavedImportCap) of your most recent Reddit saved posts into your library. Link posts import the linked article; text posts import the post body. Comments are skipped. Already-saved links are not duplicated.")
@@ -66,7 +66,7 @@ struct RedditSavedImportView: View {
 
     private func doneSection(_ result: RedditImporter.SavedImportResult) -> some View {
         Section {
-            Label("Imported \(result.imported) post\(result.imported == 1 ? "" : "s")", systemImage: "checkmark.circle.fill")
+            Label("Imported \(result.imported) post\(result.imported == 1 ? "" : "s")", icon: .checkCircleFill)
                 .foregroundStyle(Semantic.success)
             if result.skipped > 0 {
                 Text("\(result.skipped) already in your library or had no link — skipped.")

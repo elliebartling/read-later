@@ -129,7 +129,7 @@ struct FormRowButton: View {
                         .fixedSize(horizontal: true, vertical: false)
                 }
                 if showsDisclosure {
-                    Image(systemName: "chevron.right")
+                    Image(.caretRight)
                         .uiGlyph(size: Font.GlyphSize.caption)
                         .foregroundStyle(Ink.tertiary)
                 }
