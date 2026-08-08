@@ -63,14 +63,20 @@ struct SiteLoginsView: View {
             Section {
                 ForEach(model.sites, id: \.self) { host in
                     // I5 — no glyph in a list-row body; the host is the row.
-                    HStack {
-                        Text(host)
-                        Spacer()
-                        Button("Sign out") { model.pendingSignOut = host }
-                            .buttonStyle(.borderless)
-                            .foregroundStyle(Semantic.destructive)
-                            .accessibilityLabel("Sign out of \(host)")
-                    }
+                    //
+                    // C1 — the trailing "Sign out" used to be a `.borderless`
+                    // button painted `Semantic.destructive`, i.e. plain tinted
+                    // text as a button, which §8.3 bans outright. The whole row
+                    // is the control now: the host reads as the row title, the
+                    // action is stated trailing in `Ink.secondary`, and the
+                    // destructive colour is spent where it belongs — on the
+                    // confirmation dialog's own destructive button.
+                    FormRowButton(
+                        title: host,
+                        value: "Sign out",
+                        showsDisclosure: true
+                    ) { model.pendingSignOut = host }
+                    .accessibilityLabel("Sign out of \(host)")
                     .swipeActions(edge: .trailing, allowsFullSwipe: true) {
                         Button("Sign out", role: .destructive) {
                             model.pendingSignOut = host

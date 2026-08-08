@@ -27,11 +27,15 @@ struct YouTubeImportView: View {
     var body: some View {
         NavigationStack {
             content
-                .navigationTitle("Import Subscriptions")
+                // T7 — sentence case.
+                .navigationTitle("Import subscriptions")
                 .navigationBarTitleDisplayMode(.inline)
                 .toolbar {
-                    ToolbarItem(placement: .cancellationAction) {
-                        Button("Close") { dismiss() }
+                    // §8.2 — an **Informational** sheet: nothing to commit, so
+                    // `Done` trailing. It said "Close" in the leading slot,
+                    // which was a fourth dismissal verb in a four-verb app.
+                    ToolbarItem(placement: .confirmationAction) {
+                        Button("Done") { dismiss() }
                     }
                 }
                 .sheet(isPresented: $showingLogin, onDismiss: {
@@ -69,13 +73,42 @@ struct YouTubeImportView: View {
         case .picking:
             picker
         case .subscribing:
-            ProgressView("Subscribing…")
-                .frame(maxWidth: .infinity, maxHeight: .infinity)
+            subscribingMoment
         case .done(let added):
             doneView(added: added)
         case .failure(let message):
             failureView(message)
         }
+    }
+
+    /// **§9, playful moment 4** — "a live count ticking up as sources land.
+    /// Numbers moving is the whole effect."
+    ///
+    /// This is one of the four moments the playfulness budget is spent on, and
+    /// it is spent here rather than on a spinner labelled "Subscribing…" that
+    /// tells the reader nothing while a 200-channel import runs for a minute.
+    /// The number is the only thing that moves: no confetti, no bounce, no
+    /// badge (§9's NOT list). The §10 **Attention** spring is the one curve
+    /// with overshoot and this is one of the four places it is legal — and it
+    /// still degrades to a crossfade under Reduce Motion (M3), because
+    /// `motionAttention` resolves through `Motion.resolve`.
+    private var subscribingMoment: some View {
+        VStack(spacing: 10) {
+            Text("\(model.subscribedCount)")
+                .displayType()
+                .monospacedDigit()
+                .foregroundStyle(Ink.primary)
+                .contentTransition(.numericText())
+                .motionAttention(value: model.subscribedCount)
+            Text(model.totalToSubscribe > 0
+                ? "of \(model.totalToSubscribe) channels added"
+                : "channels added")
+                .font(.subheadline)
+                .foregroundStyle(Ink.secondary)
+        }
+        .frame(maxWidth: .infinity, maxHeight: .infinity)
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel("\(model.subscribedCount) of \(model.totalToSubscribe) channels added")
     }
 
     // MARK: - Source chooser
@@ -153,6 +186,9 @@ struct YouTubeImportView: View {
                         }
                     }
                 }
+                // S1 — the one list style. This list was the last `List` in the
+                // app still on the system default.
+                .pageList()
             }
         }
         .toolbar {
@@ -162,18 +198,26 @@ struct YouTubeImportView: View {
                         if model.allSelected { model.deselectAll() } else { model.selectAll() }
                     }
                 }
-                ToolbarItem(placement: .bottomBar) {
-                    Button {
-                        Task { await model.subscribeSelected(context: context) }
-                    } label: {
-                        Text(model.selection.isEmpty
-                            ? "Subscribe"
-                            : "Subscribe to ^[\(model.selection.count) channel](inflect: true)")
-                            .frame(maxWidth: .infinity)
-                    }
-                    .buttonStyle(.borderedProminent)
-                    .disabled(!model.canSubscribe)
+            }
+        }
+        // §8.3 — the screen's ONE prominent capsule, in place of
+        // `.buttonStyle(.borderedProminent)` (a fourth button vocabulary, and
+        // the only place in the app the system tint still showed through).
+        // SH3 — verb + object.
+        .safeAreaInset(edge: .bottom) {
+            if !model.newChannels.isEmpty {
+                ProminentCapsuleButton(
+                    title: model.selection.isEmpty
+                        ? "Add feeds"
+                        : "Add ^[\(model.selection.count) feed](inflect: true)",
+                    fillsWidth: true
+                ) {
+                    Task { await model.subscribeSelected(context: context) }
                 }
+                .disabled(!model.canSubscribe)
+                .opacity(model.canSubscribe ? 1 : 0.45)
+                .padding(.horizontal, Metric.screenMargin)
+                .padding(.bottom, Metric.containerGap)
             }
         }
     }

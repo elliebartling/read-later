@@ -95,7 +95,7 @@ struct ImageBlockView: View {
         let width = max(containerWidth, 1)
         let loaded = await ArticleImageCache.shared.image(for: src, targetWidth: width)
         if let loaded {
-            withAnimation(.easeIn(duration: 0.25)) { image = loaded }
+            withAnimation(Motion.micro) { image = loaded }
         } else {
             didFail = true
         }

@@ -53,6 +53,11 @@ struct BlockReaderView: View {
     /// paragraph→block map). Recomputed only when its signature changes — never
     /// every body pass. Held as a reference in @State so it survives the struct
     /// re-inits SwiftUI performs on each parent update.
+    /// **M3.** The two auto-scrolls below are the block reader's only
+    /// animations, and they used a bare `withAnimation` — the system default
+    /// curve, outside the §10 table (M2), and blind to Reduce Motion.
+    @Environment(\.accessibilityReduceMotion) private var reduceMotion
+
     @State private var layout = BlockLayoutCache()
 
     /// Scroll phase bookkeeping so a tap that merely interrupts a scroll doesn't
@@ -152,13 +157,17 @@ struct BlockReaderView: View {
                 // user: only auto-scroll while they aren't driving the scroll.
                 .onChange(of: spokenBlockID) { _, id in
                     guard isSpeaking, !isScrolling, let id else { return }
-                    withAnimation { proxy.scrollTo(id, anchor: nil) }
+                    withAnimation(Motion.resolve(Motion.standard, reduceMotion: reduceMotion)) {
+                        proxy.scrollTo(id, anchor: nil)
+                    }
                 }
                 // Opening the edit sheet: bring the owning block into view so the
                 // selection handles aren't stranded off-screen behind the sheet.
                 .onChange(of: editingHighlightID) { _, id in
                     guard let id, let blockID = blockID(owning: id) else { return }
-                    withAnimation { proxy.scrollTo(blockID, anchor: nil) }
+                    withAnimation(Motion.resolve(Motion.standard, reduceMotion: reduceMotion)) {
+                        proxy.scrollTo(blockID, anchor: nil)
+                    }
                 }
             }
         }

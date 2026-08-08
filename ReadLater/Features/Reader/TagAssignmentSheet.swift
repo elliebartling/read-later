@@ -19,7 +19,12 @@ struct TagAssignmentSheet: View {
                         TextField("New tag", text: $newTagName)
                             .autocorrectionDisabled()
                             .onSubmit(addTag)
+                        // C1 — plain tinted text as a button is banned. The
+                        // row's own commit affordance is the keyboard's return
+                        // key plus this neutral label; nothing here is tinted.
                         Button("Add", action: addTag)
+                            .buttonStyle(.plain)
+                            .foregroundStyle(trimmedNewTagName.isEmpty ? Ink.quaternary : Ink.primary)
                             .disabled(trimmedNewTagName.isEmpty)
                     }
                 }
@@ -53,7 +58,10 @@ struct TagAssignmentSheet: View {
                 }
             }
         }
-        .presentationDetents([.medium, .large])
+        // §8.2 — an **Editor** sheet: changes commit live, `Done` only, and
+        // `.medium` so you can see what you are changing. The `.large` option
+        // is dropped; three heights across the app was the defect.
+        .presentationDetents([.medium])
     }
 
     private var trimmedNewTagName: String {

@@ -11,21 +11,24 @@ import SwiftUI
 //
 //  - **E1** the empty state is always an `.overlay` on the scroll view,
 //    centred in the viewport. Never a list row, never boxed in a card.
-//  - **E2** structure: a 64pt line-art mark, a display-small title, one
+//  - **E2** structure: a 64pt mark, a display-small title, one
 //    sentence naming the mechanism, and — if the copy names an action — that
 //    action as a prominent capsule.
 //  - **E3** failure states get `Semantic.warning`; empty states get no colour
 //    at all.
 //
-// **Placeholder marks.** E2 wants a custom 64pt line-art mark per state (I9,
-// §5.3). Those are drawn in wave 5 alongside the highlight mark; until then the
-// mark is an SF Symbol at the same 64pt slot, `Ink.tertiary`, at one weight —
-// so the layout, spacing and copy are settled and wave 5 swaps artwork into a
-// fixed hole rather than redesigning the state.
+// **The mark is a system symbol, on purpose (Ellen, wave-5 review).** Wave 5
+// drew a set of custom line-art marks for this slot; Ellen struck them —
+// *"why are we creating custom line art? I asked for an iconography strategy
+// and suggested a specific library… Use phosphor."* Iconography is ratified as
+// **Phosphor** (§5.4) and lands as its own app-wide adoption wave. Until that
+// wave, the mark is an SF Symbol at the 64pt slot, `Ink.tertiary`, at one
+// weight — the interim substrate §5.1–5.2 already govern, and a fixed hole for
+// Phosphor to drop into.
 
 /// One empty (or failed) state, composed to E2.
 struct EmptyStateView: View {
-    /// The 64pt mark. An SF Symbol placeholder for §5.3's custom line art.
+    /// The 64pt mark. An SF Symbol until the Phosphor adoption wave (§5.4).
     let mark: String
     let title: String
     /// One sentence naming the mechanism that fills this void.
@@ -83,48 +86,9 @@ struct EmptyStateView: View {
     }
 }
 
-/// **§8.3.** The prominent capsule — one per screen, and the only button
-/// vocabulary an empty state may use. `Accent.fill` behind an `Accent.onFill`
-/// label at the 52pt prominent tier (§7.1); no stroke (S2), no tinted plain
-/// text (C1).
-struct ProminentCapsuleButton: View {
-    let title: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(Accent.onFill)
-                .lineLimit(1)
-                .padding(.horizontal, Metric.capsuleHorizontalPadding)
-                .frame(minHeight: ControlTier.prominent.height)
-                .background(Accent.fill, in: .capsule)
-        }
-        .buttonStyle(.plain)
-    }
-}
-
-/// **§8.3.** The glass capsule — `.regularMaterial` plus `Surface.chromeTint`
-/// at the 44pt standard tier, with an `Ink.primary` label. The quieter of the
-/// two legal capsules, and the only thing a secondary action may be.
-struct GlassCapsuleButton: View {
-    let title: String
-    let action: () -> Void
-
-    var body: some View {
-        Button(action: action) {
-            Text(title)
-                .font(.body.weight(.semibold))
-                .foregroundStyle(Ink.primary)
-                .lineLimit(1)
-                .padding(.horizontal, Metric.capsuleHorizontalPadding)
-                .frame(minHeight: ControlTier.standard.height)
-                .floatingChrome(in: .capsule)
-        }
-        .buttonStyle(.plain)
-    }
-}
+// The two capsule vocabularies an empty state uses moved to
+// `ButtonVocabulary.swift` in wave 5, alongside the glass circle and the
+// C1-compliant form row, so §8.3's whole legal set lives in one file.
 
 extension View {
     /// **E1.** Hangs an empty state over a scroll view, centred in the

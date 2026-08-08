@@ -1,10 +1,32 @@
 import SwiftUI
 import SwiftData
 
+// The reader's typography sheet — a **plain grouped list**, and deliberately so.
+//
+// Wave 5 rebuilt this as a bento grid of mixed-size self-illustrating tiles.
+// Ellen struck it: *"the bento box concept is not landing, and just makes the
+// text size (the one thing people are most likely to change?) most difficult to
+// manage by making its scale smaller."* A spatial panel spends its biggest
+// tiles on the choices people make once (theme, face) and squeezes the one they
+// make constantly into a half-width cell. So:
+//
+//  - **Text size leads, at full width.** It is the first section, it renders a
+//    live specimen in the chosen face at the chosen size, and its slider gets
+//    the entire measure. Nothing above it, nothing beside it.
+//  - **One list, one grammar.** Grouped `Form` sections, same as every other
+//    settings surface in the app (§8.1). No grid.
+//  - **B2 survives the revert.** One slider treatment — bare track, value
+//    trailing the control, never on a row of its own. The sheet used to have
+//    two different sliders and three places to read a number.
+//  - **B3 survives the revert.** Read aloud is not here; it lives in Settings.
+//    The sheet was the app's second copy of that picker.
+//  - **§10 M1.** Nothing here animates the article: font, size and spacing
+//    changes apply instantly. Only the sheet's own selection marks move.
+
 struct TypographyControls: View {
     @Bindable var settings: AppSettings
-    /// Optional live controller so a voice change while listening applies
-    /// immediately (restarts the current paragraph) rather than next start.
+    /// Optional live controller, retained so a future control that affects
+    /// playback can reach it. Read aloud itself lives in Settings (B3).
     var controller: TTSController? = nil
     @Environment(\.dismiss) private var dismiss
 
@@ -13,11 +35,17 @@ struct TypographyControls: View {
     var body: some View {
         NavigationStack {
             Form {
+                // The one control people reach for, first and full width.
+                Section("Text size") {
+                    sizeSpecimen
+                    sliderRow(
+                        value: $settings.readerFontSize, range: 12...32,
+                        unit: "pt", accessibilityName: "Text size"
+                    )
+                }
+
                 Section("Theme") {
-                    Picker("Appearance", selection: .init(
-                        get: { settings.readerAppearance },
-                        set: { settings.readerAppearance = $0 }
-                    )) {
+                    Picker("Appearance", selection: appearanceBinding) {
                         ForEach(ReaderAppearance.allCases) { a in
                             Text(a.displayName).tag(a)
                         }
@@ -41,9 +69,7 @@ struct TypographyControls: View {
                     ForEach(ReaderFont.Group.allCases) { group in
                         let fonts = ReaderFont.allCases.filter { $0.group == group }
                         if !fonts.isEmpty {
-                            Text(group.title)
-                                .font(.caption.weight(.semibold))
-                                .foregroundStyle(Ink.secondary)
+                            paletteLabel(group.title)
                             ForEach(fonts) { font in
                                 FontRow(
                                     font: font,
@@ -54,93 +80,102 @@ struct TypographyControls: View {
                     }
                 }
 
-                Section("Size") {
-                    Slider(value: $settings.readerFontSize, in: 12...32, step: 1) {
-                        Text("Size")
-                    } minimumValueLabel: {
-                        Text("A").font(.footnote)
-                    } maximumValueLabel: {
-                        Text("A").font(.title3)
-                    }
-                    Text("\(Int(settings.readerFontSize)) pt")
-                        .font(.footnote).foregroundStyle(Ink.secondary)
-                }
-
-                Section("Line Spacing") {
-                    Slider(value: $settings.readerLineSpacing, in: 0...16, step: 1)
-                    Text("\(Int(settings.readerLineSpacing)) pt")
-                        .font(.footnote).foregroundStyle(Ink.secondary)
-                }
-
-                Section("Paragraph Spacing") {
-                    Slider(value: $settings.readerParagraphSpacing, in: 0...28, step: 1)
-                    Text("\(Int(settings.readerParagraphSpacing)) pt")
-                        .font(.footnote).foregroundStyle(Ink.secondary)
+                // B2 — one slider treatment, so the two spacings share a
+                // section instead of owning a header each.
+                Section("Spacing") {
+                    sliderRow(
+                        value: $settings.readerLineSpacing, range: 0...16,
+                        label: "Line", unit: "pt"
+                    )
+                    sliderRow(
+                        value: $settings.readerParagraphSpacing, range: 0...28,
+                        label: "Paragraph", unit: "pt"
+                    )
                 }
 
                 Section("Width") {
-                    Picker("Width", selection: .init(
-                        get: { settings.readerWidth },
-                        set: { settings.readerWidth = $0 }
-                    )) {
+                    Picker("Width", selection: widthBinding) {
                         ForEach(ReaderWidth.allCases) { w in
                             Text(w.displayName).tag(w)
                         }
                     }
                     .pickerStyle(.segmented)
                 }
-
-                Section("Read Aloud") {
-                    Picker("Provider", selection: $settings.ttsProvider) {
-                        ForEach(TTSProvider.allCases) { p in
-                            Text(p.displayName).tag(p)
-                        }
-                    }
-                    switch settings.ttsProvider {
-                    case .apple:
-                        Picker("Voice", selection: appleVoiceBinding) {
-                            Text("System Default").tag("")
-                            ForEach(VoiceCatalog.appleVoices(), id: \.identifier) { voice in
-                                Text("\(voice.name) (\(voice.language))").tag(voice.identifier)
-                            }
-                        }
-                    case .openAI:
-                        Picker("Voice", selection: openAIVoiceBinding) {
-                            ForEach(VoiceCatalog.openAIVoices, id: \.self) { v in
-                                Text(v.capitalized).tag(v)
-                            }
-                        }
-                    }
-                }
             }
             .pageForm()
             .navigationTitle("Typography")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
+                // §8.2 — an Editor sheet: changes commit live, so `Done` only.
                 ToolbarItem(placement: .confirmationAction) {
                     Button("Done") { dismiss() }
                 }
             }
         }
+        // The article stays visible while it is being tuned.
+        .presentationDetents([.medium, .large])
     }
 
-    private var openAIVoiceBinding: Binding<String> {
-        Binding(
-            get: { settings.openAIVoice },
-            set: { newVoice in
-                settings.openAIVoice = newVoice
-                controller?.setVoice(newVoice)
+    // MARK: - Size
+
+    /// The specimen answers "what does this number mean?" without the number
+    /// having to be read — the chosen face at the chosen size, full measure.
+    private var sizeSpecimen: some View {
+        Text("The quick brown fox")
+            .font(Font(currentFont.uiFont(size: CGFloat(settings.readerFontSize))))
+            .foregroundStyle(Ink.primary)
+            .lineLimit(1)
+            .minimumScaleFactor(0.5)
+            .frame(maxWidth: .infinity, alignment: .leading)
+            .accessibilityHidden(true)
+    }
+
+    /// **B2**, as one component. The sheet previously had two slider treatments
+    /// and put every value on a row of its own.
+    private func sliderRow(
+        value: Binding<Double>, range: ClosedRange<Double>,
+        label: String? = nil, unit: String, accessibilityName: String? = nil
+    ) -> some View {
+        HStack(spacing: 12) {
+            if let label {
+                Text(label)
+                    .font(.subheadline)
+                    .foregroundStyle(Ink.secondary)
+                    .lineLimit(1)
+                    .fixedSize(horizontal: true, vertical: false)
             }
+            Slider(value: value, in: range, step: 1)
+                .tint(Accent.primary)
+                .labelsHidden()
+            Text("\(Int(value.wrappedValue))\(unit)")
+                .font(.caption.monospacedDigit())
+                .foregroundStyle(Ink.tertiary)
+                // T8 — a value is arbitrary content; it never wraps.
+                .lineLimit(1)
+                .fixedSize(horizontal: true, vertical: false)
+                .frame(minWidth: 30, alignment: .trailing)
+        }
+        .accessibilityElement(children: .combine)
+        .accessibilityLabel(accessibilityName ?? label ?? "")
+    }
+
+    // MARK: - Bindings
+
+    private var currentFont: ReaderFont {
+        ReaderFont(rawValue: settings.readerFontRaw) ?? .serif
+    }
+
+    private var appearanceBinding: Binding<ReaderAppearance> {
+        Binding(
+            get: { settings.readerAppearance },
+            set: { settings.readerAppearance = $0 }
         )
     }
 
-    private var appleVoiceBinding: Binding<String> {
+    private var widthBinding: Binding<ReaderWidth> {
         Binding(
-            get: { settings.appleVoiceID },
-            set: { newVoice in
-                settings.appleVoiceID = newVoice
-                controller?.setVoice(newVoice)
-            }
+            get: { settings.readerWidth },
+            set: { settings.readerWidth = $0 }
         )
     }
 
@@ -160,6 +195,7 @@ struct TypographyControls: View {
 
     private func paletteLabel(_ title: String) -> some View {
         Text(title)
+            // §4.3 section header: sentence case, never all-caps (T7).
             .font(.caption.weight(.semibold))
             .foregroundStyle(Ink.secondary)
     }
@@ -177,8 +213,20 @@ struct TypographyControls: View {
     }
 }
 
+/// **SH2.** The one selection idiom: a filled `Accent.fill` circle with an
+/// `Accent.onFill` checkmark. Never a ring (S2), never a tinted label.
+private struct SelectionCheck: View {
+    var body: some View {
+        Image(systemName: "checkmark")
+            .uiGlyph(size: 11)
+            .foregroundStyle(Accent.onFill)
+            .frame(width: 18, height: 18)
+            .background(Accent.fill, in: .circle)
+    }
+}
+
 /// A tappable paper swatch showing a theme's background + a sample glyph in its
-/// ink color, ringed when selected.
+/// ink color.
 private struct ThemeSwatch: View {
     let theme: ReaderTheme
     let selected: Bool
@@ -195,23 +243,16 @@ private struct ThemeSwatch: View {
                         .foregroundStyle(Color(uiColor: theme.foreground))
                 }
                 .frame(height: 48)
-                // No ring (S2). Selection is a filled `Accent.fill` mark with
-                // an `Accent.onFill` check — one idiom app-wide (SH2).
+                // No ring (S2). Selection is the one SH2 mark.
                 .overlay(alignment: .topTrailing) {
-                    if selected {
-                        Image(systemName: "checkmark").uiGlyph(size: Font.GlyphSize.subheadline)
-                            .font(.caption2.weight(.bold))
-                            .foregroundStyle(Accent.onFill)
-                            .frame(width: 18, height: 18)
-                            .background(Accent.fill, in: Circle())
-                            .padding(6)
-                    }
+                    if selected { SelectionCheck().padding(5) }
                 }
                 Text(theme.displayName)
                     .font(.caption2)
                     .foregroundStyle(selected ? Ink.primary : Ink.secondary)
                     .lineLimit(1)
             }
+            .contentShape(.rect)
         }
         .buttonStyle(.plain)
         .accessibilityLabel(theme.displayName)
@@ -219,7 +260,7 @@ private struct ThemeSwatch: View {
     }
 }
 
-/// A font-family row rendered in its own typeface, with a checkmark when active.
+/// A font-family row rendered in its own typeface, with the SH2 mark when active.
 private struct FontRow: View {
     let font: ReaderFont
     let selected: Bool
@@ -230,12 +271,9 @@ private struct FontRow: View {
             HStack {
                 Text(font.displayName)
                     .font(Font(font.uiFont(size: 18)))
-                Spacer()
-                if selected {
-                    Image(systemName: "checkmark").uiGlyph(size: Font.GlyphSize.subheadline)
-                        .foregroundStyle(Accent.primary)
-                        .font(.body.weight(.semibold))
-                }
+                    .foregroundStyle(Ink.primary)
+                Spacer(minLength: 8)
+                if selected { SelectionCheck() }
             }
             .contentShape(.rect)
         }

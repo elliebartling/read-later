@@ -118,13 +118,10 @@ struct SidebarPanel: View {
                 Button("Add feed…") { showingAddFeed = true }
                 Button("Import subscriptions…") { showingImport = true }
             } label: {
-                Image(systemName: "plus")
-                    .uiGlyph()
-                    .foregroundStyle(Accent.primary)
-                    // Standard tier — there is no 32pt tier (Z2).
-                    .frame(width: ControlTier.standard.height,
-                           height: ControlTier.standard.height)
-                    .background(Surface.control, in: Circle())
+                // §8.3 — the **glass circle**, the app's one vocabulary for a
+                // floating single action. It used to be a `Surface.control`
+                // fill, a circle treatment that appeared nowhere else.
+                GlassCircle { Image(systemName: "plus") }
             }
             .accessibilityLabel("Add feed")
         }

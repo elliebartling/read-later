@@ -27,7 +27,7 @@ import UIKit
 
 extension UIColor {
     /// `0xRRGGBB` → colour. Alpha is separate so the scheme builder can carry
-    /// per-scheme alpha (only `Surface.chromeTint` needs it).
+    /// per-scheme alpha.
     convenience init(rgb: UInt32, alpha: CGFloat = 1) {
         self.init(
             red: CGFloat((rgb >> 16) & 0xFF) / 255,
@@ -54,8 +54,11 @@ extension UIColor {
 
 // MARK: - §2.1 Neutral ramp
 
-/// The four page/container fills, the one legal divider, and the floating-chrome
-/// tint. Hue 72° at chroma ≤ 0.006 — charcoal, never slate, never parchment.
+/// The four page/container fills and the one legal divider. Hue 72° at chroma
+/// ≤ 0.006 — charcoal, never slate, never parchment.
+///
+/// There is no chrome tint. Floating chrome is the system glass material and
+/// nothing painted over it — see `floatingChrome(in:)`.
 enum Surface {
     /// **E0.** The page. Every destination, every full-screen surface.
     static let groundUI = UIColor.scheme(dark: 0x21_1F1C, light: 0xF8_F6F5)
@@ -68,20 +71,12 @@ enum Surface {
     /// **S3.** The only legal 0.5pt line in the app, and only *inside* one E1
     /// container. It is not a border; it never surrounds anything.
     static let dividerUI = UIColor.scheme(dark: 0x33_312F, light: 0xE1_DFDD)
-    /// **S4.** Layered over `.regularMaterial` on floating chrome and nowhere
-    /// else. This is what stops body text reading through the reader's bars in
-    /// light mode.
-    static let chromeTintUI = UIColor.scheme(
-        dark: 0x26_2421, light: 0xFB_FAF8,
-        darkAlpha: 0.35, lightAlpha: 0.45
-    )
 
     static let ground = Color(uiColor: groundUI)
     static let raised = Color(uiColor: raisedUI)
     static let elevated = Color(uiColor: elevatedUI)
     static let control = Color(uiColor: controlUI)
     static let divider = Color(uiColor: dividerUI)
-    static let chromeTint = Color(uiColor: chromeTintUI)
 }
 
 /// Text and glyph values. Contrast figures in the comments are against that
@@ -302,6 +297,10 @@ enum Metric {
     /// Favicon tile (BR1): a 20pt mark centred on a 28pt tile.
     static let faviconTile: CGFloat = 28
     static let faviconMark: CGFloat = 20
+    /// **§8.2.** The detent for a **Form** sheet — Add link, Add feed. One
+    /// field never gets a full screen, and both of the app's form sheets get
+    /// the same height so they read as one component in two dresses.
+    static let formSheetHeight: CGFloat = 220
 }
 
 // MARK: - §3 Elevations, as view modifiers
@@ -314,17 +313,23 @@ extension View {
         modifier(ElevationContainer(cornerRadius: cornerRadius))
     }
 
-    /// **E3.** Floating glass chrome over scrolling content: `.regularMaterial`
-    /// plus the `Surface.chromeTint` overlay, in **both** schemes (S4).
-    /// `.ultraThinMaterial` / `.thinMaterial` are banned over the reader.
+    /// **E3 / S4 — floating chrome is GLASS.** The system Liquid Glass material
+    /// (`.glassEffect`), in both schemes, and nothing painted over it.
+    ///
+    /// Wave 1 replaced the glass with `.regularMaterial` plus an opaque
+    /// `Surface.chromeTint` wash, chasing a light-mode legibility complaint.
+    /// Ellen struck it on the wave-5 build: *"the capsule and top nav read as
+    /// way too opaque — we've lost the glass effect that made these elements
+    /// feel native and dynamic and actually legible as a distinct surface."*
+    /// Translucency is not the thing that hurt legibility; a flat tint that
+    /// killed the blur is. Real glass blurs, dims and desaturates what is
+    /// behind it, which is what separates the surface *and* keeps it alive.
+    ///
+    /// N6 governs the implementation: prefer the current-generation Apple
+    /// material over a hand-rolled equivalent. `.glassEffect` carries its own
+    /// shadow and its own scheme adaptation, so neither is re-applied here.
     func floatingChrome(in shape: some Shape) -> some View {
-        background {
-            shape
-                .fill(.regularMaterial)
-                .overlay { shape.fill(Surface.chromeTint) }
-        }
-        .compositingGroup()
-        .modifier(FloatingChromeShadow())
+        glassEffect(.regular, in: shape)
     }
 }
 
@@ -340,18 +345,6 @@ private struct ElevationContainer: ViewModifier {
                 radius: 8 / 2, // SwiftUI radius is ~half a CSS blur
                 y: 2
             )
-    }
-}
-
-private struct FloatingChromeShadow: ViewModifier {
-    @Environment(\.colorScheme) private var colorScheme
-
-    func body(content: Content) -> some View {
-        content.shadow(
-            color: .black.opacity(colorScheme == .dark ? 0.18 : 0.10),
-            radius: 16 / 2,
-            y: 4
-        )
     }
 }
 

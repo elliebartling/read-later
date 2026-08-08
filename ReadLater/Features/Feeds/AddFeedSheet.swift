@@ -30,7 +30,8 @@ struct AddFeedSheet: View {
                 }
             }
             .pageForm()
-            .navigationTitle("Add Feed")
+            // T7 — sentence case.
+            .navigationTitle("Add feed")
             .navigationBarTitleDisplayMode(.inline)
             .toolbar {
                 ToolbarItem(placement: .cancellationAction) {
@@ -40,7 +41,10 @@ struct AddFeedSheet: View {
                     if isResolving {
                         ProgressView()
                     } else {
-                        Button("Subscribe") {
+                        // SH3 — verb + object. The constitution names this
+                        // exact button: "never a bare 'Subscribe' when the
+                        // sibling sheet says 'Save'".
+                        Button("Add feed") {
                             Task { await subscribe() }
                         }
                         .disabled(!canSubscribe)
@@ -48,6 +52,10 @@ struct AddFeedSheet: View {
                 }
             }
         }
+        // §8.2 — a **Form** sheet. It presented `.large` (the SwiftUI default)
+        // for a single URL field, which is the "three heights" the section was
+        // written to end.
+        .presentationDetents([.height(Metric.formSheetHeight)])
     }
 
     /// Accepts bare domains ("daringfireball.net") by defaulting to https, and
@@ -101,6 +109,8 @@ struct AddFeedSheet: View {
             // has content the moment the sheet closes.
             FeedRefresher.merge(parsed: resolved.parsed, into: feed, context: context)
             try? context.save()
+            // M4 — `.success` on save, and this is a save.
+            Haptic.success()
             dismiss()
         } catch {
             errorMessage = (error as? LocalizedError)?.errorDescription

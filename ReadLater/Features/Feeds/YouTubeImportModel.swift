@@ -36,6 +36,11 @@ final class YouTubeImportModel {
     private(set) var selection = Set<String>()
     /// Non-fatal per-channel failures during the last subscribe, for a footer.
     private(set) var failedCount = 0
+    /// Channels subscribed so far in the running batch — the number the
+    /// §9 import moment ticks.
+    private(set) var subscribedCount = 0
+    /// How many were selected, so the moment reads "3 of 42".
+    private(set) var totalToSubscribe = 0
 
     var allSelected: Bool { !newChannels.isEmpty && selection.count == newChannels.count }
     var canSubscribe: Bool { !selection.isEmpty }
@@ -131,6 +136,11 @@ final class YouTubeImportModel {
         guard !chosen.isEmpty else { return }
         phase = .subscribing
         failedCount = 0
+        // §9's fourth playful moment: "a live count ticking up as sources land.
+        // Numbers moving is the whole effect." These two drive it; nothing else
+        // in the import spends any of the playfulness budget.
+        subscribedCount = 0
+        totalToSubscribe = chosen.count
 
         // Snapshot already-subscribed feed URLs so we don't double-insert within
         // this batch or against pre-existing feeds.
@@ -154,6 +164,7 @@ final class YouTubeImportModel {
                 FeedRefresher.merge(parsed: parsed, into: feed, context: context)
                 existingFeedURLs.insert(feedURL)
                 added += 1
+                subscribedCount = added
             } catch {
                 failedCount += 1
             }

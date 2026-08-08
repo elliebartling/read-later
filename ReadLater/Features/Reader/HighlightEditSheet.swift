@@ -5,12 +5,18 @@ import SwiftData
 /// after an instant highlight ("Add Note" in the selection menu) and when the
 /// user taps an existing highlight in the reader.
 ///
-/// The quoted text is *not* shown here — the reader keeps the selection
-/// handles on the highlight so the range can be adjusted in place. Changes
-/// are written to the model as they happen so the reader (visible behind the
-/// medium detent) updates live; the presenting view saves the context and
-/// re-exports on dismiss. Deletion is deferred to the presenter via
-/// `onDelete` so this sheet never renders a deleted model.
+/// **The quoted text is deliberately NOT shown here (SH5, as amended).** It was
+/// deleted from this sheet once already, and wave 5 put it back on an SH5
+/// reading that Ellen struck: *"we previously removed highlighted copy of the
+/// text from the highlight sheet because it is unnecessary, the same text is
+/// literally right there on screen."* The sheet takes the `.medium` detent
+/// precisely so the passage stays visible behind it, and the reader keeps the
+/// selection handles on the highlight so the range can be adjusted in place.
+///
+/// Changes are written to the model as they happen so the reader updates live;
+/// the presenting view saves the context and re-exports on dismiss. Deletion is
+/// deferred to the presenter via `onDelete` so this sheet never renders a
+/// deleted model.
 struct HighlightEditSheet: View {
     @Bindable var highlight: Highlight
     /// When true (Add Note), the note field becomes first responder on appear.
@@ -32,7 +38,7 @@ struct HighlightEditSheet: View {
     var body: some View {
         NavigationStack {
             Form {
-                Section("Color") {
+                Section("Colour") {
                     // H1 — the one swatch component. This sheet is now the
                     // app's only highlight-colour picker; the reader's
                     // text-list menu was deleted in wave 3 and routes here.
@@ -41,7 +47,12 @@ struct HighlightEditSheet: View {
                             get: { highlight.color },
                             set: { highlight.color = $0 }
                         ),
-                        onPick: { lastHighlightColorRaw = $0.rawValue }
+                        onPick: { colour in
+                            lastHighlightColorRaw = colour.rawValue
+                            // M4 — `.selection` on highlight-colour change. One
+                            // of exactly two legal haptics in the app.
+                            Haptic.selection()
+                        }
                     )
                 }
                 Section("Note") {
@@ -50,7 +61,8 @@ struct HighlightEditSheet: View {
                         .focused($noteFocused)
                 }
                 Section {
-                    Button("Remove Highlight", role: .destructive) {
+                    // T7 — sentence case.
+                    FormRowButton(title: "Remove highlight", isDestructive: true) {
                         onDelete()
                         dismiss()
                     }
