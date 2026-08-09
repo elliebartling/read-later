@@ -44,6 +44,58 @@ final class Wave2GrammarTests: XCTestCase {
         XCTAssertEqual(meta.text, "Couldn't parse · example.com")
     }
 
+    // MARK: - T8, the elastic/fixed split (build-44 defect sweep, #76)
+
+    /// The line is rendered as two runs so the row can truncate the half whose
+    /// length nobody controls. Whatever the split, re-joining it reproduces R2's
+    /// field order exactly — the grammar is unchanged, only its layout is.
+    func testMetadataSplitsElasticFieldsFromFixedOnes() {
+        let date = Date(timeIntervalSinceReferenceDate: 0)
+        let meta = RowMetadata(source: "overreacted.io", date: date, details: ["33 min", "2 highlights"])
+        XCTAssertEqual(
+            meta.elasticText,
+            "overreacted.io · \(date.formatted(.relative(presentation: .named)))"
+        )
+        XCTAssertEqual(meta.fixedText, "33 min · 2 highlights")
+        XCTAssertEqual(
+            meta.text,
+            [meta.elasticText, meta.fixedText].joined(separator: RowMetadata.separator)
+        )
+    }
+
+    /// R7's "Couldn't parse" is elastic, not fixed: it leads the line and it is
+    /// allowed to truncate like the site name beside it.
+    func testFailedFlagRidesTheElasticHalf() {
+        let meta = RowMetadata(source: "example.com", isFailed: true)
+        XCTAssertEqual(meta.elasticText, "Couldn't parse · example.com")
+        XCTAssertEqual(meta.fixedText, "")
+    }
+
+    /// Either half may be empty, and neither may strand a separator when it is
+    /// — the `HStack` renders them as two `Text`s, so a stray joiner would
+    /// surface as a dangling "·".
+    func testMetadataSplitStrandsNoSeparators() {
+        let detailsOnly = RowMetadata(details: ["Video"])
+        XCTAssertEqual(detailsOnly.elasticText, "")
+        XCTAssertEqual(detailsOnly.fixedText, "Video")
+        XCTAssertEqual(detailsOnly.text, "Video")
+
+        let sourceOnly = RowMetadata(source: "example.com")
+        XCTAssertEqual(sourceOnly.elasticText, "example.com")
+        XCTAssertEqual(sourceOnly.fixedText, "")
+        XCTAssertEqual(sourceOnly.text, "example.com")
+
+        let empty = RowMetadata()
+        XCTAssertEqual(empty.elasticText, "")
+        XCTAssertEqual(empty.fixedText, "")
+        XCTAssertEqual(empty.text, "")
+    }
+
+    func testMetadataSplitDropsEmptyDetailStrings() {
+        let meta = RowMetadata(source: "", date: nil, details: ["", "Video", ""])
+        XCTAssertEqual(meta.fixedText, "Video")
+    }
+
     // MARK: - R3, one source string
 
     func testSourceStringPrefersSiteName() {

@@ -32,7 +32,14 @@ struct RedditSavedImportView: View {
                     Text(message)
                         .font(.footnote)
                         .foregroundStyle(Semantic.destructive)
-                    Button("Try Again") { start() }
+                    // **C1 / T7.** This was `Button("Try Again")` — plain
+                    // tinted text as a button, the vocabulary §8.3 bans, and
+                    // the app's only remaining Title Case verb. It is the row
+                    // vocabulary now (C1's second out), like every other action
+                    // in Settings, so its label is `Ink.primary` on the
+                    // container fill rather than whatever the ambient tint
+                    // resolves to.
+                    FormRowButton(title: "Try again") { start() }
                 }
             }
         }

@@ -331,6 +331,40 @@ extension View {
     func floatingChrome(in shape: some Shape) -> some View {
         glassEffect(.regular, in: shape)
     }
+
+    /// **The reader's page is not the app's page — so its neutrals resolve
+    /// against the paper, not against the UI scheme.**
+    ///
+    /// T2 makes the reader canvas independent of the app's appearance on
+    /// purpose: *"a light-mode app can be showing a dark paper"*, and the
+    /// eight-paper catalogue means the reverse is just as ordinary. Every
+    /// `Ink.*`, `Accent.*`, `Semantic.*` and system material drawn **on** that
+    /// paper, though, was still asking `UITraitCollection` which scheme the
+    /// *app* was in. On a Light paper in dark mode that produced a page painted
+    /// entirely in dark-mode values: `Ink.primary` at `#F2F0ED` on a `#FCFCFC`
+    /// page (the "Couldn't parse this page" title disappeared outright), an
+    /// `Accent.fill` capsule at `#F2F0ED` on the same near-white ground, and a
+    /// nav bar drawing a white title over glass that had a light page behind
+    /// it. Ellen reported the button half of it on build 44 — *"'Try Again'
+    /// renders white text on a light button in dark mode"* — and the same root
+    /// cause is half of *"can't pick between warm gray and neutral"*: warm dark
+    /// neutrals landing on a light page read as neither.
+    ///
+    /// The principle was already settled for the one place wave 1 hit it:
+    /// `SystemState.washUI(overPaper:darkBackground:)` takes the *paper's*
+    /// darkness rather than the UI scheme, "because a light-mode app can be
+    /// showing a dark paper". This is that rule generalised from one colour to
+    /// every colour, and applied once at the surface boundary instead of at
+    /// each call site — so a new control dropped into the reader inherits it
+    /// rather than having to remember it, and so both readers (`ReaderTextView`
+    /// and the block reader) get it from the one host that wraps them.
+    ///
+    /// **Not for app chrome.** Sheets, alerts and anything else that sits on
+    /// `Surface.*` rather than on the paper stay on the app's scheme; they are
+    /// presented over the reader, not painted on it.
+    func readerPaperScheme(_ paperIsDark: Bool) -> some View {
+        environment(\.colorScheme, paperIsDark ? .dark : .light)
+    }
 }
 
 private struct ElevationContainer: ViewModifier {

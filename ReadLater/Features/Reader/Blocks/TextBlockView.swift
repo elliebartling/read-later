@@ -148,6 +148,15 @@ struct TextBlockView: View {
     /// whitespace-preserving text view that never wraps mid-token, hosted in a
     /// horizontal `ScrollView` so long lines scroll instead of reflowing, inside
     /// a subtle rounded, inset panel tinted from the reader theme.
+    ///
+    /// **No outline (S2/N2).** The panel used to carry a 1pt
+    /// `theme.foreground @ 0.12` `strokeBorder` on top of its fill — a stroke
+    /// around a container, which the constitution bans outright, and the
+    /// heaviest line anywhere in a reading surface whose whole job is to yield
+    /// to the words (N1). The 0.055 wash is the separation, exactly as it is in
+    /// the plain reader, which draws inline code as a background wash and
+    /// nothing else — so deleting the stroke also stops the two readers
+    /// disagreeing about what code looks like.
     private var codeBlock: some View {
         ScrollView(.horizontal, showsIndicators: true) {
             BlockTextRepresentable(
@@ -174,10 +183,6 @@ struct TextBlockView: View {
         .frame(maxWidth: .infinity, alignment: .leading)
         .background(Color(uiColor: theme.foreground.withAlphaComponent(0.055)))
         .clipShape(RoundedRectangle(cornerRadius: Self.codeCornerRadius, style: .continuous))
-        .overlay(
-            RoundedRectangle(cornerRadius: Self.codeCornerRadius, style: .continuous)
-                .strokeBorder(Color(uiColor: theme.foreground.withAlphaComponent(0.12)), lineWidth: 1)
-        )
     }
 
     private static let codeCornerRadius: CGFloat = 10
