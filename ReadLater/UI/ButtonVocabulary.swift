@@ -94,6 +94,35 @@ struct GlassCircle<Content: View>: View {
     }
 }
 
+/// **Z1 — the hit target under a bare toolbar glyph.**
+///
+/// A `ToolbarItem` whose label is a naked `Image` lays the button out at the
+/// *artwork's* width. For `caret-left` at the Standard tier that is **12.7pt**
+/// — measured on device via the accessibility frame — while the glass circle
+/// the toolbar draws behind it is a full 44pt across. The affordance is three
+/// and a half times wider than the thing that answers a tap, so a tap that
+/// lands anywhere but the middle third of the visible circle does nothing.
+/// That is the whole of the "back button isn't very responsive" report: it is
+/// not latency, it is a miss.
+///
+/// The system's own back button never had this problem — UIKit gives it the
+/// leading margin as slop. Ours has to ask.
+///
+/// `minWidth`/`minHeight` rather than a fixed `frame`, so this only ever grows
+/// a target and never shrinks a wider one, and `contentShape` so the whole
+/// rectangle answers rather than the glyph's alpha. The glass circle is a
+/// fixed nav-bar metric and does not grow with the label, so the art is
+/// unchanged — verified by measuring the circle before and after.
+extension View {
+    func toolbarGlyphHitTarget() -> some View {
+        frame(
+            minWidth: ControlTier.hitTarget,
+            minHeight: ControlTier.hitTarget
+        )
+        .contentShape(.rect)
+    }
+}
+
 /// **I1 — the back caret, for every pushed screen.**
 ///
 /// `NavigationStack` draws its own back chevron, and that chevron is an SF
@@ -127,7 +156,10 @@ private struct PhosphorBackButton: ViewModifier {
                     Button { dismiss() } label: {
                         // I2 — one weight, one scale, sized to the nav title,
                         // matching `SidebarBackButton` exactly.
-                        Image(.caretLeft).uiGlyph()
+                        Image(.caretLeft)
+                            .uiGlyph()
+                            // Z1 — the art stays 17pt; the target becomes 44.
+                            .toolbarGlyphHitTarget()
                     }
                     .accessibilityLabel("Back")
                 }
