@@ -93,6 +93,14 @@ struct EdgePanCatcher: UIViewRepresentable {
             pan.delegate = self
             pan.isEnabled = isEnabled
             pan.maximumNumberOfTouches = 1
+            // A pan that is still `.possible` holds the touch's *end* back
+            // until it fails, which on a tap is the whole press. The peel
+            // needs the touch's movement, never its timing, so nothing is
+            // gained by delaying either phase — and on the leading edge the
+            // delay is paid by the back button, whose 44pt target (Z1) now
+            // reaches into the 20pt edge zone.
+            pan.delaysTouchesBegan = false
+            pan.delaysTouchesEnded = false
             view.addGestureRecognizer(pan)
             recognizer = pan
             attachedView = view
@@ -132,6 +140,13 @@ struct EdgePanCatcher: UIViewRepresentable {
             shouldReceive touch: UITouch
         ) -> Bool {
             guard let view = gestureRecognizer.view else { return false }
+            // The nav bar is chrome, not canvas: a touch that starts on the
+            // toolbar is aimed at a button, and the leading-edge zone overlaps
+            // the back caret's hit target (Z1 — 44pt from a 16pt inset, so
+            // 16–20pt is shared). Failing here rather than in
+            // `shouldBegin` means the recognizer never enters `.possible` for
+            // that touch at all, so it cannot delay or cancel the press.
+            if Coordinator.isChrome(touch.view) { return false }
             let location = touch.location(in: view)
             startLocation = location
             switch edge {
@@ -140,6 +155,24 @@ struct EdgePanCatcher: UIViewRepresentable {
             case .trailing:
                 return location.x >= view.bounds.width - EdgePanCatcher.edgeWidth
             }
+        }
+
+        /// True when the touched view sits inside a bar. Walks the superview
+        /// chain because a SwiftUI toolbar item is several wrapper views deep
+        /// inside the `UINavigationBar` that hosts it.
+        ///
+        /// Deliberately only the two bar classes: a peel that started on a
+        /// list row, a text view or the page background is still a peel, and
+        /// widening this to "any `UIControl`" would take those with it.
+        static func isChrome(_ view: UIView?) -> Bool {
+            var candidate = view
+            while let current = candidate {
+                if current is UINavigationBar || current is UIToolbar {
+                    return true
+                }
+                candidate = current.superview
+            }
+            return false
         }
 
         /// The other half: the movement must be horizontal and away from that

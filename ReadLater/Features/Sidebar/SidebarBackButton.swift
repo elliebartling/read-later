@@ -33,6 +33,11 @@ struct SidebarBackButton: View {
                 Image(.caretLeft).uiGlyph()
                     .imageScale(.medium)
                     .fontWeight(.medium)
+                    // Z1 — the same 12.7pt-target defect `phosphorBackButton`
+                    // had. Layer 1's back caret is drawn by this view rather
+                    // than by that modifier, so the fix has to land twice or
+                    // the peel button stays a bullseye.
+                    .toolbarGlyphHitTarget()
             }
             .accessibilityLabel("Back to sources")
         }
