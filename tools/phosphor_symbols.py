@@ -79,7 +79,9 @@ ICONS = [
     ("arrowClockwise",      "arrow-clockwise",      "regular", "arrow.clockwise"),
     ("arrowsClockwise",     "arrows-clockwise",     "regular", "arrow.triangle.2.circlepath"),
     ("bookmark",            "bookmark",             "regular", "bookmark"),
-    ("books",               "books",                "regular", "books.vertical"),
+    # Ellen on #81: "let's use cards-three instead of books for library since
+    # this isn't a book app." `books` is retired — nothing else named it.
+    ("cardsThree",          "cards-three",          "regular", "books.vertical"),
     ("caretLeft",           "caret-left",           "regular", "chevron.left"),
     ("caretRight",          "caret-right",          "regular", "chevron.right"),
     ("chats",               "chats",                "regular", "bubble.left.and.bubble.right"),

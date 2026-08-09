@@ -30,8 +30,8 @@ enum Icon: String, CaseIterable {
     case arrowsClockwise     = "ph.arrows-clockwise"
     /// Phosphor `bookmark` (regular) — was `bookmark`.
     case bookmark            = "ph.bookmark"
-    /// Phosphor `books` (regular) — was `books.vertical`.
-    case books               = "ph.books"
+    /// Phosphor `cards-three` (regular) — was `books.vertical`.
+    case cardsThree          = "ph.cards-three"
     /// Phosphor `caret-left` (regular) — was `chevron.left`.
     case caretLeft           = "ph.caret-left"
     /// Phosphor `caret-right` (regular) — was `chevron.right`.

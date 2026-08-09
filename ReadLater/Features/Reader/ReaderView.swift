@@ -4,6 +4,9 @@ import SwiftData
 struct ReaderView: View {
     @Environment(\.modelContext) private var context
     @Environment(\.colorScheme) private var colorScheme
+    /// Pops the reader. Drives the Phosphor back caret below, which stands in
+    /// for the system back button.
+    @Environment(\.dismiss) private var dismiss
     /// **M3.** Reduce Motion is not optional, and the reader is where most of
     /// the app's animation lives — every chrome reveal below resolves through
     /// `chromeAnimation`, which consults this.
@@ -153,7 +156,34 @@ struct ReaderView: View {
         .toolbar(showChrome ? .visible : .hidden, for: .navigationBar)
         .statusBarHidden(!showChrome)
         .toolbar(.hidden, for: .bottomBar)
+        // **I1 — the last SF Symbol on screen.** `NavigationStack` draws its
+        // own back chevron, so no call site names it and no `systemName:` grep
+        // can find it: it survived the Phosphor pass invisibly, sitting in the
+        // reader's floating top capsule beside the Phosphor `text-aa` and
+        // disagreeing with the `caret-left` every layer-1 root shows in the
+        // same slot (`SidebarBackButton`).
+        //
+        // Swapping `UINavigationBar.appearance().backIndicatorImage` (plus the
+        // four `UINavigationBarAppearance` objects) does NOT reach it — tried,
+        // measured, no change: iOS 26's toolbar draws the glass back button
+        // itself and ignores the indicator art. So the button is replaced
+        // outright. It still wears the system glass circle, because that comes
+        // from the toolbar slot rather than from the button.
+        //
+        // Nothing is lost by hiding the system button here: the reader's
+        // interactive edge-swipe pop is already owned by the full-screen text
+        // view, verified by driving the same synthetic edge pan against both
+        // builds — it pops `Site logins` in Settings and pops nothing in the
+        // reader, before this change and after it. The back caret is the
+        // reader's back affordance either way.
+        .navigationBarBackButtonHidden(true)
         .toolbar {
+            ToolbarItem(placement: .topBarLeading) {
+                Button { dismiss() } label: {
+                    Image(.caretLeft).uiGlyph()
+                }
+                .accessibilityLabel("Back")
+            }
             if article.isVideoArticle {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: watchOnYouTube) {

@@ -48,7 +48,7 @@ struct SidebarPanel: View {
             // No rule under the header (S2). The header's own padding and the
             // list's ground are the separation.
             List {
-                row(.library, title: "Library", icon: .books,
+                row(.library, title: "Library", icon: .cardsThree,
                     count: articles.count)
                 row(.allItems, title: "All items", icon: .tray,
                     count: unreadEntries.count)
