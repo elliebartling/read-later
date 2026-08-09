@@ -1,6 +1,6 @@
 import SwiftUI
 
-// §5.1 — SF Symbol usage, normalised (I2–I4).
+// §5.1 — icon usage, normalised (I2–I4).
 //
 // The audit's "clinical" verdict is mostly a *usage* problem, not an artwork
 // problem: the app mixed `.title3` glyphs beside `.caption` labels, `.bold`
@@ -16,13 +16,16 @@ import SwiftUI
 //    filled = active/selected/on, never mixed inside one control group. The one
 //    exception is transport controls, where filled is the shape itself.
 //  - **I4** symbols are monochrome `Ink.*` or `Accent.primary`. `.hierarchical`,
-//    `.palette` and multicolour are banned — multicolour SF Symbols are the
+//    `.palette` and multicolour are banned — a multicolour glyph is the
 //    strongest "unstyled iOS app" signal there is, so the mode is pinned here
 //    rather than left to the system default.
 //
-// §5.4 note: when the third-party set lands, only the *artwork* changes. Every
-// call site already asks for "a glyph at this optical size", so the migration
-// is a change to this file plus the symbol names, not a redesign.
+// §5.4 landed as predicted: the substrate is now **Phosphor** (`Icon.swift`)
+// and only the *artwork* changed. Every call site already asked for "a glyph at
+// this optical size", so this file needed no behavioural edit at all — which is
+// exactly why the Phosphor icons are compiled as custom SF Symbols rather than
+// asset images. `.font()`, `.imageScale` and `.symbolRenderingMode` below only
+// mean anything to a symbol.
 
 extension View {
     /// **I2 / I4.** A system-verb glyph at one weight, one scale, one

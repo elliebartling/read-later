@@ -48,7 +48,7 @@ struct HighlightSwatch: View {
                 if isSelected {
                     // I2 — one weight, one scale, sized to the swatch's
                     // `.caption2` chip tier (§4.3).
-                    Image(systemName: "checkmark").uiGlyph(size: 11)
+                    Image(.check).uiGlyph(size: 11)
                         .foregroundStyle(HighlightMarker.onMarker)
                 }
             }

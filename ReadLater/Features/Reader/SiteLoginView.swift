@@ -55,7 +55,7 @@ struct SiteLoginView: View {
                         Button {
                             model.loadPastedSignInLink()
                         } label: {
-                            Label("Paste sign-in link", systemImage: "link")
+                            Label("Paste sign-in link", icon: .link)
                         }
                     }
                     ToolbarItem(placement: .confirmationAction) {

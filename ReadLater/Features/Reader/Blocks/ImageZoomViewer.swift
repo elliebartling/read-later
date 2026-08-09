@@ -103,7 +103,7 @@ struct ImageZoomViewer: View {
 
     private var failureLayer: some View {
         VStack(spacing: 12) {
-            Image(systemName: "photo").uiGlyph(size: Font.GlyphSize.emptyStateMark)
+            Image(.photo).uiGlyph(size: Font.GlyphSize.emptyStateMark)
                 .font(.system(size: 44))
             Text("Couldn't load image")
                 .font(.callout)
@@ -114,7 +114,7 @@ struct ImageZoomViewer: View {
     private var closeButton: some View {
         Button { dismiss() } label: {
             // Glass circle, Standard tier (§8.3), on the S4 system glass.
-            Image(systemName: "xmark").uiGlyph()
+            Image(.xMark).uiGlyph()
                 .foregroundStyle(Ink.primary)
                 .frame(width: ControlTier.standard.height,
                        height: ControlTier.standard.height)

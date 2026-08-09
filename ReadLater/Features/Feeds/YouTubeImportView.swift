@@ -155,7 +155,7 @@ struct YouTubeImportView: View {
         Group {
             if model.newChannels.isEmpty {
                 EmptyStateView(
-                    mark: "checkmark.circle",
+                    mark: .checkCircle,
                     title: "Nothing new to import",
                     message: model.alreadySubscribedCount > 0
                         ? "All \(model.alreadySubscribedCount) channels we found are already in your feeds."
@@ -170,7 +170,7 @@ struct YouTubeImportView: View {
                                 model.toggle(channel)
                             } label: {
                                 HStack {
-                                    Image(systemName: model.isSelected(channel) ? "checkmark.circle.fill" : "circle")
+                                    Image(model.isSelected(channel) ? .checkCircleFill : .circle)
                                         .uiGlyph(size: Font.GlyphSize.body)
                                         .foregroundStyle(model.isSelected(channel) ? Accent.primary : Ink.secondary)
                                     Text(channel.title).foregroundStyle(Ink.primary)
@@ -226,7 +226,7 @@ struct YouTubeImportView: View {
 
     private func doneView(added: Int) -> some View {
         EmptyStateView(
-            mark: "checkmark.circle",
+            mark: .checkCircle,
             title: "Import complete",
             message: doneMessage(added: added),
             actionTitle: "Done",
@@ -249,7 +249,7 @@ struct YouTubeImportView: View {
 
     private func failureView(_ message: String) -> some View {
         EmptyStateView(
-            mark: "exclamationmark.triangle",
+            mark: .warning,
             title: "Import didn't work",
             message: message,
             isFailure: true,

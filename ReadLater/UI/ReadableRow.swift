@@ -160,7 +160,7 @@ struct ReadableRow<Identity: View>: View {
         if !text.isEmpty {
             HStack(spacing: 4) {
                 if metadata.isFailed {
-                    Image(systemName: "exclamationmark.triangle")
+                    Image(.warning)
                         .uiGlyph(size: Font.GlyphSize.caption)
                         .foregroundStyle(Semantic.warning)
                         .accessibilityHidden(true)

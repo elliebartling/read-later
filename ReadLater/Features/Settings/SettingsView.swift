@@ -271,7 +271,7 @@ private struct SettingsForm: View {
         Section {
             if let exportError = syncStatus.exportFailureText {
                 HStack(alignment: .top, spacing: 8) {
-                    Image(systemName: "exclamationmark.triangle")
+                    Image(.warning)
                         .uiGlyph(size: Font.GlyphSize.subheadline)
                         .foregroundStyle(Semantic.destructive)
                     VStack(alignment: .leading, spacing: 2) {
@@ -389,17 +389,17 @@ private struct SyncEventRow: View {
         Group {
             if let record {
                 if !record.isFinished {
-                    Image(systemName: "arrow.triangle.2.circlepath")
+                    Image(.arrowsClockwise)
                         .foregroundStyle(Ink.secondary)
                 } else if record.succeeded {
-                    Image(systemName: "checkmark.circle.fill")
+                    Image(.checkCircleFill)
                         .foregroundStyle(Semantic.success)
                 } else {
-                    Image(systemName: "xmark.circle.fill")
+                    Image(.xCircleFill)
                         .foregroundStyle(Semantic.destructive)
                 }
             } else {
-                Image(systemName: "circle.dashed")
+                Image(.circleDashed)
                     .foregroundStyle(Ink.secondary)
             }
         }

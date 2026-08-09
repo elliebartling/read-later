@@ -217,7 +217,7 @@ struct TypographyControls: View {
 /// `Accent.onFill` checkmark. Never a ring (S2), never a tinted label.
 private struct SelectionCheck: View {
     var body: some View {
-        Image(systemName: "checkmark")
+        Image(.check)
             .uiGlyph(size: 11)
             .foregroundStyle(Accent.onFill)
             .frame(width: 18, height: 18)

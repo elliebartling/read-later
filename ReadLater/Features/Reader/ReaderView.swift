@@ -153,6 +153,17 @@ struct ReaderView: View {
         .toolbar(showChrome ? .visible : .hidden, for: .navigationBar)
         .statusBarHidden(!showChrome)
         .toolbar(.hidden, for: .bottomBar)
+        // **I1.** The reader is where Ellen caught the system back chevron —
+        // it sat in this floating top capsule beside the Phosphor `text-aa`.
+        // `PhosphorBackButton` carries the reasoning and the two approaches
+        // that don't work; every pushed screen in the app wears it now.
+        //
+        // Nothing is lost by hiding the system button here specifically: the
+        // reader's interactive edge-swipe pop is already owned by its
+        // full-screen text view, verified by driving the same synthetic edge
+        // pan against both builds — it pops `Site logins` in Settings and pops
+        // nothing in the reader, before this change and after it.
+        .phosphorBackButton()
         .toolbar {
             if article.isVideoArticle {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -160,7 +171,7 @@ struct ReaderView: View {
                         // BR4 — a brand mark never takes a prominent slot; the
                         // link out to YouTube is a plain system verb like every
                         // other toolbar action.
-                        Image(systemName: "play.rectangle").uiGlyph()
+                        Image(.playCircle).uiGlyph()
                     }
                     .accessibilityLabel("Watch on YouTube")
                 }
@@ -171,7 +182,7 @@ struct ReaderView: View {
             if article.discussionURL != nil {
                 ToolbarItem(placement: .topBarTrailing) {
                     Button(action: openDiscussion) {
-                        Image(systemName: "bubble.left.and.bubble.right").uiGlyph()
+                        Image(.chats).uiGlyph()
                     }
                     .accessibilityLabel("View discussion")
                     .contextMenu {
@@ -202,7 +213,7 @@ struct ReaderView: View {
                 Button {
                     showingTypographyControls = true
                 } label: {
-                    Image(systemName: "textformat.size").uiGlyph()
+                    Image(.textAa).uiGlyph()
                 }
                 .accessibilityLabel("Typography")
             }
@@ -300,12 +311,12 @@ struct ReaderView: View {
     private var topStatusOverlay: some View {
         Group {
             if isReextracting {
-                statusPill(systemImage: nil) {
+                statusPill(icon: nil) {
                     ProgressView().controlSize(.small)
                     Text("Re-extracting…")
                 }
             } else if let toast = reextractToast {
-                statusPill(systemImage: "checkmark.circle.fill") {
+                statusPill(icon: .checkCircleFill) {
                     Text(toast)
                 }
             } else if article.isPaywalledPartial, showChrome {
@@ -329,9 +340,9 @@ struct ReaderView: View {
             Button {
                 showingSiteLogin = true
             } label: {
-                statusPill(systemImage: "lock.fill") {
+                statusPill(icon: .lockFill) {
                     Text("Member-only — Sign in to \(host)")
-                    Image(systemName: "chevron.right")
+                    Image(.caretRight)
                         .uiGlyph(size: Font.GlyphSize.caption)
                         .foregroundStyle(Ink.secondary)
                 }
@@ -339,7 +350,7 @@ struct ReaderView: View {
             .buttonStyle(.plain)
             .accessibilityHint("Opens \(host) so you can sign in and load the full story")
         } else {
-            statusPill(systemImage: "lock.fill") {
+            statusPill(icon: .lockFill) {
                 Text("Preview only — this story is member-only")
             }
         }
@@ -355,12 +366,12 @@ struct ReaderView: View {
     /// Neutral glass capsule used by `topStatusOverlay`. Distinct from the
     /// pink player capsule so status never reads as a transport control.
     private func statusPill(
-        systemImage: String?,
+        icon: Icon?,
         @ViewBuilder _ content: () -> some View
     ) -> some View {
         HStack(spacing: 8) {
-            if let systemImage {
-                Image(systemName: systemImage).uiGlyph(size: Font.GlyphSize.subheadline)
+            if let icon {
+                Image(icon).uiGlyph(size: Font.GlyphSize.subheadline)
             }
             content()
         }
@@ -503,7 +514,7 @@ struct ReaderView: View {
     /// than re-running the article extractor that couldn't parse it.
     private var failedState: some View {
         EmptyStateView(
-            mark: "exclamationmark.triangle",
+            mark: .warning,
             title: "Couldn't parse this page",
             message: "The extractor didn't find readable content on \(article.url?.host ?? "this page").",
             isFailure: true,

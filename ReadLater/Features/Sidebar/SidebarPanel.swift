@@ -48,9 +48,9 @@ struct SidebarPanel: View {
             // No rule under the header (S2). The header's own padding and the
             // list's ground are the separation.
             List {
-                row(.library, title: "Library", systemImage: "books.vertical",
+                row(.library, title: "Library", icon: .cardsThree,
                     count: articles.count)
-                row(.allItems, title: "All items", systemImage: "tray.full",
+                row(.allItems, title: "All items", icon: .tray,
                     count: unreadEntries.count)
 
                 if feeds.isEmpty {
@@ -70,15 +70,15 @@ struct SidebarPanel: View {
                     }
                 }
 
-                row(.highlights, title: "Highlights", systemImage: "highlighter",
+                row(.highlights, title: "Highlights", icon: .highlighter,
                     count: highlights.count, topGap: Metric.containerGap)
-                row(.search, title: "Search", systemImage: "magnifyingglass", count: 0)
+                row(.search, title: "Search", icon: .magnifyingGlass, count: 0)
                 Button {
                     showingSettings = true
                 } label: {
                     SidebarRowLabel(
                         title: "Settings",
-                        systemImage: "gearshape",
+                        icon: .gear,
                         count: 0,
                         isSelected: false
                     )
@@ -121,7 +121,7 @@ struct SidebarPanel: View {
                 // §8.3 — the **glass circle**, the app's one vocabulary for a
                 // floating single action. It used to be a `Surface.control`
                 // fill, a circle treatment that appeared nowhere else.
-                GlassCircle { Image(systemName: "plus") }
+                GlassCircle { Image(.plus) }
             }
             .accessibilityLabel("Add feed")
         }
@@ -142,7 +142,7 @@ struct SidebarPanel: View {
     private func row(
         _ destination: SidebarDestination,
         title: String,
-        systemImage: String,
+        icon: Icon,
         count: Int,
         topGap: CGFloat = 0
     ) -> some View {
@@ -151,7 +151,7 @@ struct SidebarPanel: View {
         } label: {
             SidebarRowLabel(
                 title: title,
-                systemImage: systemImage,
+                icon: icon,
                 count: count,
                 isSelected: selection == destination
             )
@@ -184,7 +184,7 @@ struct SidebarPanel: View {
                 .sidebarRow()
                 .swipeActions(edge: .trailing) {
                     Button(role: .destructive) { unsubscribe(feed) } label: {
-                        Label("Unsubscribe", systemImage: "trash")
+                        Label("Unsubscribe", icon: .trash)
                     }
                 }
             }
@@ -231,14 +231,14 @@ struct SidebarRowLabel: View {
     static let selectionRadius: CGFloat = 12
 
     let title: String
-    let systemImage: String
+    let icon: Icon
     let count: Int
     let isSelected: Bool
 
     var body: some View {
         HStack(spacing: 10) {
             // I2 — one weight, one scale, sized to the label beside it.
-            Image(systemName: systemImage)
+            Image(icon)
                 .uiGlyph()
                 .foregroundStyle(isSelected ? Accent.primary : Ink.secondary)
                 .frame(width: 24)

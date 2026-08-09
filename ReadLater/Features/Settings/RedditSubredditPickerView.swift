@@ -17,7 +17,7 @@ struct RedditSubredditPickerView: View {
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
             } else if let error = model.loadError {
                 EmptyStateView(
-                    mark: "exclamationmark.triangle",
+                    mark: .warning,
                     title: "Couldn't load subreddits",
                     message: error,
                     isFailure: true,
@@ -27,14 +27,14 @@ struct RedditSubredditPickerView: View {
                 .pageBackground()
             } else if model.subreddits.isEmpty {
                 EmptyStateView(
-                    mark: "person.2.slash",
+                    mark: .usersThree,
                     title: "No subreddits",
                     message: "Subreddits you subscribe to on Reddit show up here, ready to add as feeds."
                 )
                 .pageBackground()
             } else if let summary = model.importSummary {
                 EmptyStateView(
-                    mark: "checkmark.circle",
+                    mark: .checkCircle,
                     title: "Subscribed",
                     message: summary,
                     actionTitle: "Done",
@@ -47,6 +47,7 @@ struct RedditSubredditPickerView: View {
         }
         .navigationTitle("Import subreddits")
         .navigationBarTitleDisplayMode(.inline)
+        .phosphorBackButton()
         .toolbar {
             if model.showsSelectionControls {
                 ToolbarItem(placement: .topBarTrailing) {
@@ -67,7 +68,7 @@ struct RedditSubredditPickerView: View {
                         model.toggle(sub.id)
                     } label: {
                         HStack {
-                            Image(systemName: model.selected.contains(sub.id) ? "checkmark.circle.fill" : "circle")
+                            Image(model.selected.contains(sub.id) ? .checkCircleFill : .circle)
                                 .uiGlyph(size: Font.GlyphSize.body)
                                 .foregroundStyle(model.selected.contains(sub.id) ? Accent.primary : Ink.secondary)
                             VStack(alignment: .leading, spacing: 2) {

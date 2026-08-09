@@ -32,9 +32,22 @@ targets:
     sources:
       - path: ReadLater
       - path: Shared
-    resources:
-      - path: ReadLater/Resources
-        optional: true
+        # Listed separately below so the two extensions — which also compile
+        # Shared/ — don't silently inherit the icon catalogue.
+        excludes:
+          - Resources
+      # The Phosphor icon substrate (§5). Custom SF Symbols generated from
+      # phosphor-icons/core by tools/phosphor_symbols.py — never hand-edited.
+      # It lives under Shared/ rather than ReadLater/Resources so either
+      # extension can pick it up the day it grows icon UI; neither has any
+      # today, so only the app bundles it.
+      #
+      # NOTE: this must be a `sources` entry with an explicit resources build
+      # phase. XcodeGen has NO target-level `resources:` key — the one that
+      # used to sit here was silently ignored, and ReadLater/Resources only
+      # ever reached the bundle because `- path: ReadLater` above sweeps it up.
+      - path: Shared/Resources/PhosphorSymbols.xcassets
+        buildPhase: resources
     dependencies:
       - target: ShareExtension
       - target: SafariWebExtension
@@ -128,6 +141,10 @@ targets:
     sources:
       - path: ShareExtension
       - path: Shared
+        # No icon UI in this extension, so it does not carry the
+        # Phosphor symbol catalogue.
+        excludes:
+          - Resources
     info:
       path: ShareExtension/Info.plist
       properties:
@@ -171,6 +188,10 @@ targets:
     sources:
       - path: SafariWebExtension
       - path: Shared
+        # No icon UI in this extension, so it does not carry the
+        # Phosphor symbol catalogue.
+        excludes:
+          - Resources
     resources:
       - path: SafariWebExtension/Resources
     info:

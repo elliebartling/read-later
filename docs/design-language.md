@@ -11,7 +11,7 @@ Every UI agent on this app is briefed with this file. It resolves the audit's ei
 
 **v2 changes:** the brand accent is **deferred** (§2.3–2.4) — v1 ships true neutrals with abstract accent plumbing. Four new sections: [Iconography](#5-iconography), [Third-party brand representation](#6-third-party-brand-representation), a real [typography POV](#4-typography), and [sizing standards](#7-sizing-controls-containers-spacing). The sidebar is the adopted default navigation.
 
-**Ratification amendment:** SF Symbols are the **interim** icon standard, not the end state. A full third-party glyph pass is planned and explicitly sequenced last (§5.4, wave 6).
+**Ratification amendment:** SF Symbols were the **interim** icon standard, not the end state. The third-party glyph pass was sequenced last and has now **landed** — the substrate is Phosphor (§5.4).
 
 ---
 
@@ -275,18 +275,18 @@ Ellen's note: Apple's default glyphs "look clinical, and we overuse them"; the r
 
 **THE ICON SET IS DECIDED: PHOSPHOR** *(ratified by Ellen on the wave-5 build; supersedes the three-way comp)*. Ellen, striking wave 5's hand-drawn marks: *"why are we creating custom line art? I asked for an iconography strategy and suggested a specific library… Use phosphor."* Phosphor is the app's icon substrate. Tabler is out, the comp is cancelled, and **drawing our own line art is banned** — see I9.
 
-**Interim position, until the Phosphor adoption wave lands:** SF Symbols are the substrate, not the personality. They stay for system verbs, they render at one weight and one scale, and the glyph count comes down by roughly half. §5.1–5.2 are written so the swap is mechanical rather than a redesign, and every rule in them survives it — only the source of the artwork changes. §5.4 is the migration.
+**The adoption wave has landed** (2026-08-08). The interim position — SF Symbols as substrate, one weight, one scale — did its job: §5.1–5.2 were written so the swap would be mechanical rather than a redesign, and it was. Every rule below survived unchanged; only the source of the artwork moved. §5.4 records how.
 
-### 5.1 SF Symbols usage — interim standard
+### 5.1 Icon usage — the standard
 
-- **I1.** SF Symbols are used for **standard system verbs only**: back, share, add, play/pause, chevrons, search, trash, checkmark. Users read these as OS vocabulary; a custom drawing of "share" is worse than useless. *(Post-migration this rule reads "the icon set is used for standard system verbs only" — the constraint is about which concepts get a glyph, not who drew it.)*
+- **I1.** The icon set is used for **standard system verbs only**: back, share, add, play/pause, chevrons, search, trash, checkmark. Users read these as OS vocabulary; a custom drawing of "share" is worse than useless. The constraint is about which concepts get a glyph, not who drew it.
 - **I2. One weight, one scale.** Every symbol renders `.medium` weight at `.medium` scale, sized to the adjacent text's optical size. Mixed weights are most of what "clinical" actually means here — as is the audit's "Watch on YouTube" glyph, a filled black rounded rectangle heavier than the nav title beside it.
 - **I3. Fill is semantic, never decorative.** Outline = available/inactive. Filled = active/selected/on. Never mixed inside one control group. The one exception is transport controls (`play.fill`, `pause.fill`), where filled is the platform convention for the shape itself.
-- **I4.** Symbols are monochrome `Ink.*` or `Accent.primary`. No `.hierarchical`, no `.palette`, no multicolour — multicolour SF Symbols are the strongest "unstyled iOS app" signal there is.
+- **I4.** Symbols are monochrome `Ink.*` or `Accent.primary`. No `.hierarchical`, no `.palette`, no multicolour — a multicolour glyph is the strongest "unstyled iOS app" signal there is.
 
 ### 5.2 The overuse rule — set-independent
 
-Everything here is about *how many* glyphs exist and *where*, not who drew them. It stands unchanged through the migration, and it is the single biggest thing that makes the migration cheap: the app currently references **28 distinct SF Symbols**, and this section removes a large fraction of them.
+Everything here is about *how many* glyphs exist and *where*, not who drew them. It stands unchanged through the migration, and it is the single biggest thing that makes the migration cheap: the app referenced **28 distinct SF Symbols** when this was written, and this section removed a large fraction of them. The swap landed at **43 distinct Phosphor glyphs** across 97 call sites — higher than 28 only because that count predated a full audit (it missed marks passed through helpers) and because outline/fill of one icon are two assets.
 
 
 - **I5. Glyphs are banned from:** metadata lines, list-row bodies, section headers, menu items, and settings rows. If a text label already carries the meaning, the glyph is decoration and gets deleted (N3).
@@ -333,10 +333,28 @@ Each has one structural advantage the other lacks, which is what makes this a re
 3. **Rendering approach — SF Symbol templates, not plain images.** Third-party SVGs get authored into a custom `.symbolset` via the SF Symbols app's template flow. This preserves Dynamic Type scaling, `.imageScale`, text-baseline alignment inside label runs, weight variants and `symbolRenderingMode`. A plain asset-catalog `Image(...).renderingMode(.template)` loses all of it, and would silently break T9 (`.accessibility3` support) and I2 (scale matched to adjacent text). **Asset images are not an acceptable shortcut.**
 4. **Weight degradation.** Whichever set wins, check it at Bold Text and `.accessibility3`. A single-weight source may need a manually thickened variant; a set that only looks right at one size is disqualified.
 
-~~**Decision procedure.** Build a comp rendering 12 glyphs inside real screens, three ways: current SF, Tabler, Phosphor. **Ellen picks.**~~ **Cancelled — Ellen picked Phosphor without it.** The twelve hard glyphs it named are still the right *audit* list for criterion 2: `plus`, `checkmark`, `trash`, `xmark`, `globe`, `photo`, `line.3.horizontal`, `checkmark.circle.fill`, `play.rectangle.fill`, `textformat.size`, `note.text.badge.plus`, `highlighter`.
+~~**Decision procedure.** Build a comp rendering 12 glyphs inside real screens, three ways: current SF, Tabler, Phosphor. **Ellen picks.**~~ **Cancelled — Ellen picked Phosphor without it.** The twelve hard glyphs it named were still the right *audit* list for criterion 2: `plus`, `checkmark`, `trash`, `xmark`, `globe`, `photo`, `line.3.horizontal`, `checkmark.circle.fill`, `play.rectangle.fill`, `textformat.size`, `note.text.badge.plus`, `highlighter`.
 
-- **I11. No partial migration.** Until the adoption wave lands, the app stays on SF Symbols end to end. No "just this one glyph from Phosphor" — a mixed set is worse than either pure set. The adoption wave gets its own branch and its own dependency decision (SPM package vs vendored `.symbolset`); it is not smuggled into an unrelated PR.
-- **I12.** Phosphor replaces the substrate wholesale in one change. Every rule in §5.1–5.2 carries over unchanged.
+#### What shipped (2026-08-08)
+
+**Route.** Not the `PhosphorSwift` SPM package — it vendors all ~9,100 imagesets (~71 MB) for the 43 we use, and its glyphs arrive as plain images, which criterion 3 disqualifies. Instead `tools/phosphor_symbols.py` sparse-clones `phosphor-icons/core`, takes only the icons in its manifest, and writes each one into an SF Symbols **template** (`.symbolset`) — so every glyph keeps `.font()`, `.imageScale()`, Dynamic Type, baseline alignment and `symbolRenderingMode`, and `uiGlyph()` needed no change at all.
+
+**Weight axis.** §5.4's winning argument is cashed in literally: Phosphor Thin feeds `Ultralight-M`, Regular feeds `Regular-M`, Bold feeds `Black-M`, and the system interpolates the remaining 24 variants. The set therefore has somewhere to go at Bold Text and accessibility sizes (criterion 4) instead of being one traced outline stretched.
+
+**Optical scale.** Phosphor draws on a 256-unit grid, which is mapped to a 128-unit box centred on the cap band — `scale(0.5)`. That factor is measured, not chosen: thirteen SF Symbols were rendered at a 100pt em and their ink boxes compared against the matching Phosphor glyph, giving a per-icon ratio whose median is 127.6 units. Using one factor for every icon (rather than fitting each glyph to a box) is deliberate: it preserves Phosphor's own optical sizing, so a check stays wide and a bookmark stays narrow.
+
+**Criterion 2 — the composites.** Only three call sites had no clean one-to-one match, and none was redrawn (I9). `textformat.size` → `text-aa`; `highlighter` → `highlighter` (Phosphor has it outright); `play.rectangle` → `play-circle`. Three more were semantic judgment calls rather than composites: `safari` → `compass`, `person.badge.key` → `identification-badge`, `person.2.slash` → `users-three` (the empty state is "no subreddits", so the closest neighbour is the community, not the negation), `wifi.exclamationmark` → `wifi-slash`. None needed composing from two glyphs.
+
+- **I11. No partial migration.** *(Discharged.)* The wave got its own branch and its own dependency decision, and shipped end to end in one change. The rule survives as a forward constraint: the app is on one icon set, and a glyph from a second set is never smuggled in beside it.
+- **I12.** *(Discharged.)* Phosphor replaced the substrate wholesale. Every rule in §5.1–5.2 carried over unchanged.
+**Erratum — the glyph with no call site.** The first pass reported the reader's back chevron as unreachable OS chrome, on the reasoning that `NavigationStack` draws its own back button and there is nothing to convert. Ellen caught it on review: the reader's floating top capsule still wore `chevron.left` while every layer-1 root wore Phosphor `caret-left` in the same slot, so the leading glyph changed shape the moment you opened an article. It **is** reachable — `.navigationBarBackButtonHidden(true)` plus a `topBarLeading` button keeps the system's glass circle and costs nothing, because the reader's edge-swipe pop is owned by its full-screen text view either way. What does *not* work, and was tried: `UINavigationBar.appearance().backIndicatorImage` and the four `UINavigationBarAppearance` objects — iOS 26's toolbar draws the glass back button itself and ignores the indicator art. The fix is `phosphorBackButton()` in `ButtonVocabulary.swift`, and **every pushed screen in the app wears it**: the reader, Settings' four sub-screens, and the two placeholder states `FeedEntryReader` shows before the reader takes over. A new pushed destination needs that line, or it grows an SF chevron back — I11 is a forward constraint, and this is the shape it takes in practice.
+
+Hiding the system back button does **not** cost the interactive edge-swipe pop: `Site logins` pops from a synthetic edge pan with the custom caret in place. (The reader doesn't pop from that pan — but it didn't before the change either, because its full-screen text view owns the horizontal gesture.)
+
+Two lessons generalise. A `systemName:` grep is not proof of a completed swap, because the glyphs that survive one are precisely the ones no call site names. And a swap is not reviewable from full-screen phone-sized screenshots: several Phosphor glyphs (`export`, `dots-three`, `play`) are near-identical in silhouette to their SF ancestors at 17pt, which is why this bar read as "unchanged" and why the one glyph that genuinely *was* unchanged hid in plain sight. Evidence for an icon change is a zoomed crop.
+
+- **I14. Library is `cards-three`, not `books`** *(ratified by Ellen on #81: "let's use cards-three instead of books for library since this isn't a book app")*. Saved articles are cards in a stack, and the app is not a reader of books. `books` is retired from the manifest.
+- **I13. The icon set is vendored, not depended on, and it is generated.** `tools/phosphor_symbols.py` pulls the SVGs the app actually uses out of `phosphor-icons/core` and writes `Shared/Resources/PhosphorSymbols.xcassets` plus the `Icon` enum that names them. Adding an icon is a line in that script's manifest and a re-run — never a hand-authored `.symbolset`, never a string literal at a call site. `Icon` is the only surface: no view names an asset.
 
 ---
 
@@ -626,17 +644,15 @@ The sidebar's IA was already the best in the app; everything here brings prototy
 
 ### Wave 6 — The Phosphor pass
 
-*Last, per Ellen, and now unblocked: the set is chosen (§5.4). Every earlier wave touches icon call sites, so migrating before they settle means churning every glyph twice. Own branch, own dependency decision (I11).*
+*Last, per Ellen, and unblocked once the set was chosen (§5.4). Every earlier wave touches icon call sites, so migrating before they settled would have churned every glyph twice.* **Complete — see §5.4 "What shipped".**
 
-| Item | Ref | Kind |
-|---|---|---|
-| ~~Build the twelve-glyph three-way comp~~ → **cancelled; Ellen ratified Phosphor** | §5.4 | — |
-| Decide the dependency shape: SPM package vs vendored `.symbolset` | §5.4 / I11 | code |
-| Audit the composite/badged symbols with no Phosphor equivalent; match or compose from two glyphs | §5.4 criterion 2 | code |
-| Author the chosen set as a custom `.symbolset` via SF Symbols templates — never plain asset images | §5.4 criterion 3 | code |
-| Wholesale substrate swap (I12); verify at Bold Text and `.accessibility3` | §5.4 criterion 4 | code |
-
-Runs only after wave 5. Nothing in waves 1–5 may ship a third-party glyph (I11).
+| Item | Ref | Kind | State |
+|---|---|---|---|
+| ~~Build the twelve-glyph three-way comp~~ → **cancelled; Ellen ratified Phosphor** | §5.4 | — | — |
+| Decide the dependency shape: SPM package vs vendored `.symbolset` | §5.4 / I11 | code | done — vendored + generated (I13) |
+| Audit the composite/badged symbols with no Phosphor equivalent; match or compose from two glyphs | §5.4 criterion 2 | code | done — three composites, none redrawn |
+| Author the chosen set as a custom `.symbolset` via SF Symbols templates — never plain asset images | §5.4 criterion 3 | code | done — `tools/phosphor_symbols.py` |
+| Wholesale substrate swap (I12); verify at Bold Text and `.accessibility3` | §5.4 criterion 4 | code | done |
 
 ---
 
