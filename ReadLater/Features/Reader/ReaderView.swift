@@ -29,7 +29,7 @@ struct ReaderView: View {
     /// Deletion requested from the edit sheet — performed after the sheet
     /// dismisses so the sheet never renders a deleted model.
     @State private var pendingDeleteID: UUID?
-    @State private var showingTypographyControls = false
+    @State private var showingAppearanceSheet = false
     @State private var showingTagSheet = false
     /// Immersive reading: the top chrome starts hidden and a tap toggles it.
     @State private var chromeVisible = false
@@ -222,11 +222,11 @@ struct ReaderView: View {
             }
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    showingTypographyControls = true
+                    showingAppearanceSheet = true
                 } label: {
                     Image(.textAa).uiGlyph()
                 }
-                .accessibilityLabel("Typography")
+                .accessibilityLabel("Appearance")
             }
         }
         // Everything above this line is drawn ON the paper — the page itself,
@@ -242,8 +242,8 @@ struct ReaderView: View {
             tts.stop()
             saveReadingProgress()
         }
-        .sheet(isPresented: $showingTypographyControls) {
-            TypographyControls(settings: settings, controller: tts)
+        .sheet(isPresented: $showingAppearanceSheet) {
+            ReaderAppearanceSheet(settings: settings, controller: tts)
         }
         .sheet(isPresented: $showingTagSheet) {
             TagAssignmentSheet(article: article)
