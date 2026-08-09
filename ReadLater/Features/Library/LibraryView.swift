@@ -23,7 +23,8 @@ struct LibraryView: View {
                 }
                 .font(.footnote)
                 .foregroundStyle(Ink.secondary)
-                .listRowSeparator(.hidden)
+                // `containerRow()` hides the separator for every row in a
+                // `pageList()` now — this row no longer needs to opt out.
                 .containerRow()
             }
             ForEach(articles) { article in

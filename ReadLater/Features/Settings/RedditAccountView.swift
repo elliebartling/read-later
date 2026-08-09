@@ -34,7 +34,7 @@ struct RedditAccountView: View {
             isPresented: $showingSignOutConfirm,
             titleVisibility: .visible
         ) {
-            Button("Sign Out", role: .destructive) {
+            Button("Sign out", role: .destructive) {
                 Task { await reddit.signOut() }
             }
             Button("Cancel", role: .cancel) {}
@@ -77,7 +77,11 @@ struct RedditAccountView: View {
         }
 
         Section {
-            Button("Sign Out", role: .destructive) {
+            // **C1 / T7.** Was `Button("Sign Out", role: .destructive)`, which
+            // is plain tinted text as a button (banned) in Title Case (banned).
+            // `SiteLoginsView` already made this exact conversion for its own
+            // sign-out row; this is the last copy of the pattern.
+            FormRowButton(title: "Sign out", isDestructive: true) {
                 showingSignOutConfirm = true
             }
         }
@@ -97,7 +101,12 @@ struct RedditAccountView: View {
                         ProgressView()
                     }
                 }
+                // The row states its own colour instead of inheriting whatever
+                // the ambient tint resolves to — A3, so an accent rebind cannot
+                // silently turn a settings row into a coloured one.
+                .foregroundStyle(Ink.primary)
             }
+            .buttonStyle(.plain)
             .disabled(reddit.isAuthenticating)
         } footer: {
             Text("Sign in to import your subreddits and saved posts, and to save posts back to Reddit from the reader. Read Later never sees your Reddit password — sign-in happens in a secure Reddit web page.")

@@ -13,13 +13,38 @@ import SwiftUI
 extension View {
     /// **S1.** Every `List` in the app: `.insetGrouped` containers (E1) sitting
     /// on `Surface.ground` (E0). The system list background is hidden so the
-    /// ground shows through, and the one legal line — the row separator inside
-    /// a container (S3) — is tinted to `Surface.divider`.
+    /// ground shows through.
+    ///
+    /// **No row separators** *(Ellen, build-44 review — issue #76)*. S3 licensed
+    /// a 0.5pt `Surface.divider` line between rows inside one E1 container, and
+    /// the licence was spent here. Ellen struck it on sight: *"which I already
+    /// didn't want but are implemented badly."* Both halves are true and they
+    /// point the same way.
+    ///
+    /// *Implemented badly:* `.insetGrouped` insets its separators to the system
+    /// text column, which has nothing to do with **our** text column —
+    /// `ReadableRow` owns its own `Metric.containerPadding` and its identity
+    /// tile sits ahead of the text, so the line started somewhere between the
+    /// tile and the title and stopped short of the card's trailing edge. Every
+    /// list in the app therefore drew a line that matched neither the row's
+    /// content nor the card that contained it, and rows with and without an
+    /// identity tile drew it in different places.
+    ///
+    /// *Didn't want them:* which makes "fix the inset" the wrong repair. The
+    /// separation was already there — S2's E0→E1 value step around the card,
+    /// and 24pt of ground between the text blocks of adjacent rows
+    /// (`Metric.rowVerticalPadding`, top and bottom). The line answered nothing
+    /// the gap was not already answering, which is N3 applied to a hairline.
+    ///
+    /// This is scoped to `pageList()` — the content lists. `pageForm()` keeps
+    /// its separators: a settings form is a column of single-line rows with no
+    /// internal padding to speak of, so the line there *is* the separation, and
+    /// S3 still governs it.
     func pageList() -> some View {
         listStyle(.insetGrouped)
             .scrollContentBackground(.hidden)
             .listRowBackground(Surface.raised)
-            .listRowSeparatorTint(Surface.divider)
+            .listRowSeparator(.hidden)
             .pageBackground()
     }
 
@@ -79,8 +104,11 @@ extension View {
     }
 
     /// **E1.** A row inside a `pageList()`. Separated from the ground by the
-    /// value step and 16pt of gap, never by a stroke (S2).
+    /// value step and 16pt of gap, never by a stroke (S2) — and, since the
+    /// build-44 review, separated from its neighbours by whitespace rather than
+    /// by a hairline. See `pageList()`.
     func containerRow() -> some View {
         listRowBackground(Surface.raised)
+            .listRowSeparator(.hidden)
     }
 }

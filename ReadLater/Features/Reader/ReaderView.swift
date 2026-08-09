@@ -150,6 +150,17 @@ struct ReaderView: View {
         // instead of hiding behind a wash.
         .toolbarBackground(.ultraThinMaterial, for: .navigationBar)
         .toolbarBackgroundVisibility(.visible, for: .navigationBar)
+        // …and the bar's own contents follow the PAPER, not the app. The nav
+        // bar is a translucent surface with the article behind it, so a Light
+        // paper in dark mode put a white title and white glyphs on a bar that
+        // was showing a near-white page through itself. `readerPaperScheme(_:)`
+        // cannot reach this: `navigationTitle` and the toolbar's glass buttons
+        // are drawn by UIKit from the hosting controller's trait collection,
+        // not from the SwiftUI environment. This is the one modifier that
+        // retints them without overriding the scheme for the whole window
+        // (which `preferredColorScheme` would, taking the app's sheets and
+        // alerts with it).
+        .toolbarColorScheme(resolvedTheme.isDark ? .dark : .light, for: .navigationBar)
         .toolbar(showChrome ? .visible : .hidden, for: .navigationBar)
         .statusBarHidden(!showChrome)
         .toolbar(.hidden, for: .bottomBar)
@@ -218,6 +229,15 @@ struct ReaderView: View {
                 .accessibilityLabel("Typography")
             }
         }
+        // Everything above this line is drawn ON the paper — the page itself,
+        // the failure/empty states, the floating capsule, the status pill and
+        // the nav bar's glass — so all of it resolves its neutrals against the
+        // paper's darkness rather than the app's scheme. See
+        // `readerPaperScheme(_:)` for the defect this fixes and why the rule
+        // belongs at the surface boundary. Everything BELOW it is app chrome
+        // presented over the reader (sheets, alerts) and keeps the app's
+        // scheme.
+        .readerPaperScheme(resolvedTheme.isDark)
         .onDisappear {
             tts.stop()
             saveReadingProgress()

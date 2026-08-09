@@ -142,6 +142,9 @@ struct YouTubeImportView: View {
                     }
                     .frame(maxWidth: .infinity, alignment: .leading)
                 }
+                // Both labels pin their own `Ink.*`; `.plain` stops the system
+                // button style layering a tint over them (A3).
+                .buttonStyle(.plain)
             } footer: {
                 Text("A one-time import — no ongoing sync. Channels become normal feeds you can unsubscribe any time.")
             }

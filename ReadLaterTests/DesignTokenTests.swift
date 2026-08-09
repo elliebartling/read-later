@@ -129,6 +129,53 @@ final class DesignTokenTests: XCTestCase {
         }
     }
 
+    // MARK: - The reader's page resolves against the PAPER (issue #76)
+
+    /// Every reader paper is a page in its own right (T2), so the UI tokens
+    /// drawn on it must be legible when they are resolved for **that paper's**
+    /// darkness — the contract `readerPaperScheme(_:)` enforces at the surface
+    /// boundary.
+    func testReaderChromeTokensAreLegibleOnEveryPaperWhenResolvedForIt() {
+        for theme in ReaderTheme.allCases {
+            let paper = theme.background
+            let traits = UITraitCollection(userInterfaceStyle: theme.isDark ? .dark : .light)
+            let title = contrast(Ink.primaryUI.resolvedColor(with: traits), paper)
+            XCTAssertGreaterThan(title, 4.5, "Ink.primary on \(theme.rawValue) is \(title):1")
+
+            // The prominent capsule has to be visible *as a capsule*, not just
+            // legible: a fill that matches the page is an invisible button.
+            let fill = Accent.fillUI.resolvedColor(with: traits)
+            let onFill = Accent.onFillUI.resolvedColor(with: traits)
+            XCTAssertGreaterThan(
+                contrast(onFill, fill), 4.5,
+                "Accent.onFill on Accent.fill is illegible for \(theme.rawValue)"
+            )
+            XCTAssertGreaterThan(
+                contrast(fill, paper), 2,
+                "Accent.fill vanishes into \(theme.rawValue)"
+            )
+        }
+    }
+
+    /// The build-44 defect, pinned so it cannot come back: resolved against the
+    /// **app's** scheme instead of the paper's, those same tokens fail. Ellen
+    /// met this as *"'Try Again' renders white text on a light button in dark
+    /// mode"*; the sharper symptom was the empty state's title disappearing
+    /// into a Light paper entirely.
+    func testResolvingReaderChromeAgainstTheOppositeSchemeIsWhatBroke() {
+        for theme in ReaderTheme.allCases {
+            let wrong = UITraitCollection(userInterfaceStyle: theme.isDark ? .light : .dark)
+            let title = contrast(Ink.primaryUI.resolvedColor(with: wrong), theme.background)
+            XCTAssertLessThan(
+                title, 4.5,
+                """
+                \(theme.rawValue) survives the wrong scheme, so this test no \
+                longer guards anything — check `readerPaperScheme(_:)`
+                """
+            )
+        }
+    }
+
     // MARK: - §7.1 control tiers
 
     func testThereAreExactlyThreeControlTiers() {

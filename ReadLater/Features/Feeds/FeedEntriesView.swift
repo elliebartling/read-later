@@ -10,16 +10,11 @@ struct FeedEntriesView: View {
     private let feed: Feed?
     @Binding private var path: NavigationPath
     @Query private var entries: [FeedEntry]
-    /// Saved articles, live. This used to be a manual fetch into `@State`,
-    /// refreshed by hand from `open()` — which meant a row's "Saved" field went
-    /// stale the moment anything else in the app saved an article. A `@Query`
-    /// keeps it in step for free, and it is what lets a row be a real
-    /// `NavigationLink` (R6) instead of a `Button` that had to bookkeep.
-    @Query private var savedArticles: [Article]
 
     @Environment(\.modelContext) private var context
     @State private var isRefreshing = true
     @State private var refreshFailed = false
+    @State private var confirmingMarkAllRead = false
 
     init(feed: Feed?, path: Binding<NavigationPath>) {
         self.feed = feed
@@ -44,11 +39,7 @@ struct FeedEntriesView: View {
                 // row is an ordinary link and the list's grammar matches
                 // Library's instead of being the one list with no chevron.
                 NavigationLink(value: FeedEntryPassage(entry: entry)) {
-                    FeedEntryRow(
-                        entry: entry,
-                        showsFeedName: feed == nil,
-                        isSaved: entry.url.map { savedByURL[$0] != nil } ?? false
-                    )
+                    FeedEntryRow(entry: entry, showsFeedName: feed == nil)
                 }
                 .readableRowStyle()
                 .swipeActions(edge: .leading) {
@@ -85,13 +76,29 @@ struct FeedEntriesView: View {
         .toolbar {
             ToolbarItem(placement: .topBarTrailing) {
                 Button {
-                    markAllRead()
+                    confirmingMarkAllRead = true
                 } label: {
                     Image(.checkCircle).uiGlyph()
                 }
                 .disabled(entries.allSatisfy(\.isRead))
                 .accessibilityLabel("Mark all read")
             }
+        }
+        // Ellen, build-44 review: *"what is the checkmark?"* — a bare circled
+        // check in the trailing slot with nothing on screen to name it. It is
+        // the platform's mark-all-read verb, and now the only checkmark in the
+        // list (the row-level "Saved" field is gone), but a glyph nobody can
+        // read is still a glyph nobody can read. The confirmation names the
+        // action at the point of use, which is the cheapest place to put the
+        // label without adding a second toolbar vocabulary — and it stops one
+        // stray tap from clearing 132 unread flags with no way back.
+        .confirmationDialog(
+            "Mark all items read?",
+            isPresented: $confirmingMarkAllRead,
+            titleVisibility: .visible
+        ) {
+            Button("Mark all read") { markAllRead() }
+            Button("Cancel", role: .cancel) {}
         }
         .refreshable { await refresh() }
         .task { await refresh() }
@@ -140,16 +147,6 @@ struct FeedEntriesView: View {
             entry.isRead = true
         }
         try? context.save()
-    }
-
-    /// Index of already-saved articles by URL, so rows can show a saved badge
-    /// and a re-tap reopens the existing article instead of saving a duplicate.
-    private var savedByURL: [URL: Article] {
-        var map: [URL: Article] = [:]
-        for article in savedArticles {
-            if let url = article.url { map[url] = article }
-        }
-        return map
     }
 
     /// Whether an already-saved article for a re-tapped entry can be reopened
@@ -289,7 +286,6 @@ private struct FeedEntryRow: View {
     let entry: FeedEntry
     /// False in a per-feed list, where the feed name is the nav title (R2).
     let showsFeedName: Bool
-    let isSaved: Bool
 
     var body: some View {
         ReadableRow(
@@ -322,18 +318,37 @@ private struct FeedEntryRow: View {
         )
     }
 
-    /// **R2.** `source · relative date · duration/count`, `" · "` joined.
+    /// **R2.** `source · relative date`, `" · "` joined.
     ///
-    /// Two fields the old row printed are gone. `author` duplicated the nav
+    /// Three fields the old row printed are gone. `author` duplicated the nav
     /// title on every row of a per-feed list (all 14 of them, in the audit) and
-    /// has no slot in the fixed field order. The "Saved" badge was a glyph +
-    /// label that wrapped mid-word into "Save" / "d" (T8); it is now a plain
-    /// field in the third slot.
+    /// has no slot in the fixed field order. The "Saved" *badge* was a glyph +
+    /// label that wrapped mid-word into "Save" / "d" (T8), and wave 2 demoted
+    /// it to a plain third field.
+    ///
+    /// **"Saved" itself is now gone too** *(Ellen, build-44 review: "why does
+    /// it say saved?")*. The honest answer was: for no reason the row was not
+    /// already giving. Opening a feed entry is what saves it, so on this screen
+    /// "saved" and "read" are the same fact in almost every case — and read is
+    /// already carried by the row's tone (R1, amended: regular weight,
+    /// `Ink.secondary` title, thumbnail at 0.7). A second, wordier encoding of
+    /// a state the row already renders is exactly what N3 deletes, and it is
+    /// the same call R1 made when it deleted the unread rail: *the title tone
+    /// already carried the fact.*
+    ///
+    /// The edge cases where the two diverge — mark-all-read without opening,
+    /// or the same URL saved from the share sheet — do not earn a permanent
+    /// field on every row; the entry opens onto the article it already has
+    /// either way, which is the only behaviour the badge was protecting.
+    ///
+    /// Deleting it also deletes the `@Query private var savedArticles: [Article]`
+    /// this view kept purely to compute it: every feed list was fetching the
+    /// entire article table and building a URL map on each render to decide
+    /// whether to print one word.
     private var metadata: RowMetadata {
         RowMetadata(
             source: showsFeedName ? entry.feed?.sidebarDisplayTitle : nil,
-            date: entry.publishedAt,
-            details: isSaved ? ["Saved"] : []
+            date: entry.publishedAt
         )
     }
 }

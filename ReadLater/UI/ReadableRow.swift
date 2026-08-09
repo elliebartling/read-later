@@ -43,13 +43,32 @@ struct RowMetadata: Equatable {
 
     /// The joined line. Pure, so the grammar is unit-testable.
     var text: String {
+        [elasticText, fixedText].filter { !$0.isEmpty }.joined(separator: Self.separator)
+    }
+
+    /// The **elastic** half of the line: the fields whose length nobody
+    /// controls. A site name can be two characters or forty, and a relative
+    /// date grows from "now" to "last month". These are the fields that give
+    /// way when the row runs out of width.
+    var elasticText: String {
         var fields: [String] = []
         if isFailed { fields.append("Couldn't parse") }
         if let source, !source.isEmpty { fields.append(source) }
         if let date { fields.append(date.formatted(.relative(presentation: .named))) }
-        fields.append(contentsOf: details.filter { !$0.isEmpty })
-        return fields.joined(separator: " · ")
+        return fields.joined(separator: Self.separator)
     }
+
+    /// The **fixed** half: short, bounded, self-describing states and counts —
+    /// "33 min", "Video", "2 highlights". They are last in R2's field order and
+    /// they are the fields a reader is actually scanning for, so they render at
+    /// full length and the elastic half truncates around them.
+    var fixedText: String {
+        details.filter { !$0.isEmpty }.joined(separator: Self.separator)
+    }
+
+    /// **R2.** The one legal joiner. Spelled once so a call site cannot invent
+    /// a second one.
+    static let separator = " · "
 }
 
 /// **R4.** The trailing thumbnail slot: 96×54, 8pt corner, and *always
@@ -154,10 +173,30 @@ struct ReadableRow<Identity: View>: View {
         .accessibilityValue(isUnread ? Text("Unread") : Text("Read"))
     }
 
+    /// **R2 / T8.** One `.caption` line, `Ink.tertiary`, fields joined by
+    /// `" · "` — but rendered as two runs, not one string.
+    ///
+    /// **The build-44 defect this fixes.** As one `Text` with `.lineLimit(1)`
+    /// and tail truncation, the line lost its *last* field first — which is the
+    /// field order's most informative slot (R2 puts state and counts last). In
+    /// All Items a saved entry read `AskHistorians · 2 hours a…`: the state was
+    /// on screen in the string and off screen in the pixels. At Dynamic Type
+    /// sizes where the line was allowed a second row it did the other bad
+    /// thing and broke a short word across it — the "Save"/"d" break T8 was
+    /// written for, resurrected by wrapping instead of by an `HStack`.
+    ///
+    /// So the two halves get different rules. `elasticText` (source, date) is
+    /// the part nobody controls the length of: one line, tail truncation, no
+    /// layout priority — it gives way. `fixedText` (durations, counts, kinds)
+    /// is short and bounded: `.fixedSize` so it can never wrap **or** break
+    /// mid-word, and the layout priority to claim its width first. A row too
+    /// narrow for both loses site name characters, never a whole field and
+    /// never half a word.
     @ViewBuilder
     private var metaLine: some View {
-        let text = metadata.text
-        if !text.isEmpty {
+        let elastic = metadata.elasticText
+        let fixed = metadata.fixedText
+        if !elastic.isEmpty || !fixed.isEmpty {
             HStack(spacing: 4) {
                 if metadata.isFailed {
                     Image(.warning)
@@ -165,14 +204,38 @@ struct ReadableRow<Identity: View>: View {
                         .foregroundStyle(Semantic.warning)
                         .accessibilityHidden(true)
                 }
-                Text(text)
-                    // T8/T9 — one line at ordinary sizes; at accessibility
-                    // sizes it is allowed to wrap rather than truncate.
-                    .lineLimit(isAccessibilitySize ? 2 : 1)
-                    .truncationMode(.tail)
+                // Spacing 0: the joiner carries its own spaces, so the two runs
+                // butt together and read as one line.
+                HStack(spacing: 0) {
+                    if !elastic.isEmpty {
+                        Text(elastic)
+                            // T8/T9 — one line at ordinary sizes; at
+                            // accessibility sizes it may take a second line
+                            // rather than truncate.
+                            .lineLimit(isAccessibilitySize ? 2 : 1)
+                            .truncationMode(.tail)
+                            .layoutPriority(0)
+                    }
+                    if !fixed.isEmpty {
+                        // The joiner rides the FIXED run, not the elastic one.
+                        // Trailing it on the elastic run puts it inside the
+                        // truncated region, so a squeezed row rendered
+                        // `reddit.com · 13 min… 1 min` with the " · " eaten.
+                        Text(elastic.isEmpty ? fixed : RowMetadata.separator + fixed)
+                            .lineLimit(1)
+                            // T8 — a bounded field never wraps and never breaks
+                            // mid-word, at any width or type size.
+                            .fixedSize(horizontal: true, vertical: false)
+                            .layoutPriority(1)
+                    }
+                }
             }
             .font(.caption)
             .foregroundStyle(Ink.tertiary)
+            // The two runs are one sentence to VoiceOver, whatever the layout
+            // did to them.
+            .accessibilityElement(children: .ignore)
+            .accessibilityLabel(metadata.text)
         }
     }
 }
