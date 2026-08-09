@@ -28,6 +28,7 @@ struct RedditAccountView: View {
         .pageForm()
         .navigationTitle("Reddit")
         .navigationBarTitleDisplayMode(.inline)
+        .phosphorBackButton()
         .confirmationDialog(
             "Sign out of Reddit?",
             isPresented: $showingSignOutConfirm,

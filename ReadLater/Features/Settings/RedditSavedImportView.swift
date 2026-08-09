@@ -39,6 +39,7 @@ struct RedditSavedImportView: View {
         .pageForm()
         .navigationTitle("Import Saved Posts")
         .navigationBarTitleDisplayMode(.inline)
+        .phosphorBackButton()
     }
 
     private var idleSection: some View {

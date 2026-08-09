@@ -47,6 +47,7 @@ struct RedditSubredditPickerView: View {
         }
         .navigationTitle("Import subreddits")
         .navigationBarTitleDisplayMode(.inline)
+        .phosphorBackButton()
         .toolbar {
             if model.showsSelectionControls {
                 ToolbarItem(placement: .topBarTrailing) {

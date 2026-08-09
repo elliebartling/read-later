@@ -39,6 +39,7 @@ struct SiteLoginsView: View {
         }
         .navigationTitle("Site logins")
         .navigationBarTitleDisplayMode(.inline)
+        .phosphorBackButton()
         .task { await model.load() }
         .confirmationDialog(
             model.pendingSignOut.map { "Sign out of \($0)?" } ?? "",

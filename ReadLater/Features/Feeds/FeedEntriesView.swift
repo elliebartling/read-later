@@ -202,11 +202,18 @@ struct FeedEntryReader: View {
                     isFailure: true
                 )
                 .pageBackground()
+                // I1 — these two branches are pushed screens in their own
+                // right, so they need the caret too. It goes on the branches
+                // rather than on the `Group`, because the third branch is
+                // `ReaderView`, which already carries it — one leading slot,
+                // one caret.
+                .phosphorBackButton()
             } else {
                 ProgressView()
                     .frame(maxWidth: .infinity, maxHeight: .infinity)
                     .pageBackground()
                     .accessibilityLabel("Opening")
+                    .phosphorBackButton()
             }
         }
         .task {

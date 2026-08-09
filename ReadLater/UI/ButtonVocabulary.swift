@@ -94,6 +94,55 @@ struct GlassCircle<Content: View>: View {
     }
 }
 
+/// **I1 — the back caret, for every pushed screen.**
+///
+/// `NavigationStack` draws its own back chevron, and that chevron is an SF
+/// Symbol no call site names: there is nothing to convert, so a
+/// `systemName:` grep sails straight past it. It was the last SF artwork in
+/// the app after the Phosphor wave, and it contradicted itself on screen —
+/// every layer-1 root draws `SidebarBackButton` (Phosphor `caret-left`) in the
+/// same leading slot, so the glyph changed shape one push deep.
+///
+/// **What does not work:** `UINavigationBar.appearance().backIndicatorImage`,
+/// and `setBackIndicatorImage(_:transitionMaskImage:)` on all four
+/// `UINavigationBarAppearance` objects. Both were built and measured against
+/// iOS 26 with no change on screen — the toolbar draws the glass back button
+/// itself and ignores the indicator art. Don't spend the afternoon again.
+///
+/// So the button is replaced outright. It keeps the system glass circle,
+/// because that comes from the `topBarLeading` slot rather than from the
+/// button, and `dismiss()` pops exactly like the button it replaces.
+///
+/// Adopted by every pushed destination in the app. A new one needs this line;
+/// without it the screen grows an SF chevron back (§5, I11 — the app is on one
+/// icon set, and a glyph from a second set is never smuggled in beside it).
+private struct PhosphorBackButton: ViewModifier {
+    @Environment(\.dismiss) private var dismiss
+
+    func body(content: Content) -> some View {
+        content
+            .navigationBarBackButtonHidden(true)
+            .toolbar {
+                ToolbarItem(placement: .topBarLeading) {
+                    Button { dismiss() } label: {
+                        // I2 — one weight, one scale, sized to the nav title,
+                        // matching `SidebarBackButton` exactly.
+                        Image(.caretLeft).uiGlyph()
+                    }
+                    .accessibilityLabel("Back")
+                }
+            }
+    }
+}
+
+extension View {
+    /// Replaces the system back chevron with Phosphor `caret-left`.
+    /// See `PhosphorBackButton` for why the appearance proxy is not the answer.
+    func phosphorBackButton() -> some View {
+        modifier(PhosphorBackButton())
+    }
+}
+
 /// **C1's second out** — a form/list row that performs an action, drawn as a
 /// row rather than as tinted text. The label is `Ink.primary` (a row title,
 /// §4.3), the state or disclosure is trailing, and nothing is tinted.
