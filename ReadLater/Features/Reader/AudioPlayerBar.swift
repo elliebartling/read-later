@@ -11,7 +11,8 @@ struct AudioPlayerBar: View {
     let controller: TTSController
     @Bindable var settings: AppSettings
 
-    private static let speedSteps: [Double] = [1.0, 1.25, 1.5, 2.0, 0.75]
+    /// Shared with the appearance sheet's Audio tab; a test pins the two equal.
+    static let speedSteps: [Double] = [1.0, 1.25, 1.5, 2.0, 0.75]
 
     var body: some View {
         HStack(spacing: 14) {

@@ -459,7 +459,7 @@ Four dismissal verbs, three heights, three selection idioms today.
 
 | Sheet role | Dismiss verb set | Detent |
 |---|---|---|
-| **Editor** — changes commit live (Typography, Highlight edit, Tags) | `Done` only, trailing | `.medium`, so you can see what you are changing |
+| **Editor** — changes commit live (Appearance, Highlight edit, Tags) | `Done` only, trailing | `.medium`, so you can see what you are changing — one detent, never a range (the appearance sheet sizes its single detent to its tallest tab, B4) |
 | **Form** — changes commit on confirm (Add URL, Add feed) | `Cancel` leading / `<Verb> object` trailing | `.height(220)`; one field never gets a full screen |
 | **Informational** — nothing to commit (Import subscriptions, Settings) | `Done` trailing | `.large` |
 
@@ -510,18 +510,34 @@ Seven button vocabularies today. **There are three.**
 - **E2.** Structure: a 64pt mark **from the icon set** (I9 — never hand-drawn), display-small title, one sentence naming the mechanism, and — if the copy names an action — that action as a prominent capsule.
 - **E3.** Failure states get `Semantic.warning`; empty states get no colour at all.
 
-### 8.6 The typography sheet
+### 8.6 The reader appearance sheet
 
 ~~**The bento grid.** Reserved for exactly one surface: the reader's typography/appearance picker. Mixed-size tiles on `Surface.raised`, each a live self-illustrating preview.~~ **Struck** *(Ellen, on the wave-5 build)*: *"the bento box concept is not landing, and just makes the text size (the one thing people are most likely to change?) most difficult to manage by making its scale smaller."*
 
-**The typography sheet is a plain grouped list, and text size leads it.** There is no bento grid anywhere in the app. A spatial panel allocates its biggest tiles by visual interest, which put theme and face — chosen once — above the fold and squeezed the control people touch constantly into a half-width cell. The list allocates by frequency instead.
+~~**The typography sheet is a plain grouped list, and text size leads it.**~~ **The appearance sheet is three tabs of plain stacked controls, and text size leads the one you land on** *(amended with B3 below)*. There is no bento grid anywhere in the app, and there is no grouped `Form` in this sheet either (B5). A spatial panel allocates its biggest tiles by visual interest, which put theme and face — chosen once — above the fold and squeezed the control people touch constantly into a half-width cell. The list allocated by frequency instead, and the tabs keep that: **Type is the landing tab even though Colour is the leftmost**, so text size is still the first thing under your thumb.
 
 ![Typography sheet](https://raw.githubusercontent.com/elliebartling/read-later/main/audit/13-typography-sheet-light.png)
 
 - **B0. Text size is the sheet's primary control.** First section, full measure, with a live specimen in the chosen face at the chosen size. Nothing sits above it and nothing sits beside it. **A control's prominence follows how often it is used, not how interesting it is to draw.**
 - **B1.** No paper-swatch fans, no page curls, no textures (N4). The live preview *is* the decoration.
 - **B2.** Numeric controls put their value trailing the control, never on their own row. One slider treatment app-wide: bare track, trailing value.
-- **B3.** The sheet opens at `.medium` so the article stays visible while being tuned. Read Aloud lives in Settings only — the duplicate is removed here.
+- ~~**B3.** The sheet opens at `.medium` so the article stays visible while being tuned. Read Aloud lives in Settings only — the duplicate is removed here.~~
+  **B3 (amended — Ellen, build 44, [#77](https://github.com/elliebartling/read-later/issues/77)). The sheet is three tabs — Colour, Type, Audio — at one detent, and read aloud is split by *scope*, not banished.**
+
+  Ellen, verbatim: *"UX of the typography sheet: I feel like we need to break this into tabs—color, type, audio. I'd love to try type options as 'blocks' as well as the colors. The theme picker itself has too many borders/lines. I thought we had a specific design guidance against borders? And yet they're EVERYWHERE."*
+
+  The original B3 was right that the sheet must not carry a *second copy* of the Settings picker, and wrong that the whole subject belonged in Settings. The test that resolves it is the same one that moved typography out of Settings in the first place: **a control belongs where you can perceive its result.**
+
+  | Scope | Controls | Home |
+  |---|---|---|
+  | Session — judged by ear, changed mid-article, applied live to the running playback | **voice, speed** | Audio tab |
+  | Account — set once, judged by nothing you can see or hear | **provider, OpenAI API key** | Settings |
+
+  No control appears in both places; Settings' voice and speed pickers are deleted, not duplicated. Both tabs' controls write through `AppSettings` *and* the live `TTSController`, so a change while listening takes effect on the current paragraph.
+
+- **B4. The sheet has one detent, sized to the tallest tab.** Switching tabs must not resize the sheet — a control panel that changes height under your thumb reads as a bug. The height is set by Type (the tallest) and the short tabs keep their content top-aligned. Each tab still scrolls `.basedOnSize`, which is how large Dynamic Type is covered (T9) without a second detent.
+- **B5. A `Form` is not a legal container for this sheet, and a grouped `Form` is where the border ban leaks.** Ellen's "borders are EVERYWHERE" was accurate and none of the offending lines was hand-authored: five inset-grouped section cards, each reading as an outline (N2/S2), plus a `Surface.divider` hairline between every pair of rows inside them — 24 lines in total, 13 of them in the font list. S3 permits row separators *inside* one E1 container, which is the loophole a `Form` walks through one row at a time. The sheet is a plain `VStack` on the ground; section headers plus `sectionGap` do the separating. **When a surface's job is choosing between options, whitespace groups them and lines do not.**
+- **B6. Typefaces are swatches.** The face picker is the theme swatch grid in a second dress: same tile, same grid, same SH2 mark in the same corner — "Aa" set in the face, name captioned beneath. The name is *not* set inside the tile: the selection mark owns the top-trailing corner and a centred word runs through it, which is precisely why the swatch captions outside. Group headers (Reading / Accessibility / Sans) are dropped — over a grid of specimens the specimen already says what kind of face it is (N3).
 
 ---
 

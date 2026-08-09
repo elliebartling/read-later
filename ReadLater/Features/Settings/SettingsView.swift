@@ -91,32 +91,27 @@ private struct SettingsForm: View {
                 Text("Sites you've signed into to read member-only articles. Sign out to clear a site's cookies on this device.")
             }
 
-            Section("Read aloud") {
+            // **The B3 split** (`docs/design-language.md` §8.6, amended for
+            // issue #77). Read aloud has two kinds of setting and they now live
+            // in two places, with no control in both:
+            //
+            //  - **Account-level, set once** — which engine speaks, and the key
+            //    it needs. That is this section plus the OpenAI key below.
+            //  - **Session-level, changed while listening** — voice and speed.
+            //    Those moved to the reader's Appearance sheet (Audio tab),
+            //    where they apply to the running playback and you can hear the
+            //    result. Keeping a second copy here is what wave 5 deleted; the
+            //    fix is one home each, not two homes for everything.
+            Section {
                 Picker("Provider", selection: $settings.ttsProvider) {
                     ForEach(TTSProvider.allCases) { p in
                         Text(p.displayName).tag(p)
                     }
                 }
-                switch settings.ttsProvider {
-                case .apple:
-                    Picker("Voice", selection: $settings.appleVoiceID) {
-                        Text("System default").tag("")
-                        ForEach(VoiceCatalog.appleVoices(), id: \.identifier) { voice in
-                            Text("\(voice.name) (\(voice.language))").tag(voice.identifier)
-                        }
-                    }
-                case .openAI:
-                    Picker("Voice", selection: $settings.openAIVoice) {
-                        ForEach(VoiceCatalog.openAIVoices, id: \.self) { v in
-                            Text(v.capitalized).tag(v)
-                        }
-                    }
-                }
-                Picker("Speed", selection: $settings.ttsRate) {
-                    ForEach([0.75, 1.0, 1.25, 1.5, 2.0], id: \.self) { r in
-                        Text(AudioPlayerBar.speedLabel(for: r)).tag(r)
-                    }
-                }
+            } header: {
+                Text("Read aloud")
+            } footer: {
+                Text("Voice and speed are chosen in the reader — open an article, tap the appearance button, then Audio. They change what you are listening to as you listen.")
             }
 
             Section {
@@ -186,20 +181,21 @@ private struct SettingsForm: View {
             }
 
             // **De-duplicated (wave 5).** Appearance and font size lived here
-            // *and* in the reader's typography sheet, in two different
+            // *and* in the reader's appearance sheet, in two different
             // treatments — a segmented picker plus a labelled slider here, a
-            // theme grid plus an A→A slider there. §8.6 makes the typography
+            // theme grid plus an A→A slider there. §8.6 makes the reader's
             // panel the one place reading appearance is tuned, because it is
-            // the only one where you can see what you are changing; B3's
-            // converse ("Read aloud lives in Settings only") keeps voice and
-            // speed here. What is left in this section is the one thing that
-            // is not typography: which reader engine renders the article.
+            // the only one where you can see what you are changing. Issue #77
+            // extended the same test to read aloud (see the split above): the
+            // controls you judge by eye or ear belong where the result is.
+            // What is left in this section is the one thing you cannot judge
+            // that way — which engine renders the article.
             Section {
                 Toggle("Block reader (beta)", isOn: $settings.useBlockReader)
             } header: {
                 Text("Reader")
             } footer: {
-                Text("Theme, font, size and spacing are tuned in the reader itself — open an article and tap the typography button.")
+                Text("Theme, typeface, size and spacing are tuned in the reader itself — open an article and tap the appearance button.")
             }
 
             Section {
