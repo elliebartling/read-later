@@ -102,6 +102,42 @@ enum RedditFeed {
         return URL(string: linkHref)
     }
 
+    /// How a Reddit RSS entry should be opened.
+    enum PostKind: Equatable {
+        /// No `[link]`, or `[link]` == `[comments]`: the post body IS the item.
+        case selfPost
+        /// `[link]` points at something we cannot run an article extractor
+        /// over — a direct media asset (`i.redd.it`, `v.redd.it`), a gallery
+        /// (`reddit.com/gallery/…`), or another Reddit permalink (a crosspost
+        /// of a text post). The entry's own captured content is the best (and
+        /// only) thing we hold, so it is rendered like a self post and the
+        /// target rides along as the media/source URL.
+        case captured(URL)
+        /// `[link]` points at a real external page worth extracting.
+        case link(URL)
+    }
+
+    /// Classifies an entry from its content HTML. Pure; the single decision
+    /// point for "does this entry's `[link]` become the saved URL?".
+    ///
+    /// The bug this closes (issue #75): an image post is, structurally, a link
+    /// post — its `[link]` anchor differs from `[comments]` — so the old
+    /// link/self split routed `https://i.redd.it/abc.jpeg` into Readability,
+    /// which can only fail, *and* discarded the entry's content (the preview
+    /// image and any self-text) on the way. `.captured` is the third answer
+    /// that was missing.
+    static func postKind(fromContentHTML html: String?) -> PostKind {
+        guard let target = externalURL(fromContentHTML: html) else { return .selfPost }
+        // Media assets and galleries: nothing to read, everything to render.
+        if MediaLink.kind(for: target) != nil { return .captured(target) }
+        // A `[link]` that stays on Reddit is a crosspost (or an internal
+        // link). Reddit serves a JS app shell to an off-Reddit fetch, so
+        // extracting it fails the same way the permalink does — and we already
+        // hold the crosspost's preview and body in the entry.
+        if isRedditURL(target) { return .captured(target) }
+        return .link(target)
+    }
+
     /// Finds the `href` of the anchor whose visible text is exactly `[<label>]`
     /// (Reddit's `[link]` / `[comments]` footer anchors), entity-decoded.
     private static func anchorHref(labeled label: String, in html: String) -> String? {

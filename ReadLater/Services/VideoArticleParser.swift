@@ -669,13 +669,22 @@ extension VideoArticleParser: WKNavigationDelegate {
 // MARK: - Routing
 
 /// Single parse entry point used by both ingest and the reader's re-extract, so
-/// the YouTube-vs-article routing decision lives in exactly one place. The
-/// decision itself is the pure `YouTubeURL.isVideoURL` predicate.
+/// every routing decision lives in exactly one place. Each decision is a pure
+/// predicate over the URL (plus, for media, the captured body).
+///
+/// Order matters: YouTube first (a `youtube.com/watch` URL is not media),
+/// then media, then the general article extractor.
 @MainActor
 enum ArticleParsing {
     static func parse(url: URL, prefetchedHTML: String? = nil) async throws -> ArticleParser.Parsed {
         if YouTubeURL.isVideoURL(url) {
             return try await VideoArticleParser.shared.parse(url: url)
+        }
+        // Image / video / gallery posts. Pure and instant — no WebView, no
+        // network — and it is the ONLY thing standing between an `i.redd.it`
+        // URL and an extractor that cannot possibly read it (issue #75).
+        if let media = MediaArticleParser.parsed(url: url, capturedHTML: prefetchedHTML) {
+            return media
         }
         return try await ArticleParser.shared.parse(url: url, prefetchedHTML: prefetchedHTML)
     }
