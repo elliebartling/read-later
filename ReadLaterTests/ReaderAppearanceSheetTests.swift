@@ -124,6 +124,96 @@ final class ReaderAppearanceSheetTests: XCTestCase {
         })
     }
 
+    // MARK: - The warm paper spine (handed over from PR #82 §6)
+
+    /// A paper with no hue of its own sits on the app's warm 72° spine, not on
+    /// a grey of its own. The test is the spine's own shape: red leads blue,
+    /// green sits between, and the whole thing stays under the chroma ceiling
+    /// that would make it parchment (N4).
+    func testNeutralPapersAreWarmNotCoolOrPure() {
+        for theme in ReaderTheme.neutralCases {
+            for (name, color) in [("paper", theme.background), ("ink", theme.foreground)] {
+                var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+                XCTAssertTrue(color.getRed(&r, green: &g, blue: &b, alpha: &a))
+                let spread = (r - b) * 255
+                XCTAssertGreaterThan(
+                    spread, 0,
+                    "\(theme.rawValue) \(name) is cool or pure neutral — it must be on the warm spine"
+                )
+                XCTAssertLessThanOrEqual(
+                    spread, 8,
+                    "\(theme.rawValue) \(name) is warm enough to read as parchment (N4)"
+                )
+                XCTAssertTrue(
+                    (g - b) >= 0 && (r - g) >= 0,
+                    "\(theme.rawValue) \(name) does not follow the ramp's R ≥ G ≥ B"
+                )
+            }
+        }
+    }
+
+    /// The four papers whose hue is the point stay off the spine. This is the
+    /// guard against a future "warm everything" sweep flattening the catalogue.
+    func testHuedPapersAreLeftAlone() {
+        XCTAssertEqual(
+            Set(ReaderTheme.neutralCases).union(ReaderTheme.huedCases),
+            Set(ReaderTheme.allCases)
+        )
+        XCTAssertTrue(Set(ReaderTheme.neutralCases).isDisjoint(with: ReaderTheme.huedCases))
+
+        // Slate is navy and must stay navy: blue leads red.
+        var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+        XCTAssertTrue(ReaderTheme.slate.background.getRed(&r, green: &g, blue: &b, alpha: &a))
+        XCTAssertGreaterThan(b, r)
+    }
+
+    /// The sweep's companion suggestion was to swap the default dark paper off
+    /// Slate. It was never on Slate — pinned so the claim does not resurface.
+    func testDefaultPapersAreTheNeutralOnes() {
+        let settings = AppSettings()
+        XCTAssertEqual(settings.readerDarkTheme, .dark)
+        XCTAssertEqual(settings.readerLightTheme, .light)
+        settings.migrateLegacyThemeIfNeeded()
+        XCTAssertEqual(settings.readerAppearance, .system)
+        XCTAssertEqual(settings.resolvedReaderTheme(systemIsDark: true), .dark)
+        XCTAssertEqual(settings.resolvedReaderTheme(systemIsDark: false), .light)
+    }
+
+    /// **The warming is a hue change, not a lightness change.** §4.1 protects
+    /// the catalogue as finished work; the licence taken here was to put the
+    /// hueless papers on the app's spine *at their existing lightness*, so no
+    /// contrast figure moves and no paper changes place in the ramp. These are
+    /// the pre-warming values, kept as the reference the change is measured
+    /// against — a future edit that darkens or lightens one of these papers is
+    /// a different decision and needs Ellen, not a refactor.
+    func testWarmingPreservedEveryNeutralPapersLightness() {
+        func luminance(_ c: UIColor) -> CGFloat {
+            var r: CGFloat = 0, g: CGFloat = 0, b: CGFloat = 0, a: CGFloat = 0
+            c.getRed(&r, green: &g, blue: &b, alpha: &a)
+            return 0.2126 * r + 0.7152 * g + 0.0722 * b
+        }
+        let before: [ReaderTheme: (paper: UIColor, ink: UIColor)] = [
+            .light: (UIColor(white: 0.99, alpha: 1),
+                     UIColor(red: 0.11, green: 0.10, blue: 0.10, alpha: 1)),
+            .dark: (UIColor(white: 0.06, alpha: 1),
+                    UIColor(white: 0.92, alpha: 1)),
+            .darkGray: (UIColor(red: 0.227, green: 0.227, blue: 0.235, alpha: 1),
+                        UIColor(white: 0.95, alpha: 1)),
+            .mediumGray: (UIColor(red: 0.82, green: 0.82, blue: 0.839, alpha: 1),
+                          UIColor(red: 0.11, green: 0.11, blue: 0.12, alpha: 1)),
+        ]
+        for (theme, old) in before {
+            XCTAssertEqual(
+                luminance(theme.background), luminance(old.paper), accuracy: 0.01,
+                "\(theme.rawValue) paper changed lightness, not just hue"
+            )
+            XCTAssertEqual(
+                luminance(theme.foreground), luminance(old.ink), accuracy: 0.01,
+                "\(theme.rawValue) ink changed lightness, not just hue"
+            )
+        }
+    }
+
     /// Both theme palettes are offered, and a light palette never leaks into
     /// the dark grid (the Color tab renders these two arrays directly).
     func testThemeGridsAreDisjointAndComplete() {

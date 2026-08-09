@@ -212,6 +212,13 @@ New York at 18pt / 6pt leading / 12pt paragraph spacing, the eight-theme ink+pap
 - **T1.** Reader body face, size, leading, paragraph spacing, measure and page colour come from the theme + typography settings. No UI agent hardcodes any of them.
 - **T2.** The reader canvas may be darker than `Surface.ground`; it may never be lighter in dark mode, or darker in light mode. Entering the reader is a step *into* sanctuary.
 - **T3.** Serif faces are legal **only** for reader body content (N4).
+- **T3a. A paper with no hue is on the app's spine; a paper with a hue keeps it** *(added 2026-08-09, handed over from the build-44 defect sweep — PR #82 §6, landed in #77)*. The sweep sampled the rendered app, found every chrome neutral already on the warm 72° ramp, and found the reader's own catalogue to be the last place in the codebase where cool and pure-neutral greys lived. That is why Ellen's *"can't pick between warm gray and neutral"* survived a clean chrome: the seam was at the moment you started reading.
+
+  The four hueless papers moved onto the spine **at their existing lightness** — `light` `#FCFCFC`→`#FCFAF9`, `dark` `#0F0F0F`→`#110F0C`, `darkGray` `#3A3A3C`→`#3C3A37`, `mediumGray` `#D1D1D6`→`#D3D1CE` — each keeping the ramp's own `R ≥ G ≥ B` shape (`R − B = 5` on the darks, 3 at the top), with their inks moved by the matching offset. No channel moves more than 3/255, so no contrast figure changes and no paper changes place in the ramp.
+
+  **`sepia`, `paper`, `slate` and `forest` are untouched, and may not be "corrected" onto the spine** — their hue is the choice. This is the boundary that keeps T1/T2's protection intact: warming is a fix for a paper that was never *meant* to have a colour, not a licence to flatten the catalogue. A **lightness** change to any paper is a different decision and is Ellen's, not a sweep's.
+
+  The sweep's companion suggestion — that `slate` is the default dark paper and the default should be swapped — was checked and is **not the case**: `readerDarkThemeRaw` defaults to `.dark` and the legacy migration lands on `.light`/`.dark`, so no reader has ever opened onto navy without picking it. No default changed.
 
 ### 4.2 The UI type POV: system, everywhere
 
